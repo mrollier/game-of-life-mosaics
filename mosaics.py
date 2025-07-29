@@ -293,6 +293,23 @@ def map_greyscale_to_mosaic(greyscale_values, solutions, random=True, invert=Tru
 
     return mosaics
 
+def numpy_to_cells(array, filename="output.cells", glider=False):
+    """
+    Function that saves a NumPy array to a .cells file format that can be used in Golly
+    """
+    if glider:
+        # If glider is True, we add a glider pattern to the top-left corner
+        glider_pattern = np.array([[0, 1, 0],
+                                   [0, 0, 1],
+                                   [1, 1, 1]])
+        array[:glider_pattern.shape[0], :glider_pattern.shape[1]] = glider_pattern
+
+    with open(filename, 'w') as f:
+        f.write('!Generated from NumPy array\n')
+        for row in array:
+            line = ''.join('O' if cell else '.' for cell in row)
+            f.write(line + '\n')
+
 # %% IMAGES
 
 from PIL import Image
@@ -387,3 +404,15 @@ def image_to_still_life(image_path, grid_size=30, level=4, random=True, invert=T
     lowres_first, lowres_second = extract_diagonal_patterns(lowres)
     solution_mosaic = diagonal_patterns_to_mosaic(lowres_first, lowres_second, level=level, invert=invert, random=random)
     return solution_mosaic
+
+def save_mosaic_as_image(mosaic, filename="output.png"):
+    """
+    Save a mosaic as an image file.
+    """
+    # invert
+    mosaic = 1 - mosaic
+    # Convert mosaic to 0-255 range
+    mosaic_256 = (mosaic * 255).astype(np.uint8)
+    img = Image.fromarray(mosaic_256, mode='L')  # 'L' for grayscale
+    img.save(filename)
+    print(f"Mosaic saved as {filename}")
