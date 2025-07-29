@@ -1,6 +1,7 @@
 import numpy as np
 from gurobipy import Model, GRB, quicksum
 from scipy.ndimage import binary_fill_holes
+import os
 
 def pond_pattern():
     pp = np.array([
@@ -237,4 +238,14 @@ def find_all_symmetric_gol_mosaics(level=4, solution_limit=1e3):
             break
 
     solutions = np.array(solutions)
+    return solutions
+
+def load_all_symmetric_gol_mosaics(level=4):
+    """
+    Load all symmetric Game of Life mosaic solutions for a given level,
+    using a path relative to this script's location.
+    """
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    data_path = os.path.join(base_dir, "data", f"solutions_pattern_level_{level}.npy")
+    solutions = np.load(data_path)
     return solutions
