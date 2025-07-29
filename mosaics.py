@@ -1,6 +1,9 @@
+# %% MOSAICS
+
 import numpy as np
 from gurobipy import Model, GRB, quicksum
 from scipy.ndimage import binary_fill_holes
+import os
 
 def pond_pattern():
     pp = np.array([
@@ -238,3 +241,178 @@ def find_all_symmetric_gol_mosaics(level=4, solution_limit=1e3):
 
     solutions = np.array(solutions)
     return solutions
+
+def load_all_symmetric_gol_mosaics(level:int=4):
+    """
+    Load all symmetric Game of Life mosaic solutions for a given level,
+    using a path relative to this script's location.
+    The solutions are loaded ranging from high density to low density.
+    """
+    if level < 3 or level > 5:
+        raise ValueError("Level must be 3, 4 or 5.")
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    data_path = os.path.join(base_dir, "data", f"solutions_pattern_level_{level}.npy")
+    solutions = np.load(data_path)
+    return solutions
+
+def map_greyscale_to_mosaic(greyscale_values, solutions, random=True, invert=True):
+    """
+    Map one or more greyscale values (scalar or numpy array) to mosaics from the solutions array.
+    Returns a numpy array of mosaics with shape (N, H, W) if greyscale_value has N elements.
+    """
+    greyscale_values = np.asarray(greyscale_values)
+    # Calculate the mean density of each mosaic
+    densities = np.mean(solutions, axis=(1, 2))
+    # Normalize the densities to the range [0, 1]
+    densities = (densities - densities.min()) / (densities.max() - densities.min())
+
+    # if invert, the meaning (colour) of 0 and 1 are inverted
+    if invert:
+        densities = densities[::-1]
+
+    # Prepare output array
+    output_shape = greyscale_values.shape + solutions.shape[1:]
+    mosaics = np.empty(output_shape, dtype=solutions.dtype)
+
+    # Flatten greyscale_value for iteration
+    flat_grey = greyscale_values.ravel()
+    selected_indices = []
+
+    for idx, val in enumerate(flat_grey):
+        if val < 0 or val > 1:
+            raise ValueError("Greyscale value must be between 0 and 1")
+        diffs = np.abs(densities - val)
+        min_diff = diffs.min()
+        indices = np.where(diffs == min_diff)[0]
+        if random:
+            index = np.random.choice(indices)
+        else:
+            index = indices[0]
+        selected_indices.append(index)
+        mosaics.reshape(-1, *solutions.shape[1:])[idx, ...] = solutions[index]
+
+    return mosaics
+
+def numpy_to_cells(array, filename="output.cells", glider=False):
+    """
+    Function that saves a NumPy array to a .cells file format that can be used in Golly
+    """
+    if glider:
+        # If glider is True, we add a glider pattern to the top-left corner
+        glider_pattern = np.array([[0, 1, 0],
+                                   [0, 0, 1],
+                                   [1, 1, 1]])
+        array[:glider_pattern.shape[0], :glider_pattern.shape[1]] = glider_pattern
+
+    with open(filename, 'w') as f:
+        f.write('!Generated from NumPy array\n')
+        for row in array:
+            line = ''.join('O' if cell else '.' for cell in row)
+            f.write(line + '\n')
+
+# %% IMAGES
+
+from PIL import Image
+
+def load_image(image_path, grayscale=True):
+    """
+    Load an image from the given path.
+    If grayscale is True, convert the image to grayscale.
+    Returns a PIL Image object.
+    """
+    img = Image.open(image_path)
+    if grayscale:
+        img = img.convert('L')  # Convert to grayscale
+    return img
+
+def rotate_and_pixelate(image_path, grid_size, expand=True):
+    """
+    1. Load square image as grayscale
+    2. Rotate 45 degrees
+    3. Pixelate by averaging over blocks
+    4. Return low-res numpy array
+    """
+    if grid_size % 2 != 0:
+        raise ValueError("Grid size must be even for this implementation.")
+
+    # 1. Load image in grayscale
+    img = load_image(image_path, grayscale=True)
+
+    # 2. Resample to desired grid size
+    img = img.resize((grid_size, grid_size), resample=Image.LANCZOS)
+
+    # 3. Rotate 45 degrees with expand so nothing is cut off
+    img = img.rotate(45, expand=expand, fillcolor=255)
+
+    # cut off edges and return as numpy array
+    return np.array(img)[1:-1,1:-1]
+
+def extract_diagonal_patterns(lowres):
+    """
+    Extract diagonal patterns from a low-res array.
+    Returns two arrays: one for the first diagonal pattern and one for the second.
+    """
+    grid_size = lowres.shape[0]
+    # first diagonals
+    diag_indices_first = [[(grid_size//2-1-i+j, i+j) for i in range(grid_size//2)] for j in range(grid_size//2+1)]
+    diag_indices_first = np.array(diag_indices_first)
+    diag_indices_first_shape = diag_indices_first.shape
+    diag_indices_first = diag_indices_first.reshape(-1,diag_indices_first.shape[-1])
+    # second diagonals
+    diag_indices_second = [[(grid_size//2-i+j, i+j) for i in range(grid_size//2+1)] for j in range(grid_size//2)]
+    diag_indices_second = np.array(diag_indices_second)
+    diag_indices_second_shape = diag_indices_second.shape
+    diag_indices_second = diag_indices_second.reshape(-1,diag_indices_second.shape[-1])
+    # zip indices
+    rows_first, cols_first = zip(*diag_indices_first)
+    rows_second, cols_second = zip(*diag_indices_second)
+    # extract patterns
+    lowres_first = lowres[rows_first, cols_first].reshape(diag_indices_first_shape[:2])
+    lowres_second = lowres[rows_second, cols_second].reshape(diag_indices_second_shape[:2])
+    # return
+    return lowres_first, lowres_second
+
+def diagonal_patterns_to_mosaic(lowres_first, lowres_second, level=4, invert=True, random=True):
+    solutions = load_all_symmetric_gol_mosaics(level=level)
+
+    mosaics_first = map_greyscale_to_mosaic(lowres_first/255, solutions, invert=invert, random=random)
+    mosaics_second = map_greyscale_to_mosaic(lowres_second/255, solutions, invert=invert, random=random)
+
+    big_array_first = np.block([[mosaics_first[i, j] for j in range(mosaics_first.shape[1])]
+                      for i in range(mosaics_first.shape[0])])
+    big_array_second = np.block([[mosaics_second[i, j] for j in range(mosaics_second.shape[1])]
+                      for i in range(mosaics_second.shape[0])])
+
+    # add white edge around top row tiles
+    pond_width = 6
+    pad_tuple = ( ((pond_width-3)*(2*level-1) + 1 + 2) // 2, ((pond_width-3)*(2*level-1) + 1 + 2) // 2 )
+    pad_width = ((0,0), pad_tuple)
+    solution_mosaic_first = np.pad(big_array_first, pad_width=pad_width, constant_values=0)
+
+    # add white edge around second-row tiles
+    pad_width = (pad_tuple, (0,0))
+    solution_mosaic_second = np.pad(big_array_second, pad_width=pad_width, constant_values=0)
+
+    solution_mosaic = solution_mosaic_first + solution_mosaic_second
+    return solution_mosaic
+
+def image_to_still_life(image_path, grid_size=30, level=4, random=True, invert=True):
+    """
+    Convert an image to a still life mosaic pattern.
+    """
+    lowres = rotate_and_pixelate(image_path, grid_size, expand=True)
+    lowres_first, lowres_second = extract_diagonal_patterns(lowres)
+    solution_mosaic = diagonal_patterns_to_mosaic(lowres_first, lowres_second, level=level, invert=invert, random=random)
+    return solution_mosaic
+
+def save_mosaic_as_image(mosaic, filename="output.png"):
+    """
+    Save a mosaic as an image file.
+    """
+    # invert
+    mosaic = 1 - mosaic
+    # Convert mosaic to 0-255 range
+    mosaic_256 = (mosaic * 255).astype(np.uint8)
+    img = Image.fromarray(mosaic_256, mode='L')  # 'L' for grayscale
+    img.save(filename)
+    print(f"Mosaic saved as {filename}")
