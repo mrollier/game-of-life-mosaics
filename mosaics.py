@@ -240,12 +240,49 @@ def find_all_symmetric_gol_mosaics(level=4, solution_limit=1e3):
     solutions = np.array(solutions)
     return solutions
 
-def load_all_symmetric_gol_mosaics(level=4):
+def load_all_symmetric_gol_mosaics(level:int=4):
     """
     Load all symmetric Game of Life mosaic solutions for a given level,
     using a path relative to this script's location.
+    The solutions are loaded ranging from high density to low density.
     """
+    if level < 3 or level > 5:
+        raise ValueError("Level must be 3, 4 or 5.")
     base_dir = os.path.dirname(os.path.abspath(__file__))
     data_path = os.path.join(base_dir, "data", f"solutions_pattern_level_{level}.npy")
     solutions = np.load(data_path)
     return solutions
+
+def map_greyscale_to_mosaic(greyscale_value, solutions, random=True):
+    """
+    Map one or more greyscale values (scalar or numpy array) to mosaics from the solutions array.
+    Returns a numpy array of mosaics with shape (N, H, W) if greyscale_value has N elements.
+    """
+    greyscale_value = np.asarray(greyscale_value)
+    # Calculate the mean density of each mosaic
+    densities = np.mean(solutions, axis=(1, 2))
+    # Normalize the densities to the range [0, 1]
+    densities = (densities - densities.min()) / (densities.max() - densities.min())
+
+    # Prepare output array
+    output_shape = greyscale_value.shape + solutions.shape[1:]
+    mosaics = np.empty(output_shape, dtype=solutions.dtype)
+
+    # Flatten greyscale_value for iteration
+    flat_grey = greyscale_value.ravel()
+    selected_indices = []
+
+    for idx, val in enumerate(flat_grey):
+        if val < 0 or val > 1:
+            raise ValueError("Greyscale value must be between 0 and 1")
+        diffs = np.abs(densities - val)
+        min_diff = diffs.min()
+        indices = np.where(diffs == min_diff)[0]
+        if random:
+            index = np.random.choice(indices)
+        else:
+            index = indices[0]
+        selected_indices.append(index)
+        mosaics.reshape(-1, *solutions.shape[1:])[idx, ...] = solutions[index]
+
+    return mosaics
