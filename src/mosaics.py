@@ -405,6 +405,36 @@ def image_to_still_life(image_path, grid_size=30, level=4, random=True, invert=T
     solution_mosaic = diagonal_patterns_to_mosaic(lowres_first, lowres_second, level=level, invert=invert, random=random)
     return solution_mosaic
 
+
+def gif_to_still_life(gif_path, grid_size=30, level=4, random=True, invert=True):
+    """
+    Convert a GIF to a still life mosaic pattern.
+    """
+    # Load GIF frames
+    img = Image.open(gif_path)
+    frames = []
+    try:
+        while True:
+            frame = img.convert('L')  # Convert to grayscale
+            frames.append(frame.copy())
+            img.seek(img.tell() + 1)
+    except EOFError:
+        pass  # End of sequence
+
+    # Process each frame
+    mosaics = []
+    for frame in frames:
+        # Save frame to a temporary path
+        temp_path = "temp_frame.png"
+        frame.save(temp_path)
+        # Convert frame to still life mosaic
+        mosaic = image_to_still_life(temp_path, grid_size=grid_size, level=level, random=random, invert=invert)
+        mosaics.append(mosaic)
+        # Remove temporary file
+        os.remove(temp_path)
+
+    return np.array(mosaics)
+
 def save_mosaic_as_image(mosaic, filename="output.png"):
     """
     Save a mosaic as an image file.
