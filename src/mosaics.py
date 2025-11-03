@@ -255,7 +255,7 @@ def load_all_symmetric_gol_mosaics(level:int=4):
     solutions = np.load(data_path)
     return solutions
 
-def map_greyscale_to_mosaic(greyscale_values, solutions, random=True, invert=True):
+def map_greyscale_to_mosaic(greyscale_values, solutions, random=True, invert=True, omit_empty_tiles=False):
     """
     Map one or more greyscale values (scalar or numpy array) to mosaics from the solutions array.
     Returns a numpy array of mosaics with shape (N, H, W) if greyscale_value has N elements.
@@ -263,7 +263,7 @@ def map_greyscale_to_mosaic(greyscale_values, solutions, random=True, invert=Tru
     greyscale_values = np.asarray(greyscale_values)
     # Calculate the mean density of each mosaic
     densities = np.mean(solutions, axis=(1, 2))
-    # Normalize the densities to the range [0, 1]
+    # Normalise the densities to the range [0, 1]
     densities = (densities - densities.min()) / (densities.max() - densities.min())
 
     # if invert, the meaning (colour) of 0 and 1 are inverted
@@ -276,20 +276,26 @@ def map_greyscale_to_mosaic(greyscale_values, solutions, random=True, invert=Tru
 
     # Flatten greyscale_value for iteration
     flat_grey = greyscale_values.ravel()
-    selected_indices = []
+    # selected_indices = [] # not sure what this is for
 
+    # TODO: this for loop is probably not very efficient
     for idx, val in enumerate(flat_grey):
         if val < 0 or val > 1:
             raise ValueError("Greyscale value must be between 0 and 1")
-        diffs = np.abs(densities - val)
-        min_diff = diffs.min()
-        indices = np.where(diffs == min_diff)[0]
-        if random:
-            index = np.random.choice(indices)
+        if omit_empty_tiles and val == 0:
+            solution = np.zeros_like(solutions[0])
         else:
-            index = indices[0]
-        selected_indices.append(index)
-        mosaics.reshape(-1, *solutions.shape[1:])[idx, ...] = solutions[index]
+            diffs = np.abs(densities - val)
+            min_diff = diffs.min()
+            indices = np.where(diffs == min_diff)[0]
+            if random:
+                index = np.random.choice(indices)
+            else:
+                # TODO: it would be nice to play around with this in an animation, cycling through the options in a non-random way
+                index = indices[0]
+            solution = solutions[index]
+        # selected_indices.append(index)
+        mosaics.reshape(-1, *solutions.shape[1:])[idx, ...] = solution
 
     return mosaics
 
@@ -372,11 +378,11 @@ def extract_diagonal_patterns(lowres):
     # return
     return lowres_first, lowres_second
 
-def diagonal_patterns_to_mosaic(lowres_first, lowres_second, level=4, invert=True, random=True):
+def diagonal_patterns_to_mosaic(lowres_first, lowres_second, level=4, invert=True, random=True, omit_empty_tiles=False):
     solutions = load_all_symmetric_gol_mosaics(level=level)
 
-    mosaics_first = map_greyscale_to_mosaic(lowres_first/255, solutions, invert=invert, random=random)
-    mosaics_second = map_greyscale_to_mosaic(lowres_second/255, solutions, invert=invert, random=random)
+    mosaics_first = map_greyscale_to_mosaic(lowres_first/255, solutions, invert=invert, random=random, omit_empty_tiles=omit_empty_tiles)
+    mosaics_second = map_greyscale_to_mosaic(lowres_second/255, solutions, invert=invert, random=random, omit_empty_tiles=omit_empty_tiles)
 
     big_array_first = np.block([[mosaics_first[i, j] for j in range(mosaics_first.shape[1])]
                       for i in range(mosaics_first.shape[0])])
@@ -396,17 +402,17 @@ def diagonal_patterns_to_mosaic(lowres_first, lowres_second, level=4, invert=Tru
     solution_mosaic = solution_mosaic_first + solution_mosaic_second
     return solution_mosaic
 
-def image_to_still_life(image_path, grid_size=30, level=4, random=True, invert=True):
+def image_to_still_life(image_path, grid_size=30, level=4, random=True, invert=True, omit_empty_tiles=False):
     """
     Convert an image to a still life mosaic pattern.
     """
     lowres = rotate_and_pixelate(image_path, grid_size, expand=True)
     lowres_first, lowres_second = extract_diagonal_patterns(lowres)
-    solution_mosaic = diagonal_patterns_to_mosaic(lowres_first, lowres_second, level=level, invert=invert, random=random)
+    solution_mosaic = diagonal_patterns_to_mosaic(lowres_first, lowres_second, level=level, invert=invert, random=random, omit_empty_tiles=omit_empty_tiles)
     return solution_mosaic
 
 
-def gif_to_still_life(gif_path, grid_size=30, level=4, random=True, invert=True):
+def gif_to_still_life(gif_path, grid_size=30, level=4, random=True, invert=True, omit_empty_tiles=False):
     """
     Convert a GIF to a still life mosaic pattern.
     """
@@ -428,7 +434,7 @@ def gif_to_still_life(gif_path, grid_size=30, level=4, random=True, invert=True)
         temp_path = "temp_frame.png"
         frame.save(temp_path)
         # Convert frame to still life mosaic
-        mosaic = image_to_still_life(temp_path, grid_size=grid_size, level=level, random=random, invert=invert)
+        mosaic = image_to_still_life(temp_path, grid_size=grid_size, level=level, random=random, invert=invert, omit_empty_tiles=omit_empty_tiles)
         mosaics.append(mosaic)
         # Remove temporary file
         os.remove(temp_path)
