@@ -320,7 +320,7 @@ def numpy_to_cells(array, filename="output.cells", glider=False):
 
 from PIL import Image
 
-def load_image(image_path, grayscale=True):
+def load_image(image_path, grayscale=True, make_square=True):
     """
     Load an image from the given path.
     If grayscale is True, convert the image to grayscale.
@@ -329,6 +329,14 @@ def load_image(image_path, grayscale=True):
     img = Image.open(image_path)
     if grayscale:
         img = img.convert('L')  # Convert to grayscale
+    if make_square:
+        # Make the image square by cropping or padding
+        width, height = img.size
+        if width != height:
+            new_size = max(width, height)
+            new_img = Image.new('L' if grayscale else 'RGB', (new_size, new_size), color=255)
+            new_img.paste(img, ((new_size - width) // 2, (new_size - height) // 2))
+            img = new_img
     return img
 
 def rotate_and_pixelate(image_path, grid_size, expand=True):
