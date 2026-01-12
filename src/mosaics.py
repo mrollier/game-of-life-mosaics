@@ -255,7 +255,7 @@ def load_all_symmetric_gol_mosaics(level:int=4):
     solutions = np.load(data_path)
     return solutions
 
-def map_greyscale_to_mosaic(greyscale_values, solutions, random=True, invert=True):
+def map_greyscale_to_mosaic(greyscale_values, solutions, random=True, invert=True, empty_tiles_cutoff=1.):
     """
     Map one or more greyscale values (scalar or numpy array) to mosaics from the solutions array.
     Returns a numpy array of mosaics with shape (N, H, W) if greyscale_value has N elements.
@@ -263,7 +263,7 @@ def map_greyscale_to_mosaic(greyscale_values, solutions, random=True, invert=Tru
     greyscale_values = np.asarray(greyscale_values)
     # Calculate the mean density of each mosaic
     densities = np.mean(solutions, axis=(1, 2))
-    # Normalize the densities to the range [0, 1]
+    # Normalise the densities to the range [0, 1]
     densities = (densities - densities.min()) / (densities.max() - densities.min())
 
     # if invert, the meaning (colour) of 0 and 1 are inverted
@@ -276,20 +276,26 @@ def map_greyscale_to_mosaic(greyscale_values, solutions, random=True, invert=Tru
 
     # Flatten greyscale_value for iteration
     flat_grey = greyscale_values.ravel()
-    selected_indices = []
+    # selected_indices = [] # not sure what this is for
 
+    # TODO: this for loop is probably not very efficient
     for idx, val in enumerate(flat_grey):
         if val < 0 or val > 1:
             raise ValueError("Greyscale value must be between 0 and 1")
-        diffs = np.abs(densities - val)
-        min_diff = diffs.min()
-        indices = np.where(diffs == min_diff)[0]
-        if random:
-            index = np.random.choice(indices)
+        if val > empty_tiles_cutoff:
+            solution = np.zeros_like(solutions[0])
         else:
-            index = indices[0]
-        selected_indices.append(index)
-        mosaics.reshape(-1, *solutions.shape[1:])[idx, ...] = solutions[index]
+            diffs = np.abs(densities - val)
+            min_diff = diffs.min()
+            indices = np.where(diffs == min_diff)[0]
+            if random:
+                index = np.random.choice(indices)
+            else:
+                # TODO: it would be nice to play around with this in an animation, cycling through the options in a non-random way
+                index = indices[0]
+            solution = solutions[index]
+        # selected_indices.append(index)
+        mosaics.reshape(-1, *solutions.shape[1:])[idx, ...] = solution
 
     return mosaics
 
@@ -325,9 +331,22 @@ def load_image(image_path, grayscale=True):
         img = img.convert('L')  # Convert to grayscale
     return img
 
-def rotate_and_pixelate(image_path, grid_size, expand=True):
+def square_image(img, grayscale=True, return_aspect=True):
+    # Make the image square by cropping or padding
+    width, height = img.size
+    width_over_height = width / height
+    if width != height:
+        new_size = max(width, height)
+        new_img = Image.new('L' if grayscale else 'RGB', (new_size, new_size), color=255)
+        new_img.paste(img, ((new_size - width) // 2, (new_size - height) // 2))
+        img = new_img
+    if return_aspect:
+        return img, width_over_height
+    return img
+
+def rotate_and_pixelate(img, grid_size, expand=True):
     """
-    1. Load square image as grayscale
+    1. Resample
     2. Rotate 45 degrees
     3. Pixelate by averaging over blocks
     4. Return low-res numpy array
@@ -335,13 +354,10 @@ def rotate_and_pixelate(image_path, grid_size, expand=True):
     if grid_size % 2 != 0:
         raise ValueError("Grid size must be even for this implementation.")
 
-    # 1. Load image in grayscale
-    img = load_image(image_path, grayscale=True)
-
-    # 2. Resample to desired grid size
+    # Resample to desired grid size
     img = img.resize((grid_size, grid_size), resample=Image.LANCZOS)
 
-    # 3. Rotate 45 degrees with expand so nothing is cut off
+    # Rotate 45 degrees with expand so nothing is cut off
     img = img.rotate(45, expand=expand, fillcolor=255)
 
     # cut off edges and return as numpy array
@@ -372,11 +388,13 @@ def extract_diagonal_patterns(lowres):
     # return
     return lowres_first, lowres_second
 
-def diagonal_patterns_to_mosaic(lowres_first, lowres_second, level=4, invert=True, random=True):
+def diagonal_patterns_to_mosaic(lowres_first, lowres_second, level=4, invert=True, random=True, empty_tiles_cutoff=1.):
     solutions = load_all_symmetric_gol_mosaics(level=level)
 
-    mosaics_first = map_greyscale_to_mosaic(lowres_first/255, solutions, invert=invert, random=random)
-    mosaics_second = map_greyscale_to_mosaic(lowres_second/255, solutions, invert=invert, random=random)
+    mosaics_first = map_greyscale_to_mosaic(lowres_first/255, solutions, invert=invert, random=random,
+                                            empty_tiles_cutoff=empty_tiles_cutoff)
+    mosaics_second = map_greyscale_to_mosaic(lowres_second/255, solutions, invert=invert, random=random,
+                                             empty_tiles_cutoff=empty_tiles_cutoff)
 
     big_array_first = np.block([[mosaics_first[i, j] for j in range(mosaics_first.shape[1])]
                       for i in range(mosaics_first.shape[0])])
@@ -396,14 +414,64 @@ def diagonal_patterns_to_mosaic(lowres_first, lowres_second, level=4, invert=Tru
     solution_mosaic = solution_mosaic_first + solution_mosaic_second
     return solution_mosaic
 
-def image_to_still_life(image_path, grid_size=30, level=4, random=True, invert=True):
+def image_to_still_life(image_path, grid_size=30, level=4, random=True, invert=True, empty_tiles_cutoff=1.):
     """
     Convert an image to a still life mosaic pattern.
     """
-    lowres = rotate_and_pixelate(image_path, grid_size, expand=True)
+    # load image
+    img = load_image(image_path, grayscale=True)
+    # make the image square but save the original aspect ratio
+    square_img, original_width_over_height = square_image(img, grayscale=True, return_aspect=True)
+    # Make a low-resolution version of the image that can be converted to a mosaic
+    lowres = rotate_and_pixelate(square_img, grid_size, expand=True)
     lowres_first, lowres_second = extract_diagonal_patterns(lowres)
-    solution_mosaic = diagonal_patterns_to_mosaic(lowres_first, lowres_second, level=level, invert=invert, random=random)
+    # create the actual mosaic
+    solution_mosaic = diagonal_patterns_to_mosaic(lowres_first, lowres_second,
+                                                  level=level, invert=invert, random=random,
+                                                  empty_tiles_cutoff=empty_tiles_cutoff)
+    # adjust for original aspect ratio by cropping (with a particular offset, if required)
+    offset = 0
+    if original_width_over_height > 1:
+        # originally wider than tall: readjust square by cropping height
+        new_height = int(solution_mosaic.shape[1] / original_width_over_height)
+        start_height_idx = (solution_mosaic.shape[1] - new_height) // 2
+        solution_mosaic = solution_mosaic[start_height_idx-offset:start_height_idx+new_height+offset, :]
+    elif original_width_over_height < 1:
+        # originally taller than wide: readjust square by cropping width
+        new_width = int(solution_mosaic.shape[0] * original_width_over_height)
+        start_width_idx = (solution_mosaic.shape[0] - new_width) // 2
+        solution_mosaic = solution_mosaic[:, start_width_idx-offset:start_width_idx+new_width+offset]
     return solution_mosaic
+
+
+def gif_to_still_life(gif_path, grid_size=30, level=4, random=True, invert=True, empty_tiles_cutoff=1.):
+    """
+    Convert a GIF to a still life mosaic pattern.
+    """
+    # Load GIF frames
+    img = Image.open(gif_path)
+    frames = []
+    try:
+        while True:
+            frame = img.convert('L')  # Convert to grayscale
+            frames.append(frame.copy())
+            img.seek(img.tell() + 1)
+    except EOFError:
+        pass  # End of sequence
+
+    # Process each frame
+    mosaics = []
+    for frame in frames:
+        # Save frame to a temporary path
+        temp_path = "temp_frame.png"
+        frame.save(temp_path)
+        # Convert frame to still life mosaic
+        mosaic = image_to_still_life(temp_path, grid_size=grid_size, level=level, random=random, invert=invert, empty_tiles_cutoff=empty_tiles_cutoff)
+        mosaics.append(mosaic)
+        # Remove temporary file
+        os.remove(temp_path)
+
+    return np.array(mosaics)
 
 def save_mosaic_as_image(mosaic, filename="output.png"):
     """
