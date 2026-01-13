@@ -484,3 +484,23 @@ def save_mosaic_as_image(mosaic, filename="output.png"):
     img = Image.fromarray(mosaic_256, mode='L')  # 'L' for grayscale
     img.save(filename)
     print(f"Mosaic saved as {filename}")
+
+def list_denominators(n):
+    """
+    Return a sorted list of all positive divisors of the positive integer n.
+    Raises ValueError for non-positive or non-integer input.
+    Used to find suitable grid sizes for saving mosaics *without pixel interpolation*.
+    """
+    if not isinstance(n, int) or n <= 0:
+        raise ValueError("n must be a positive integer")
+    import math
+    small, large = [], []
+    i = 1
+    while i * i <= n:
+        if n % i == 0:
+            small.append(i)
+            j = n // i
+            if j != i:
+                large.append(j)
+        i += 1
+    return small + large[::-1]
