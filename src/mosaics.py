@@ -1,6 +1,7 @@
 # %% MOSAICS
 
 import numpy as np
+import math
 from gurobipy import Model, GRB, quicksum
 from scipy.ndimage import binary_fill_holes
 import os
@@ -434,11 +435,19 @@ def image_to_still_life(image_path, grid_size=30, level=4, random=True, invert=T
     if original_width_over_height > 1:
         # originally wider than tall: readjust square by cropping height
         new_height = int(solution_mosaic.shape[1] / original_width_over_height)
+        # this must be a multiple of the height of a tile
+        tile_height = pond_pattern_edge(level=level).shape[0]
+        new_height = int(math.ceil(new_height / tile_height) * tile_height)
+        # crop
         start_height_idx = (solution_mosaic.shape[1] - new_height) // 2
         solution_mosaic = solution_mosaic[start_height_idx-offset:start_height_idx+new_height+offset, :]
     elif original_width_over_height < 1:
         # originally taller than wide: readjust square by cropping width
         new_width = int(solution_mosaic.shape[0] * original_width_over_height)
+        # this must be a multiple of the width of a tile
+        tile_width = pond_pattern_edge(level=level).shape[1]
+        new_width = int(math.ceil(new_width / tile_width) * tile_width)
+        # crop
         start_width_idx = (solution_mosaic.shape[0] - new_width) // 2
         solution_mosaic = solution_mosaic[:, start_width_idx-offset:start_width_idx+new_width+offset]
     return solution_mosaic
