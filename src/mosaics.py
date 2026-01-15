@@ -319,28 +319,36 @@ def numpy_to_cells(array, filename="output.cells", glider=False):
 
 # %% IMAGES
 
-from PIL import Image
+from PIL import Image, ImageOps
 
-def load_image(image_path, grayscale=True):
+def load_image(image_path, grayscale=True, alpha_color='white'):
     """
     Load an image from the given path.
     If grayscale is True, convert the image to grayscale.
+    Transparent pixels are interpreted as alpha_color (default: white).
     Returns a PIL Image object.
     """
     img = Image.open(image_path)
+    
+    # Handle transparency by compositing onto background color
+    if img.mode in ('RGBA', 'LA', 'P'):
+        bg = Image.new('RGB', img.size, alpha_color)
+        if img.mode != 'RGBA':
+            img = img.convert('RGBA')
+        bg.paste(img, mask=img.split()[-1])
+        img = bg
+    
     if grayscale:
-        img = img.convert('L')  # Convert to grayscale
+        img = img.convert('L')
     return img
 
-def square_image(img, grayscale=True, return_aspect=True):
+def square_image(img, return_aspect=True, fill_color='white'):
     # Make the image square by cropping or padding
     width, height = img.size
     width_over_height = width / height
     if width != height:
-        new_size = max(width, height)
-        new_img = Image.new('L' if grayscale else 'RGB', (new_size, new_size), color=255)
-        new_img.paste(img, ((new_size - width) // 2, (new_size - height) // 2))
-        img = new_img
+        size = max(width, height)
+        img = ImageOps.pad(img, (size, size), color=fill_color)
     if return_aspect:
         return img, width_over_height
     return img
@@ -422,7 +430,7 @@ def image_to_still_life(image_path, grid_size=30, level=4, random=True, invert=T
     # load image
     img = load_image(image_path, grayscale=True)
     # make the image square but save the original aspect ratio
-    square_img, original_width_over_height = square_image(img, grayscale=True, return_aspect=True)
+    square_img, original_width_over_height = square_image(img, return_aspect=True, fill_color='white')
     # Make a low-resolution version of the image that can be converted to a mosaic
     lowres = rotate_and_pixelate(square_img, grid_size, expand=True)
     lowres_first, lowres_second = extract_diagonal_patterns(lowres)
