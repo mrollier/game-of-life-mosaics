@@ -2,9 +2,15 @@
 
 import numpy as np
 import math
+import cellpylib as cpl
 from gurobipy import Model, GRB, quicksum
 from scipy.ndimage import binary_fill_holes
 import os
+
+ugent_blue = '#1E64C8'  # dark blue
+ugent_yellow = '#FFD200'  # warm yellow
+ugent_black = '#000000'  # black
+ugent_white = '#FFFFFF'  # white
 
 def pond_pattern():
     pp = np.array([
@@ -263,6 +269,7 @@ def map_greyscale_to_mosaic(greyscale_values, solutions, random=True, invert=Tru
     """
     greyscale_values = np.asarray(greyscale_values)
     # Calculate the mean density of each mosaic
+    # TODO this can be precomputed once and for all when loading the solutions
     densities = np.mean(solutions, axis=(1, 2))
     # Normalise the densities to the range [0, 1]
     densities = (densities - densities.min()) / (densities.max() - densities.min())
@@ -300,6 +307,24 @@ def map_greyscale_to_mosaic(greyscale_values, solutions, random=True, invert=Tru
 
     return mosaics
 
+def map_mask_to_mosaic(mask, solutions, alpha_cutoff=0.5):
+    mask = np.asarray(mask)
+    # Prepare output array
+    output_shape = mask.shape + solutions.shape[1:]
+    mosaics = np.empty(output_shape, dtype=solutions.dtype)
+    # Flatten mask for iteration
+    flat_mask = mask.ravel()
+    for idx, val in enumerate(flat_mask):
+        if val < 0 or val > 1:
+            raise ValueError("Greyscale value must be between 0 and 1")
+        if val >= alpha_cutoff:
+            solution = np.zeros_like(solutions[0])
+        else: # TODO add a full tile
+            # solution = np.ones_like(solutions[0])
+            solution = binary_fill_holes(solutions[-1]).astype(int)
+        mosaics.reshape(-1, *solutions.shape[1:])[idx, ...] = solution
+    return mosaics
+
 def numpy_to_cells(array, filename="output.cells", glider=False):
     """
     Function that saves a NumPy array to a .cells file format that can be used in Golly
@@ -319,7 +344,7 @@ def numpy_to_cells(array, filename="output.cells", glider=False):
 
 # %% IMAGES
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageColor
 
 def load_image(image_path, alpha_color='white', return_alpha=False):
     """
@@ -399,19 +424,22 @@ def extract_diagonal_patterns(lowres):
     return lowres_first, lowres_second
 
 def diagonal_patterns_to_mosaic(lowres_first, lowres_second, level=4, invert=True, random=True, empty_tiles_cutoff=1.):
+    # load all possible diamonds for the given level
     solutions = load_all_symmetric_gol_mosaics(level=level)
-
+    # map greyscale values of the first diagonal pattern to mosaics
     mosaics_first = map_greyscale_to_mosaic(lowres_first/255, solutions, invert=invert, random=random,
                                             empty_tiles_cutoff=empty_tiles_cutoff)
+    # map greyscale values of the second diagonal pattern to mosaics
     mosaics_second = map_greyscale_to_mosaic(lowres_second/255, solutions, invert=invert, random=random,
                                              empty_tiles_cutoff=empty_tiles_cutoff)
-
+    # combine mosaics into one big array
     big_array_first = np.block([[mosaics_first[i, j] for j in range(mosaics_first.shape[1])]
                       for i in range(mosaics_first.shape[0])])
     big_array_second = np.block([[mosaics_second[i, j] for j in range(mosaics_second.shape[1])]
                       for i in range(mosaics_second.shape[0])])
 
     # add white edge around top row tiles
+    # TODO this can be taken out of the function
     pond_width = 6
     pad_tuple = ( ((pond_width-3)*(2*level-1) + 1 + 2) // 2, ((pond_width-3)*(2*level-1) + 1 + 2) // 2 )
     pad_width = ((0,0), pad_tuple)
@@ -424,12 +452,50 @@ def diagonal_patterns_to_mosaic(lowres_first, lowres_second, level=4, invert=Tru
     solution_mosaic = solution_mosaic_first + solution_mosaic_second
     return solution_mosaic
 
-def image_to_still_life(image_path, grid_size=30, level=4, random=True, invert=True, empty_tiles_cutoff=1.):
+def diagonal_mask_to_mosaic(mask_first, mask_second, level=4, alpha_cutoff=0.5):
+    solutions = load_all_symmetric_gol_mosaics(level=level)
+    mosaics_first = map_mask_to_mosaic(mask_first/255, solutions, alpha_cutoff=alpha_cutoff)
+    mosaics_second = map_mask_to_mosaic(mask_second/255, solutions, alpha_cutoff=alpha_cutoff)
+    big_array_first = np.block([[mosaics_first[i, j] for j in range(mosaics_first.shape[1])]
+                      for i in range(mosaics_first.shape[0])])
+    big_array_second = np.block([[mosaics_second[i, j] for j in range(mosaics_second.shape[1])]
+                      for i in range(mosaics_second.shape[0])])
+
+    # add white edge around top row tiles
+    pond_width = 6
+    pad_tuple = ( ((pond_width-3)*(2*level-1) + 1 + 2) // 2, ((pond_width-3)*(2*level-1) + 1 + 2) // 2 )
+    pad_width = ((0,0), pad_tuple)
+    solution_mask_first = np.pad(big_array_first, pad_width=pad_width, constant_values=0)
+    # add white edge around second-row tiles
+    pad_width = (pad_tuple, (0,0))
+    solution_mask_second = np.pad(big_array_second, pad_width=pad_width, constant_values=0)
+    # add the diagonals together
+    solution_mask = solution_mask_first + solution_mask_second
+    # get rid of the holes between the full diamonds
+    solution_mask = binary_fill_holes(solution_mask).astype(np.uint8)
+    return solution_mask
+
+# everything together
+def image_to_still_life(image_path,
+                        grid_size=30,
+                        level=4,
+                        random=True,
+                        invert=True,
+                        empty_tiles_cutoff=1.,
+                        alpha_cutoff=0.5,
+                        supersample=10,
+                        rule = 54, # complex {54, 147, 110, 124, 137, 193} chaotic {30, 45, 106, 150}
+                        color_gol_background = ugent_white,
+                        color_gol_pixel = ugent_black,
+                        color_eca_background = ugent_yellow,
+                        color_eca_pixel = ugent_blue):
     """
     Convert an image to a still life mosaic pattern.
     """
     # load image
     img, mask = load_image(image_path, return_alpha=True)
+
+    ### IMAGE STUFF
     # make the image square but save the original aspect ratio
     square_img, original_width_over_height = square_image(img, return_aspect=True, fill_color='white')
     # Make a low-resolution version of the image that can be converted to a mosaic
@@ -439,6 +505,17 @@ def image_to_still_life(image_path, grid_size=30, level=4, random=True, invert=T
     solution_mosaic = diagonal_patterns_to_mosaic(lowres_first, lowres_second,
                                                   level=level, invert=invert, random=random,
                                                   empty_tiles_cutoff=empty_tiles_cutoff)
+    
+    ### MASK STUFF
+    # make the mask square
+    square_mask = square_image(mask, return_aspect=False, fill_color='white')
+    # Make a low-resolution version of the mask that can be converted to an empty mosaic
+    lowres = rotate_and_pixelate(square_mask, grid_size, expand=True)
+    lowres_first, lowres_second = extract_diagonal_patterns(lowres)
+    # create the actual mosaic
+    solution_mask = diagonal_mask_to_mosaic(lowres_first, lowres_second, level=level, alpha_cutoff=alpha_cutoff)
+
+    ### DIMENSION ADJUSTMENTS
     # adjust for original aspect ratio by cropping (with a particular offset, if required)
     offset = 0
     if original_width_over_height > 1:
@@ -450,6 +527,7 @@ def image_to_still_life(image_path, grid_size=30, level=4, random=True, invert=T
         # crop
         start_height_idx = (solution_mosaic.shape[1] - new_height) // 2
         solution_mosaic = solution_mosaic[start_height_idx-offset:start_height_idx+new_height+offset, :]
+        solution_mask = solution_mask[start_height_idx-offset:start_height_idx+new_height+offset, :]
     elif original_width_over_height < 1:
         # originally taller than wide: readjust square by cropping width
         new_width = int(solution_mosaic.shape[0] * original_width_over_height)
@@ -459,7 +537,50 @@ def image_to_still_life(image_path, grid_size=30, level=4, random=True, invert=T
         # crop
         start_width_idx = (solution_mosaic.shape[0] - new_width) // 2
         solution_mosaic = solution_mosaic[:, start_width_idx-offset:start_width_idx+new_width+offset]
-    return solution_mosaic
+        solution_mask = solution_mask[:, start_width_idx-offset:start_width_idx+new_width+offset]
+
+    ### CREATE ECA
+    # check if the supersample will work out
+    mosaic_shape = solution_mosaic.shape
+    mosaic_denoms = list_denominators(mosaic_shape[1])
+    if supersample not in mosaic_denoms:
+        raise ValueError(f"Supersample value {supersample} is not compatible with mosaic width {mosaic_shape[1]}. Choose one of {mosaic_denoms}.")
+    # rune ECA
+    eca_width = mosaic_shape[1]//supersample
+    eca_height = mosaic_shape[0]//supersample
+    eca = cpl.init_random(eca_width)
+    eca = cpl.evolve(eca, timesteps=eca_height, memoize=True,
+                                    apply_rule=lambda n, c, t: cpl.nks_rule(n, rule))
+    eca_upsized = np.repeat(eca, supersample, axis=0)
+    eca_upsized = np.repeat(eca_upsized, supersample, axis=1)
+    eca_upsized = np.uint8(eca_upsized)
+    # make pattern: 0 is transparent, 1 is background, 2 is pixel
+    eca_mask = solution_mask * (eca_upsized + solution_mask)
+
+    ### ADD MOSAIC AND ECA TOGETHER
+    overlay_img = make_overlay(eca_mask, color1=color_eca_background, color2=color_eca_pixel)
+
+    # Your current color mapping code
+    color_map = {
+        0: color_gol_background,
+        1: color_gol_pixel
+    }
+
+    rgb_array = np.zeros((*solution_mosaic.shape, 3), dtype=np.uint8)
+    for value, hex_color in color_map.items():
+        mask = (solution_mosaic == value)
+        rgb_tuple = ImageColor.getrgb(hex_color)
+        rgb_array[mask] = rgb_tuple
+
+    # Convert to RGBA by adding an alpha channel
+    rgba_array = np.zeros((*solution_mosaic.shape, 4), dtype=np.uint8)
+    rgba_array[:, :, :3] = rgb_array
+    rgba_array[:, :, 3] = 255  # fully opaque
+    base_rgba = Image.fromarray(rgba_array, mode='RGBA')
+
+    final_piece = Image.alpha_composite(base_rgba, overlay_img)
+
+    return final_piece
 
 
 def gif_to_still_life(gif_path, grid_size=30, level=4, random=True, invert=True, empty_tiles_cutoff=1.):
@@ -522,3 +643,29 @@ def list_denominators(n):
                 large.append(j)
         i += 1
     return small + large[::-1]
+
+def make_overlay(arr, color1='#FF0000', color2='#00FF00'):
+    """
+    coloring of the ECA background
+    """
+    arr = np.asarray(arr)
+    h, w = arr.shape
+
+    overlay = np.zeros((h, w, 4), dtype=np.uint8)  # RGBA
+
+    # Convert hex to RGB
+    rgb1 = tuple(int(color1.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+    rgb2 = tuple(int(color2.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+
+    # value 1 -> color1, opaque
+    m1 = (arr == 1)
+    overlay[m1, :3] = rgb1
+    overlay[m1, 3] = 255
+
+    # value 2 -> color2, opaque
+    m2 = (arr == 2)
+    overlay[m2, :3] = rgb2
+    overlay[m2, 3] = 255
+
+    # value 0 stays (0,0,0,0) fully transparent
+    return Image.fromarray(overlay, mode="RGBA")
