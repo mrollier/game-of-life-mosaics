@@ -321,28 +321,31 @@ def numpy_to_cells(array, filename="output.cells", glider=False):
 
 from PIL import Image, ImageOps
 
-def load_image(image_path, grayscale=True, alpha_color='white'):
+def load_image(image_path, alpha_color='white', return_alpha=False):
     """
     Load an image from the given path.
-    If grayscale is True, convert the image to grayscale.
     Transparent pixels are interpreted as alpha_color (default: white).
-    Returns a PIL Image object.
+    Returns a PIL Image object and a mask if return_alpha is True.
     """
+    # open the image
     img = Image.open(image_path)
-    
-    # Handle transparency by compositing onto background color
-    if img.mode in ('RGBA', 'LA', 'P'):
-        bg = Image.new('RGB', img.size, alpha_color)
-        if img.mode != 'RGBA':
-            img = img.convert('RGBA')
-        bg.paste(img, mask=img.split()[-1])
-        img = bg
-    
-    if grayscale:
-        img = img.convert('L')
+    # convert to RGBA and extract alpha channel as mask
+    img = img.convert('RGBA')
+    mask = img.split()[-1]
+    # create color that will composit onto background (alpha channel)
+    bg = Image.new('RGBA', img.size, alpha_color)
+    bg.paste(img, mask=mask)
+    img = bg
+    # convert to greyscale and return
+    img = img.convert('L')
+    if return_alpha:
+        return img, mask
     return img
 
 def square_image(img, return_aspect=True, fill_color='white'):
+    """
+    Make the image square by padding.
+    """
     # Make the image square by cropping or padding
     width, height = img.size
     width_over_height = width / height
@@ -362,14 +365,12 @@ def rotate_and_pixelate(img, grid_size, expand=True):
     """
     if grid_size % 2 != 0:
         raise ValueError("Grid size must be even for this implementation.")
-
     # Resample to desired grid size
     img = img.resize((grid_size, grid_size), resample=Image.LANCZOS)
-
     # Rotate 45 degrees with expand so nothing is cut off
     img = img.rotate(45, expand=expand, fillcolor=255)
-
-    # cut off edges and return as numpy array
+    # cut off edges and return as numpy array.
+    # NOTE why do I cut off the edges again?
     return np.array(img)[1:-1,1:-1]
 
 def extract_diagonal_patterns(lowres):
@@ -428,7 +429,7 @@ def image_to_still_life(image_path, grid_size=30, level=4, random=True, invert=T
     Convert an image to a still life mosaic pattern.
     """
     # load image
-    img = load_image(image_path, grayscale=True)
+    img, mask = load_image(image_path, return_alpha=True)
     # make the image square but save the original aspect ratio
     square_img, original_width_over_height = square_image(img, return_aspect=True, fill_color='white')
     # Make a low-resolution version of the image that can be converted to a mosaic
