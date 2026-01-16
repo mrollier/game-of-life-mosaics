@@ -293,7 +293,8 @@ def map_greyscale_to_mosaic(greyscale_values, solutions, random=True, invert=Tru
         if val > empty_tiles_cutoff:
             solution = np.zeros_like(solutions[0])
         else:
-            diffs = np.abs(densities - val)
+            adjusted_val = val / empty_tiles_cutoff
+            diffs = np.abs(densities - adjusted_val)
             min_diff = diffs.min()
             indices = np.where(diffs == min_diff)[0]
             if random:
