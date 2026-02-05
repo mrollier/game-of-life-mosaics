@@ -1,0 +1,25 @@
+# Game of Life Mosaics - Dependencies
+
+# Core numerical computing
+numpy>=1.20.0
+
+# Scientific computing
+scipy>=1.7.0
+
+# Cellular automaton simulation
+cellpylib>=2.0.0
+
+# Optimization solver (requires license for pattern generation)
+# Pre-computed patterns (levels 3-5) work without Gurobi
+gurobipy>=11.0.0
+
+# Image processing
+Pillow>=9.0.0
+
+# Testing (development)
+pytest>=7.0.0
+pytest-cov>=3.0.0
+
+# Jupyter notebooks (for examples)
+jupyter>=1.0.0
+matplotlib>=3.5.0

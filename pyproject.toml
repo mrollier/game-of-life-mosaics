@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gol-mosaics"
+version = "2.0.0"
+description = "Create artistic mosaics from images using Conway's Game of Life still-life patterns"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Michiel Rollier", email = "michiel.rollier@ugent.be"}
+]
+keywords = ["game-of-life", "cellular-automata", "art", "mosaic", "image-processing"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Topic :: Artistic Software",
+    "Topic :: Scientific/Engineering :: Artificial Life",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "numpy>=1.20.0",
+    "scipy>=1.7.0",
+    "cellpylib>=2.0.0",
+    "Pillow>=9.0.0",
+    "matplotlib>=3.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=3.0.0",
+    "jupyter>=1.0.0",
+]
+gurobi = [
+    "gurobipy>=11.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/mrollier/game-of-life-mosaics"
+Repository = "https://github.com/mrollier/game-of-life-mosaics"
+Documentation = "https://github.com/mrollier/game-of-life-mosaics#readme"
+"Bug Tracker" = "https://github.com/mrollier/game-of-life-mosaics/issues"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+gol_mosaics = ["../../data/*.npy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
