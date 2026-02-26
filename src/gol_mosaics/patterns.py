@@ -617,6 +617,37 @@ class PatternLibrary:
 
         pp_edge = np.where(mask, pp_multiple, 0)
         return pp_edge
+    
+    def pond_pattern_eighth(self) -> np.ndarray:
+        """
+        Generate the pattern corresponding to all cells whose values can become either 0 or 1 in the D4 dihedral symmetry.
+
+        Returns:
+            Pattern array with the eighth of unique cells
+        """
+        width = self.pond_width * self.level
+        half_width = width // 2
+
+        # Cache edge pattern to avoid redundant calls
+        pp_edge = self.pond_pattern_edge()
+
+        # Extract first quarter (top-right) of edge pattern
+        pp_edge_eighth = np.zeros_like(pp_edge)
+        pp_edge_eighth[:half_width, half_width:] = pp_edge[:half_width, half_width:]
+
+        # Create sub-diagonal through first quarter
+        pp_diagonal = np.diag(np.ones(width - 1, dtype=int), k=1)[::-1]
+
+        # Create vertical line one cell to the left of center
+        pp_vertical = np.zeros_like(pp_edge)
+        pp_vertical[:, half_width - 1] = 1
+
+        # Union of the three patterns
+        pp_outer = (pp_edge_eighth | pp_diagonal | pp_vertical).astype(bool)
+
+        # Find the pattern surrounded by 1s on all sides
+        pp_eighth = binary_fill_holes(pp_outer).astype(int)
+        return pp_eighth - pp_outer
 
     @staticmethod
     def _get_dead_edges(level: int) -> list:
