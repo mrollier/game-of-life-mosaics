@@ -45,14 +45,16 @@ class PatternLibrary:
         Initialize PatternLibrary.
 
         Args:
-            level: Pattern complexity level (3-6 supported, 3-5 pre-computed)
+            level: Pattern complexity level (1-5 supported, all pre-computed)
 
         Raises:
-            ValueError: If level is not between 2 and 6
+            ValueError: If level is not between 1 and 5
         """
-        if level < 2 or level > 6:
+        if level < 1 or level > 5:
             raise ValueError(
-                f"Level must be between 2 and 6, got {level}"
+                f"Level must be between 1 and 5, got {level}. \
+                Patterns for levels 1 and 2 are trivial. \
+                Patterns for level 6 and higher are very demanding to compute."
             )
 
         self.level = level
@@ -96,34 +98,40 @@ class PatternLibrary:
         """Calculate and normalize density values for all patterns."""
         densities = np.mean(self.solutions, axis=(1, 2))
         # Normalize to [0, 1]
-        densities = (densities - densities.min()) / (densities.max() - densities.min())
-        return densities
+        dens_max = densities.max()
+        dens_min = densities.min()
+        if dens_max != dens_min:
+            densities = (densities - densities.min()) / (densities.max() - densities.min())
+            return densities
+        # trivial solution for level 1
+        else:
+            return np.array([1])
 
     @classmethod
     def load(cls, level: int) -> 'PatternLibrary':
         """
         Load pre-computed patterns from disk.
 
-        Pre-computed patterns are available for levels 3, 4, and 5.
+        Pre-computed patterns are available for levels 1, 2, 3, 4, and 5.
         For other levels, use PatternLibrary.generate() instead.
 
         Args:
-            level: Pattern complexity level (must be 3, 4, or 5)
+            level: Pattern complexity level (must be 1, 2, 3, 4, or 5)
 
         Returns:
             PatternLibrary instance with loaded patterns
 
         Raises:
-            ValueError: If level is not 3, 4, or 5
+            ValueError: If level is not 1, 2, 3, 4, or 5
             FileNotFoundError: If data file is missing
 
         Example:
             >>> library = PatternLibrary.load(level=5)
             >>> print(f"Loaded {len(library.solutions)} patterns")
         """
-        if level not in [3, 4, 5]:
+        if level not in [1, 2, 3, 4, 5]:
             raise ValueError(
-                f"Pre-computed patterns only available for levels 3, 4, 5. "
+                f"Pre-computed patterns only available for levels 1, 2, 3, 4, 5. "
                 f"Got level={level}. Use PatternLibrary.generate(level={level}) "
                 f"to create patterns for this level."
             )
@@ -195,6 +203,8 @@ class PatternLibrary:
 
         This is the core optimization routine that uses Gurobi's mixed-integer
         programming solver to exhaustively find patterns.
+
+        This approach is inspired by Rob Bosch's 2019 book "Opt Art".
 
         Args:
             solution_limit: Maximum number of solutions to find
