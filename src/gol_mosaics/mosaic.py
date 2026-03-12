@@ -26,7 +26,7 @@ class MosaicGenerator:
     pattern library, image processing, ECA backgrounds, and rendering.
 
     Attributes:
-        level: Pattern complexity level (3-5 pre-computed, others need generation)
+        level: Pattern complexity level (2-5 pre-computed, others need generation)
         grid_size: Number of tiles in the grid
         color_scheme: ColorScheme for rendering
         eca_rule: Rule number for ECA background
@@ -51,7 +51,7 @@ class MosaicGenerator:
         Initialize mosaic generator.
 
         Args:
-            level: Pattern complexity level (3-5 for pre-computed patterns)
+            level: Pattern complexity level (2-5 for pre-computed patterns)
             grid_size: Number of tiles in the grid (must be even)
             color_scheme: ColorScheme instance (defaults to UGent colors)
             eca_rule: Rule number for Elementary Cellular Automaton background.
@@ -120,7 +120,7 @@ class MosaicGenerator:
 
     def generate_from_image(self,
                            image_path: str,
-                           empty_tiles_cutoff: float = 0.9,
+                           empty_tiles_cutoff: float = 0.75,
                            alpha_cutoff: float = 0.5,
                            supersample: Optional[int] = None) -> Image.Image:
         """
@@ -208,7 +208,7 @@ class MosaicGenerator:
 
     def generate_from_gif(self,
                          gif_path: str,
-                         empty_tiles_cutoff: float = 1.0,
+                         empty_tiles_cutoff: float = 0.75,
                          alpha_cutoff: float = 0.5,
                          supersample: int = 15) -> Image.Image:
         """
