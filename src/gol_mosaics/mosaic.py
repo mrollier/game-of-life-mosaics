@@ -41,8 +41,8 @@ class MosaicGenerator:
     """
 
     def __init__(self,
-                 level: int = 4,
-                 grid_size: int = 30,
+                 level: Optional[int] = None,
+                 grid_size: Optional[int] = None,
                  color_scheme: Optional[ColorScheme] = None,
                  eca_rule: Optional[int] = None,
                  random_patterns: bool = True,
@@ -72,23 +72,18 @@ class MosaicGenerator:
             ...     eca_rule=54
             ... )
         """
-        if grid_size % 2 != 0:
-            raise ValueError(
-                f"grid_size must be even, got {grid_size}"
-            )
+        # Pick random grid size and level if not provided
+        self.grid_size = grid_size or self._auto_select_grid_size()
+        self.level = level or self._auto_select_level()
 
-        self.level = level
-        self.grid_size = grid_size
+        # Pick random ECA rule from some interesting ones if not provided
+        self.eca_rule = eca_rule or self._auto_select_eca_rule()
+
+        # Select default UGent color scheme if not provided
         self.color_scheme = color_scheme or ColorScheme.ugent()
 
-        # If no ECA rule specified, pick a random interesting one
-        if eca_rule is None:
-            # Combine complex and chaotic rules for variety
-            interesting_rules = ECABackground.COMPLEX_RULES + ECABackground.CHAOTIC_RULES
-            self.eca_rule = int(np.random.choice(interesting_rules))
-        else:
-            self.eca_rule = eca_rule
-
+        # Pick random patterns and invert colors.
+        # These can be touched but generally look better with default values.
         self.random_patterns = random_patterns
         self.invert = invert
 
@@ -528,6 +523,21 @@ class MosaicGenerator:
             return int(np.random.choice(closest_values))
         else:
             return closest_values[0]
+
+    def _auto_select_grid_size(self) -> int:
+        """Randomly select a grid size from predefined options."""
+        GRID_SIZES = [40, 60, 80, 100, 120]
+        return int(np.random.choice(GRID_SIZES))
+    
+    def _auto_select_level(self) -> int:
+        """Randomly select a pattern complexity level from predefined options."""
+        LEVELS = [3, 4, 5]
+        return int(np.random.choice(LEVELS))
+    
+    def _auto_select_eca_rule(self) -> int:
+        """Randomly select an ECA rule from interesting complex and chaotic rules."""
+        interesting_rules = ECABackground.COMPLEX_RULES + ECABackground.CHAOTIC_RULES
+        return int(np.random.choice(interesting_rules))
 
     def __repr__(self) -> str:
         """String representation of generator."""
