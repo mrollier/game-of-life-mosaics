@@ -103,11 +103,15 @@ class ColorScheme:
         )
 
     @classmethod
-    def warhol(cls, force_white=False) -> 'ColorScheme':
+    def warhol(cls, force_white=False, dark_on_light=True) -> 'ColorScheme':
         """
         Warhol-inspired color scheme.
 
         Uses bright, contrasting colors reminiscent of Andy Warhol's pop art style.
+
+        Args:
+            force_white: If True, forces the Game of Life background to be white (default: False)
+            dark_on_light: If True, uses dark colors on a light background; if False, just picks randomly from the palette (default: True)
 
         Returns:
             ColorScheme with Warhol-inspired colors
@@ -118,42 +122,91 @@ class ColorScheme:
             '#FF00FF'
         """
 
-        warhol_palette = {
-            "hot_pink": "#ff2d8d",
-            "magenta": "#ff00a8",
-            "fuchsia": "#ff008f",
-            "neon_red": "#ff2a2a",
-            "crimson": "#d4002a",
-            "tangerine": "#ff6a00",
-            "bright_orange": "#ff7a00",
-            "sunflower_yellow": "#ffd400",
-            "lemon_yellow": "#fff200",
-            "acid_yellow": "#eaff00",
-            "lime_green": "#7fff00",
-            "neon_green": "#39ff14",
-            "chartreuse": "#bfff00",
-            "mint_green": "#3fffbf",
-            "turquoise": "#00ffd5",
-            "aqua": "#00e5ff",
-            "electric_blue": "#007bff",
-            "cobalt_blue": "#0047ff",
-            "royal_purple": "#7a00ff",
-            "violet": "#b300ff"
+        warhol_light_colors = {
+            "pastel_pink": "#ff9ecb",
+            "bubblegum_pink": "#ff8cc6",
+            "light_fuchsia": "#ff77d4",
+            "rose_pink": "#ff6fa0",
+            "coral_pink": "#ff7f7f",
+            "peach": "#ffb07c",
+            "light_orange": "#ffb347",
+            "apricot": "#ffc87c",
+            "sunny_yellow": "#fff44f",
+            "lemon": "#fff76a",
+            "butter_yellow": "#fff1a8",
+            "lime": "#bfff66",
+            "neon_lime": "#aaff33",
+            "light_chartreuse": "#dfff4f",
+            "mint": "#7fffd4",
+            "seafoam": "#71f7c6",
+            "light_turquoise": "#66ffe0",
+            "aqua": "#66eaff",
+            "sky_blue": "#7ec8ff",
+            "light_cyan": "#8fe9ff",
+            "lavender": "#c79cff",
+            "light_violet": "#d19cff",
+            "orchid": "#e29bff",
+            "soft_magenta": "#ff8ae2",
+            "light_plum": "#d78cff"
         }
 
-        rng = np.random.default_rng()
-        picked_colors = rng.choice(list(warhol_palette.values()), size=4, replace=False)
+        warhol_dark_colors = {
+            "hot_pink": "#ff2d8d",
+            "magenta": "#ff0099",
+            "fuchsia": "#d1007a",
+            "deep_crimson": "#b00020",
+            "pop_red": "#ff0033",
+            "scarlet": "#e60026",
+            "burnt_orange": "#d94a00",
+            "tangerine": "#ff5e00",
+            "deep_gold": "#cc9a00",
+            "mustard": "#bfa000",
+            "olive": "#7a8f00",
+            "acid_green": "#66cc00",
+            "kelly_green": "#00a550",
+            "emerald": "#009b5e",
+            "jade": "#00a86b",
+            "deep_teal": "#008080",
+            "turquoise_blue": "#0096a7",
+            "electric_blue": "#0066ff",
+            "cobalt": "#0047ab",
+            "royal_blue": "#0033cc",
+            "indigo": "#3f00ff",
+            "deep_violet": "#6a00cc",
+            "purple": "#8000ff",
+            "plum": "#7b1fa2",
+            "deep_magenta": "#9b0056"
+        }
 
-        if force_white:
-            gol_background='#FFFFFF'  # Force white background for Game of Life
+        warhol_colors = {**warhol_light_colors, **warhol_dark_colors}
+
+        # prepare random generator
+        rng = np.random.default_rng()
+
+        # Randomly select colors based on the dark_on_light flag
+        if not dark_on_light:
+            gol_colors = rng.choice(list(warhol_colors.values()), size=2, replace=False)
+            gol_background = gol_colors[0]
+            gol_pixel = gol_colors[1]
         else:
-            gol_background = picked_colors[0]  # Randomly pick from palette
+            # Force dark pixels on light background
+            gol_pixel = rng.choice(list(warhol_dark_colors.values()))
+            gol_background = rng.choice(list(warhol_light_colors.values()))
+
+        # Select two distinct ECA colors
+        eca_colors = rng.choice(list(warhol_colors.values()), size=2, replace=False)
+        eca_background = eca_colors[0]
+        eca_pixel = eca_colors[1]
+
+        # force white background if requested
+        if force_white:
+            gol_background='#FFFFFF'
 
         return cls(
             gol_background=gol_background,
-            gol_pixel=picked_colors[1],
-            eca_background=picked_colors[2],
-            eca_pixel=picked_colors[3]
+            gol_pixel=gol_pixel,
+            eca_background=eca_background,
+            eca_pixel=eca_pixel
         )
 
 
