@@ -122,7 +122,8 @@ class MosaicGenerator:
                            image_path: str,
                            empty_tiles_cutoff: float = 0.75,
                            alpha_cutoff: float = 0.5,
-                           supersample: Optional[int] = None) -> Image.Image:
+                           supersample: Optional[int] = None,
+                           no_eca = False) -> Image.Image:
         """
         Generate mosaic from image file.
 
@@ -201,7 +202,8 @@ class MosaicGenerator:
         final_image = self._apply_eca_background(
             gol_mosaic,
             transparency_mask,
-            supersample
+            supersample,
+            no_eca = no_eca
         )
 
         return final_image
@@ -446,7 +448,8 @@ class MosaicGenerator:
     def _apply_eca_background(self,
                              gol_mosaic: np.ndarray,
                              transparency_mask: np.ndarray,
-                             supersample: int) -> Image.Image:
+                             supersample: int,
+                             no_eca = False) -> Image.Image:
         """
         Generate ECA background and composite with GoL mosaic.
 
@@ -454,7 +457,7 @@ class MosaicGenerator:
             gol_mosaic: Binary GoL mosaic
             transparency_mask: Binary transparency mask
             supersample: ECA upsampling factor
-
+            no_eca: Whether to skip ECA background generation
         Returns:
             Final composited RGBA image
 
@@ -463,20 +466,24 @@ class MosaicGenerator:
         """
         height, width = gol_mosaic.shape
 
-        # Validate supersample
-        if not self.eca_generator.validate_supersample(width, supersample):
-            valid = self.eca_generator.list_valid_supersamples(width)
-            raise ValueError(
-                f"supersample={supersample} is incompatible with "
-                f"mosaic width={width}. Valid values: {valid}"
-            )
+        if no_eca:
+            eca_pattern = np.zeros((height, width), dtype=np.uint8)
 
-        # Generate ECA pattern
-        eca_pattern = self.eca_generator.generate(
-            width=width,
-            height=height,
-            supersample=supersample
-        )
+        else:
+            # Validate supersample
+            if not self.eca_generator.validate_supersample(width, supersample):
+                valid = self.eca_generator.list_valid_supersamples(width)
+                raise ValueError(
+                    f"supersample={supersample} is incompatible with "
+                    f"mosaic width={width}. Valid values: {valid}"
+                )
+
+            # Generate ECA pattern
+            eca_pattern = self.eca_generator.generate(
+                width=width,
+                height=height,
+                supersample=supersample
+            )
 
         # Create ECA mask: 0=transparent, 1=eca_background, 2=eca_pixel
         eca_mask = transparency_mask * (eca_pattern + transparency_mask)

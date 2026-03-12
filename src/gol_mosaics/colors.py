@@ -122,6 +122,7 @@ class ColorScheme:
             '#FF00FF'
         """
 
+        # Warhol-inspired colour palette with bright, contrasting colours
         warhol_light_colors = {
             "pastel_pink": "#ff9ecb",
             "bubblegum_pink": "#ff8cc6",
@@ -150,6 +151,7 @@ class ColorScheme:
             "light_plum": "#d78cff"
         }
 
+        # Warhol-inspired colour palette with darker, more saturated colours for contrast
         warhol_dark_colors = {
             "hot_pink": "#ff2d8d",
             "magenta": "#ff0099",
@@ -178,9 +180,10 @@ class ColorScheme:
             "deep_magenta": "#9b0056"
         }
 
+        # Merge dicts
         warhol_colors = {**warhol_light_colors, **warhol_dark_colors}
 
-        # prepare random generator
+        # Prepare random generator
         rng = np.random.default_rng()
 
         # Randomly select colors based on the dark_on_light flag
@@ -198,7 +201,7 @@ class ColorScheme:
         eca_background = eca_colors[0]
         eca_pixel = eca_colors[1]
 
-        # force white background if requested
+        # Force white background if requested
         if force_white:
             gol_background='#FFFFFF'
 
