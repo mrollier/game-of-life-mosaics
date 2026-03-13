@@ -50,17 +50,9 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# Project specific
-# Personal output directories (keep examples in output/images/ and output/golly/)
-output/bw26/
-output/*_iterations/
-output/videos/
-output/quickstart*.png
-output/test*.png
+# Project specific (currently empty)
+# Personal input and output directories (keep examples in output/images/ and output/golly/)
 
-# Personal input directories (keep example images in input/images/)
-input/bw26/
-input/videos/
 
 # Temporary files
 *.tmp
