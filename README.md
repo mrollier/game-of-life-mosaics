@@ -20,7 +20,7 @@ Transform your photos into unique digital art pieces composed entirely of Game o
 
 This project combines two fascinating computational concepts to create digital art:
 
-1. **Game of Life (GoL) Still Lifes**: Stable patterns in Conway's Game of Life that never change. These symmetric patterns are composed of Tiles: diamond-shaped symmetric patterns computed using integer linear programming to find all valid configurations.
+1. **Game of Life (GoL) Still Lives**: Stable patterns in Conway's Game of Life that never change. These symmetric patterns are composed of Tiles: diamond-shaped symmetric patterns computed using integer linear programming to find all valid configurations.
 
 2. **Elementary Cellular Automata (ECA)**: Simple one-dimensional cellular automata that create various background patterns according to Wolfram rules.
 
@@ -211,14 +211,14 @@ mosaic_gif.save('output.gif', save_all=True)
 
 ## How It Works
 
-### GoL Still Lifes
+### GoL Still Lives
 
 Conway's Game of Life is a cellular automaton where cells live or die based on their neighbours:
 - A living cell with 2-3 neighbours survives
 - A dead cell with exactly 3 neighbours becomes alive
 - All other cells die
 
-**Still Lifes** are stable patterns that never change. This project uses **8-fold symmetric Still Lives** computed via integer linear programming (Gurobi) to find all valid patterns at each complexity level.
+**Still Lives** are stable patterns that never change. This project uses **8-fold symmetric Still Lives** computed via integer linear programming (Gurobi) to find all valid patterns at each complexity level.
 
 For level 4, there are **85 unique symmetric patterns** ranging from sparse to dense.
 
