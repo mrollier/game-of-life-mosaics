@@ -29,17 +29,17 @@ class ImageProcessor:
 
     @staticmethod
     def load_image(image_path: str,
-                  alpha_color: str = 'white',
+                  alpha_colour: str = 'white',
                   return_alpha: bool = False) -> Union[Image.Image, Tuple[Image.Image, Image.Image]]:
         """
         Load an image from file with alpha channel handling.
 
-        Transparent pixels are composited onto a solid color background
+        Transparent pixels are composited onto a solid colour background
         before converting to grayscale.
 
         Args:
             image_path: Path to image file (PNG, JPG, etc.)
-            alpha_color: Color for transparent background (default: 'white')
+            alpha_colour: Colour for transparent background (default: 'white')
             return_alpha: If True, also return the alpha mask
 
         Returns:
@@ -61,8 +61,8 @@ class ImageProcessor:
         img = img.convert('RGBA')
         mask = img.split()[-1]
 
-        # Composite onto background color
-        bg = Image.new('RGBA', img.size, alpha_color)
+        # Composite onto background colour
+        bg = Image.new('RGBA', img.size, alpha_colour)
         bg.paste(img, mask=mask)
         img = bg
 
@@ -76,9 +76,9 @@ class ImageProcessor:
     @staticmethod
     def square_image(img: Image.Image,
                     return_aspect: bool = True,
-                    fill_color: str = 'white') -> Union[Image.Image, Tuple[Image.Image, float]]:
+                    fill_colour: str = 'white') -> Union[Image.Image, Tuple[Image.Image, float]]:
         """
-        Make image square by padding with specified color.
+        Make image square by padding with specified colour.
 
         Preserves the original aspect ratio by adding padding to the shorter
         dimension rather than cropping.
@@ -86,7 +86,7 @@ class ImageProcessor:
         Args:
             img: PIL Image to make square
             return_aspect: If True, also return original aspect ratio
-            fill_color: Color for padding (default: 'white')
+            fill_colour: Colour for padding (default: 'white')
 
         Returns:
             If return_aspect=False: Square PIL Image
@@ -102,7 +102,7 @@ class ImageProcessor:
 
         if width != height:
             size = max(width, height)
-            img = ImageOps.pad(img, (size, size), color=fill_color)
+            img = ImageOps.pad(img, (size, size), color=fill_colour)
 
         if return_aspect:
             return img, width_over_height
@@ -210,8 +210,8 @@ class ImageProcessor:
     def preprocess_for_mosaic(cls,
                              image_path: str,
                              grid_size: int,
-                             alpha_color: str = 'white',
-                             fill_color: str = 'white') -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float]:
+                             alpha_colour: str = 'white',
+                             fill_colour: str = 'white') -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float]:
         """
         Complete preprocessing pipeline from image file to diagonal patterns.
 
@@ -221,8 +221,8 @@ class ImageProcessor:
         Args:
             image_path: Path to input image
             grid_size: Target grid size (must be even)
-            alpha_color: Background color for transparent pixels
-            fill_color: Padding color for squaring
+            alpha_colour: Background colour for transparent pixels
+            fill_colour: Padding colour for squaring
 
         Returns:
             Tuple of:
@@ -238,15 +238,15 @@ class ImageProcessor:
             >>> print(f"Aspect ratio: {aspect:.2f}")
         """
         # Load image and mask
-        img, mask = cls.load_image(image_path, alpha_color=alpha_color, return_alpha=True)
+        img, mask = cls.load_image(image_path, alpha_colour=alpha_colour, return_alpha=True)
 
         # Process grayscale image
-        square_img, aspect_ratio = cls.square_image(img, return_aspect=True, fill_color=fill_color)
+        square_img, aspect_ratio = cls.square_image(img, return_aspect=True, fill_colour=fill_colour)
         lowres = cls.rotate_and_pixelate(square_img, grid_size, expand=True)
         lowres_first, lowres_second = cls.extract_diagonal_patterns(lowres)
 
         # Process alpha mask
-        square_mask = cls.square_image(mask, return_aspect=False, fill_color='white')
+        square_mask = cls.square_image(mask, return_aspect=False, fill_colour='white')
         lowres_mask = cls.rotate_and_pixelate(square_mask, grid_size, expand=True)
         mask_first, mask_second = cls.extract_diagonal_patterns(lowres_mask)
 

@@ -9,6 +9,8 @@ import numpy as np
 import cellpylib as cpl
 from typing import List
 
+from .image_processing import ImageProcessor
+
 
 class ECABackground:
     """
@@ -157,17 +159,7 @@ class ECABackground:
             >>> ECABackground.list_valid_supersamples(60)
             [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60]
         """
-        if not isinstance(width, int) or width <= 0:
-            raise ValueError("Width must be a positive integer")
-
-        divisors = []
-        for i in range(1, int(np.sqrt(width)) + 1):
-            if width % i == 0:
-                divisors.append(i)
-                if i != width // i:
-                    divisors.append(width // i)
-
-        return sorted(divisors)
+        return ImageProcessor.list_denominators(width)
 
     def get_rule_category(self) -> str:
         """

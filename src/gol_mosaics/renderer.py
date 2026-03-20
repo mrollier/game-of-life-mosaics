@@ -1,49 +1,49 @@
 """
-Mosaic rendering and color mapping.
+Mosaic rendering and colour mapping.
 
 This module provides the MosaicRenderer class for converting
-numpy arrays to colored PIL Images.
+numpy arrays to coloured PIL Images.
 """
 
 import numpy as np
 from PIL import Image
 from typing import Dict
 
-from .colors import ColorScheme
+from .colours import ColourScheme
 
 
 class MosaicRenderer:
     """
-    Renders mosaic arrays as colored PIL Images.
+    Renders mosaic arrays as coloured PIL Images.
 
-    Takes binary or multi-valued numpy arrays and applies color
+    Takes binary or multi-valued numpy arrays and applies colour
     mapping to create the final RGBA images. Handles both GoL
     mosaics and ECA overlays.
 
     Attributes:
-        color_scheme: ColorScheme instance defining colors to use
+        colour_scheme: ColourScheme instance defining colours to use
 
     Example:
-        >>> from gol_mosaics import ColorScheme, MosaicRenderer
-        >>> colors = ColorScheme.ugent()
-        >>> renderer = MosaicRenderer(colors)
+        >>> from gol_mosaics import ColourScheme, MosaicRenderer
+        >>> colours = ColourScheme.ugent()
+        >>> renderer = MosaicRenderer(colours)
         >>> mosaic = np.random.randint(0, 2, (100, 100))
         >>> img = renderer.render_gol_mosaic(mosaic)
         >>> img.save('output.png')
     """
 
-    def __init__(self, color_scheme: ColorScheme):
+    def __init__(self, colour_scheme: ColourScheme):
         """
-        Initialize renderer with color scheme.
+        Initialise renderer with colour scheme.
 
         Args:
-            color_scheme: ColorScheme instance defining colors
+            colour_scheme: ColourScheme instance defining colours
 
         Example:
-            >>> colors = ColorScheme.ugent()
-            >>> renderer = MosaicRenderer(colors)
+            >>> colours = ColourScheme.ugent()
+            >>> renderer = MosaicRenderer(colours)
         """
-        self.color_scheme = color_scheme
+        self.colour_scheme = colour_scheme
 
     def render_gol_mosaic(self, mosaic: np.ndarray) -> Image.Image:
         """
@@ -69,12 +69,12 @@ class MosaicRenderer:
                 f"Mosaic must be 2D array, got shape {mosaic.shape}"
             )
 
-        color_map = {
-            0: self.color_scheme.gol_background,
-            1: self.color_scheme.gol_pixel
+        colour_map = {
+            0: self.colour_scheme.gol_background,
+            1: self.colour_scheme.gol_pixel
         }
 
-        rgb_array = self._array_to_rgb(mosaic, color_map)
+        rgb_array = self._array_to_rgb(mosaic, colour_map)
 
         # Convert to RGBA
         rgba_array = np.zeros((*mosaic.shape, 4), dtype=np.uint8)
@@ -115,9 +115,9 @@ class MosaicRenderer:
         h, w = eca_mask.shape
         overlay = np.zeros((h, w, 4), dtype=np.uint8)
 
-        # Convert hex colors to RGB
-        rgb1 = self._hex_to_rgb(self.color_scheme.eca_background)
-        rgb2 = self._hex_to_rgb(self.color_scheme.eca_pixel)
+        # Convert hex colours to RGB
+        rgb1 = self._hex_to_rgb(self.colour_scheme.eca_background)
+        rgb2 = self._hex_to_rgb(self.colour_scheme.eca_pixel)
 
         # Value 1 -> eca_background, opaque
         mask1 = (eca_mask == 1)
@@ -168,33 +168,33 @@ class MosaicRenderer:
         return Image.alpha_composite(base, overlay)
 
     @staticmethod
-    def _array_to_rgb(arr: np.ndarray, color_map: Dict[int, str]) -> np.ndarray:
+    def _array_to_rgb(arr: np.ndarray, colour_map: Dict[int, str]) -> np.ndarray:
         """
-        Convert array to RGB using color mapping.
+        Convert array to RGB using colour mapping.
 
         Args:
             arr: 2D array with integer values
-            color_map: Dictionary mapping values to hex colors
+            colour_map: Dictionary mapping values to hex colours
 
         Returns:
             RGB array of shape (*arr.shape, 3)
         """
         rgb_array = np.zeros((*arr.shape, 3), dtype=np.uint8)
 
-        for value, hex_color in color_map.items():
+        for value, hex_colour in colour_map.items():
             mask = (arr == value)
-            rgb_tuple = MosaicRenderer._hex_to_rgb(hex_color)
+            rgb_tuple = MosaicRenderer._hex_to_rgb(hex_colour)
             rgb_array[mask] = rgb_tuple
 
         return rgb_array
 
     @staticmethod
-    def _hex_to_rgb(hex_color: str) -> tuple:
+    def _hex_to_rgb(hex_colour: str) -> tuple:
         """
-        Convert hex color string to RGB tuple.
+        Convert hex colour string to RGB tuple.
 
         Args:
-            hex_color: Hex color string (e.g., '#FFFFFF')
+            hex_colour: Hex colour string (e.g., '#FFFFFF')
 
         Returns:
             RGB tuple (e.g., (255, 255, 255))
@@ -205,8 +205,8 @@ class MosaicRenderer:
             >>> MosaicRenderer._hex_to_rgb('#1E64C8')
             (30, 100, 200)
         """
-        hex_color = hex_color.lstrip('#')
-        return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        hex_colour = hex_colour.lstrip('#')
+        return tuple(int(hex_colour[i:i+2], 16) for i in (0, 2, 4))
 
     def render_full_mosaic(self,
                           gol_mosaic: np.ndarray,
@@ -232,26 +232,26 @@ class MosaicRenderer:
         overlay = self.render_eca_overlay(eca_mask)
         return self.composite(base, overlay)
 
-    def change_colors(self, new_color_scheme: ColorScheme) -> 'MosaicRenderer':
+    def change_colours(self, new_colour_scheme: ColourScheme) -> 'MosaicRenderer':
         """
-        Create new renderer with different colors.
+        Create new renderer with different colours.
 
         Args:
-            new_color_scheme: New ColorScheme to use
+            new_colour_scheme: New ColourScheme to use
 
         Returns:
             New MosaicRenderer instance
 
         Example:
-            >>> renderer1 = MosaicRenderer(ColorScheme.ugent())
-            >>> renderer2 = renderer1.change_colors(ColorScheme.monochrome())
+            >>> renderer1 = MosaicRenderer(ColourScheme.ugent())
+            >>> renderer2 = renderer1.change_colours(ColourScheme.inverted())
         """
-        return MosaicRenderer(new_color_scheme)
+        return MosaicRenderer(new_colour_scheme)
 
     def __repr__(self) -> str:
         """String representation of renderer."""
         return (
             f"MosaicRenderer("
-            f"gol_colors={self.color_scheme.gol_background}/{self.color_scheme.gol_pixel}, "
-            f"eca_colors={self.color_scheme.eca_background}/{self.color_scheme.eca_pixel})"
+            f"gol_colours={self.colour_scheme.gol_background}/{self.colour_scheme.gol_pixel}, "
+            f"eca_colours={self.colour_scheme.eca_background}/{self.colour_scheme.eca_pixel})"
         )

@@ -10,6 +10,7 @@ Example:
     >>> generator = MosaicGenerator(level=5, grid_size=100)
     >>> mosaic = generator.generate_from_image('portrait.png')
     >>> mosaic.save('output.png')
+    >>> generator.export_to_cells('output.cells')
 """
 
 __version__ = "2.0.0"
@@ -17,7 +18,7 @@ __author__ = "Michiel Rollier"
 
 from .mosaic import MosaicGenerator
 from .patterns import PatternLibrary
-from .colors import ColorScheme
+from .colours import ColourScheme
 from .export import GollyExporter
 from .image_processing import ImageProcessor
 from .eca import ECABackground
@@ -26,7 +27,7 @@ from .renderer import MosaicRenderer
 __all__ = [
     'MosaicGenerator',
     'PatternLibrary',
-    'ColorScheme',
+    'ColourScheme',
     'GollyExporter',
     'ImageProcessor',
     'ECABackground',
