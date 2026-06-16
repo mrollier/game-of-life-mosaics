@@ -32,7 +32,7 @@ The result is a unique mosaic where:
 ## Features
 
 - **Automatic mosaic generation** from any image (PNG, JPG, GIF)
-- **Four complexity levels** (2, 3, 4, 5) with pre-computed patterns
+- **Five pre-computed complexity levels** (1–5; levels 1–2 are trivial, 3–5 give the best results)
 - **Customisable colour schemes** (UGent colours, monochrome, Warhol palette, or custom)
 - **ECA background overlays** with multiple rule options
 - **Export to Golly format** for Game of Life simulation (collapsing the Still Life)
@@ -60,7 +60,7 @@ pip install -r requirements.txt
 - **Pillow** (>=9.0.0) - Image processing
 - **gurobipy** (>=11.0.0) - Optimisation solver (only for generating new patterns)
 
-> **Note on Gurobi**: Gurobi is only required for *generating* new patterns. Using pre-computed patterns (levels 2-5) works without a Gurobi license. For pattern generation, obtain a free academic license or trial from [gurobi.com](https://www.gurobi.com/). Note that (with the current algorithm) calculating all patterns for level > 5 is computationally highly demanding.
+> **Note on Gurobi**: Gurobi is only required for *generating* new patterns. Using pre-computed patterns (levels 1-5) works without a Gurobi license. For pattern generation, obtain a free academic license or trial from [gurobi.com](https://www.gurobi.com/). Note that (with the current algorithm) calculating all patterns for level > 5 is computationally highly demanding.
 
 ## Quick Start
 
@@ -131,7 +131,7 @@ mosaic.save('output.png')
 from gol_mosaics import MosaicGenerator, ColorScheme
 
 generator = MosaicGenerator(
-    level=5,                    # Pattern complexity (3, 4, or 5)
+    level=5,                    # Pattern complexity (1-5; 3-5 recommended)
     grid_size=100,              # Number of tiles (must be even)
     color_scheme=ColorScheme.ugent(),
     eca_rule=106                # ECA rule (30, 45, 54, 106, 110, etc.)
@@ -149,7 +149,7 @@ mosaic.save('output.png')
 
 ### Parameter Guide
 
-- **level** (2-5): Pattern complexity. Higher = more detailed but larger files. Pre-computed levels: 2, 3, 4, 5.
+- **level** (1-5): Pattern complexity. Higher = more detailed but larger files. Pre-computed levels: 1, 2, 3, 4, 5 (levels 1-2 are trivial; 3-5 recommended).
 - **grid_size** (must be even): Number of tiles. Higher = more detail but slower. Typical: 30-150.
 - **eca_rule**: Wolfram rule for background pattern.
   - Complex: 54, 147, 110, 124, 137, 193
@@ -268,7 +268,7 @@ MosaicGenerator(level=4, grid_size=30, color_scheme=None,
 Manages Game of Life patterns.
 
 **Class Methods:**
-- `PatternLibrary.load(level)` - Load pre-computed patterns (levels 2-5)
+- `PatternLibrary.load(level)` - Load pre-computed patterns (levels 1-5)
 - `PatternLibrary.generate(level, solution_limit)` - Generate new patterns
 
 **Methods:**
