@@ -36,6 +36,7 @@ setup(
     install_requires=[req for req in requirements if not req.startswith("pytest")],
     extras_require={
         "dev": ["pytest>=7.0.0", "pytest-cov>=3.0.0"],
+        "bg-removal": ["rembg>=2.0.0"],
     },
     include_package_data=True,
     package_data={

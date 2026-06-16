@@ -8,7 +8,7 @@ for converting images to Game of Life mosaics.
 import numpy as np
 import math
 from PIL import Image
-from typing import Optional
+from typing import Optional, Union
 from scipy.ndimage import binary_fill_holes
 
 from .patterns import PatternLibrary
@@ -124,7 +124,8 @@ class MosaicGenerator:
                            empty_tiles_cutoff: float = 0.75,
                            alpha_cutoff: float = 0.5,
                            supersample: Optional[int] = None,
-                           no_eca = False) -> Image.Image:
+                           no_eca = False,
+                           remove_background: Union[bool, str] = 'auto') -> Image.Image:
         """
         Generate mosaic from image file.
 
@@ -143,6 +144,10 @@ class MosaicGenerator:
             supersample: ECA upsampling factor (must divide mosaic width evenly).
                 Higher values create finer ECA patterns.
                 If None (default), automatically selects a valid value close to 15.
+            remove_background: Background removal mode (default: 'auto').
+                'auto' removes the background only when it is still present;
+                True always removes it; False never does. Removal needs the
+                optional 'rembg' package.
 
         Returns:
             PIL Image in RGBA mode with mosaic and ECA background
@@ -167,7 +172,8 @@ class MosaicGenerator:
         # Preprocess image
         results = ImageProcessor.preprocess_for_mosaic(
             image_path,
-            self.grid_size
+            self.grid_size,
+            remove_background=remove_background
         )
         lowres_first, lowres_second, mask_first, mask_second, aspect_ratio = results
 
@@ -213,7 +219,8 @@ class MosaicGenerator:
                          gif_path: str,
                          empty_tiles_cutoff: float = 0.75,
                          alpha_cutoff: float = 0.5,
-                         supersample: int = 15) -> Image.Image:
+                         supersample: int = 15,
+                         remove_background: Union[bool, str] = 'auto') -> Image.Image:
         """
         Convert animated GIF to mosaic GIF.
 
@@ -263,7 +270,8 @@ class MosaicGenerator:
                         temp_path,
                         empty_tiles_cutoff=empty_tiles_cutoff,
                         alpha_cutoff=alpha_cutoff,
-                        supersample=supersample
+                        supersample=supersample,
+                        remove_background=remove_background
                     )
                     frames.append(mosaic)
                     durations.append(gif.info.get('duration', 100))

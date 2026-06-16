@@ -44,6 +44,9 @@ dev = [
 gurobi = [
     "gurobipy>=11.0.0",
 ]
+bg-removal = [
+    "rembg>=2.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/mrollier/game-of-life-mosaics"

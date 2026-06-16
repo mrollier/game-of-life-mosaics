@@ -27,20 +27,29 @@ class ImageProcessor:
         >>> lowres = ImageProcessor.rotate_and_pixelate(square_img, grid_size=30)
     """
 
+    # Cached rembg session (created lazily on first background removal).
+    _REMBG_SESSION = None
+
     @staticmethod
     def load_image(image_path: str,
                   alpha_color: str = 'white',
-                  return_alpha: bool = False) -> Union[Image.Image, Tuple[Image.Image, Image.Image]]:
+                  return_alpha: bool = False,
+                  remove_background: Union[bool, str] = 'auto') -> Union[Image.Image, Tuple[Image.Image, Image.Image]]:
         """
         Load an image from file with alpha channel handling.
 
         Transparent pixels are composited onto a solid color background
-        before converting to grayscale.
+        before converting to grayscale. The alpha channel becomes the mask
+        that tells the mosaic subject from background, so an image whose
+        background is still present is optionally removed first.
 
         Args:
             image_path: Path to image file (PNG, JPG, etc.)
             alpha_color: Color for transparent background (default: 'white')
             return_alpha: If True, also return the alpha mask
+            remove_background: Background removal mode (default: 'auto').
+                'auto' removes the background only when has_background() detects
+                it is still present; True always removes it; False never does.
 
         Returns:
             If return_alpha=False: Grayscale PIL Image
@@ -49,6 +58,8 @@ class ImageProcessor:
         Raises:
             FileNotFoundError: If image_path doesn't exist
             IOError: If image cannot be loaded
+            ValueError: If remove_background is not True, False or 'auto'
+            ImportError: If removal is needed but 'rembg' is not installed
 
         Example:
             >>> img = ImageProcessor.load_image('portrait.png')
@@ -57,8 +68,21 @@ class ImageProcessor:
         # Open image
         img = Image.open(image_path)
 
-        # Convert to RGBA and extract alpha channel
+        # Convert to RGBA
         img = img.convert('RGBA')
+
+        # Optionally strip the background so the alpha channel marks the subject
+        if remove_background not in (True, False, 'auto'):
+            raise ValueError(
+                f"remove_background must be True, False or 'auto', "
+                f"got {remove_background!r}"
+            )
+        if remove_background is True or (
+            remove_background == 'auto' and ImageProcessor.has_background(img)
+        ):
+            img = ImageProcessor.remove_background(img)
+
+        # Extract alpha channel
         mask = img.split()[-1]
 
         # Composite onto background color
@@ -72,6 +96,73 @@ class ImageProcessor:
         if return_alpha:
             return img, mask
         return img
+
+    @staticmethod
+    def has_background(img: Image.Image, opaque_threshold: float = 0.99) -> bool:
+        """
+        Detect whether an image still has its (opaque) background.
+
+        The mosaic pipeline uses the alpha channel to separate subject from
+        background. A photo with no alpha channel — or whose alpha is
+        essentially all-opaque — has not had its background removed yet.
+
+        Args:
+            img: PIL Image in any mode.
+            opaque_threshold: Fraction of fully-opaque pixels at or above which
+                the background is considered still present (default: 0.99, i.e.
+                fewer than ~1% transparent pixels).
+
+        Returns:
+            True if the background appears to still be present.
+
+        Example:
+            >>> ImageProcessor.has_background(Image.open('photo.jpg'))
+            True
+        """
+        alpha = np.asarray(img.convert('RGBA').split()[-1])
+        return bool((alpha == 255).mean() >= opaque_threshold)
+
+    @classmethod
+    def remove_background(cls, img: Image.Image) -> Image.Image:
+        """
+        Remove an image's background, returning RGBA with the subject opaque.
+
+        Uses the optional ``rembg`` package (a U2-Net segmentation model),
+        which is well suited to the portraits this project targets. The model
+        session is created once and reused across calls.
+
+        Args:
+            img: PIL Image to process.
+
+        Returns:
+            RGBA PIL Image whose background pixels are transparent.
+
+        Raises:
+            ImportError: If the optional ``rembg`` package is not installed.
+
+        Example:
+            >>> clean = ImageProcessor.remove_background(Image.open('photo.jpg'))
+            >>> clean.mode
+            'RGBA'
+        """
+        try:
+            from rembg import remove
+        except ImportError as exc:
+            raise ImportError(
+                "Background removal requires the optional 'rembg' package. "
+                "Install it with `pip install rembg` "
+                "(or `pip install gol-mosaics[bg-removal]`), "
+                "or pass remove_background=False to skip removal."
+            ) from exc
+        return remove(img, session=cls._rembg_session()).convert('RGBA')
+
+    @classmethod
+    def _rembg_session(cls):
+        """Create (once) and return a cached rembg session."""
+        if cls._REMBG_SESSION is None:
+            from rembg import new_session
+            cls._REMBG_SESSION = new_session()
+        return cls._REMBG_SESSION
 
     @staticmethod
     def square_image(img: Image.Image,
@@ -211,7 +302,8 @@ class ImageProcessor:
                              image_path: str,
                              grid_size: int,
                              alpha_color: str = 'white',
-                             fill_color: str = 'white') -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float]:
+                             fill_color: str = 'white',
+                             remove_background: Union[bool, str] = 'auto') -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float]:
         """
         Complete preprocessing pipeline from image file to diagonal patterns.
 
@@ -223,6 +315,8 @@ class ImageProcessor:
             grid_size: Target grid size (must be even)
             alpha_color: Background color for transparent pixels
             fill_color: Padding color for squaring
+            remove_background: Background removal mode passed to load_image
+                ('auto', True or False; default 'auto')
 
         Returns:
             Tuple of:
@@ -238,7 +332,8 @@ class ImageProcessor:
             >>> print(f"Aspect ratio: {aspect:.2f}")
         """
         # Load image and mask
-        img, mask = cls.load_image(image_path, alpha_color=alpha_color, return_alpha=True)
+        img, mask = cls.load_image(image_path, alpha_color=alpha_color,
+                                   return_alpha=True, remove_background=remove_background)
 
         # Process grayscale image
         square_img, aspect_ratio = cls.square_image(img, return_aspect=True, fill_color=fill_color)

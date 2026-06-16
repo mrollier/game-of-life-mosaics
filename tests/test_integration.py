@@ -31,11 +31,39 @@ def test_image_path():
     os.unlink(path)
 
 
+@pytest.fixture
+def transparent_image_path():
+    """A subject on a transparent background (background already removed)."""
+    img = Image.new('RGBA', (100, 100), (0, 0, 0, 0))
+    subject = Image.new('RGBA', (50, 50), (30, 30, 30, 255))
+    img.paste(subject, (25, 25))
+
+    with tempfile.NamedTemporaryFile(mode='wb', suffix='.png', delete=False) as tmp:
+        img.save(tmp, format='PNG')
+        path = tmp.name
+
+    yield path
+
+    os.unlink(path)
+
+
+def test_auto_default_skips_removal_for_transparent_image(transparent_image_path):
+    """The 'auto' default leaves an already-transparent image untouched, so the
+    full pipeline runs end-to-end without needing the optional rembg package."""
+    generator = MosaicGenerator(level=3, grid_size=10)
+    result = generator.generate_from_image(transparent_image_path, supersample=12)
+
+    assert isinstance(result, Image.Image)
+    assert result.mode == 'RGBA'
+
+
 def test_full_pipeline(test_image_path):
     """Test complete mosaic generation pipeline."""
     generator = MosaicGenerator(level=3, grid_size=10)
-    # Use supersample=12 which divides the mosaic width (144) evenly
-    result = generator.generate_from_image(test_image_path, supersample=12)
+    # Use supersample=12 which divides the mosaic width (144) evenly.
+    # remove_background=False: this fixture is an opaque test pattern, not a
+    # photo needing background removal (and avoids the optional rembg dep).
+    result = generator.generate_from_image(test_image_path, supersample=12, remove_background=False)
 
     assert isinstance(result, Image.Image)
     assert result.mode == 'RGBA'
@@ -47,8 +75,10 @@ def test_custom_colors(test_image_path):
     """Test mosaic generation with custom colors."""
     colors = ColorScheme.monochrome()
     generator = MosaicGenerator(level=3, grid_size=10, color_scheme=colors)
-    # Use supersample=12 which divides the mosaic width (144) evenly
-    result = generator.generate_from_image(test_image_path, supersample=12)
+    # Use supersample=12 which divides the mosaic width (144) evenly.
+    # remove_background=False: this fixture is an opaque test pattern, not a
+    # photo needing background removal (and avoids the optional rembg dep).
+    result = generator.generate_from_image(test_image_path, supersample=12, remove_background=False)
 
     assert isinstance(result, Image.Image)
     assert result.mode == 'RGBA'
@@ -61,7 +91,8 @@ def test_different_parameters(test_image_path):
         test_image_path,
         empty_tiles_cutoff=0.5,
         alpha_cutoff=0.5,
-        supersample=6  # Use 6 which divides 144 evenly
+        supersample=6,  # Use 6 which divides 144 evenly
+        remove_background=False
     )
 
     assert isinstance(result, Image.Image)

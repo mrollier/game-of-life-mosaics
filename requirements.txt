@@ -16,6 +16,11 @@ gurobipy>=11.0.0
 # Image processing
 Pillow>=9.0.0
 
+# Automatic background removal (optional)
+# Only needed when generate_from_image runs background removal (the 'auto'
+# default, or remove_background=True). Install with: pip install gol-mosaics[bg-removal]
+# rembg>=2.0.0
+
 # Testing (development)
 pytest>=7.0.0
 pytest-cov>=3.0.0
