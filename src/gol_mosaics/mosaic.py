@@ -26,7 +26,7 @@ class MosaicGenerator:
     pattern library, image processing, ECA backgrounds, and rendering.
 
     Attributes:
-        level: Pattern complexity level (2-5 pre-computed, others need generation)
+        level: Pattern complexity level (1-5 pre-computed, others need generation)
         grid_size: Number of tiles in the grid
         color_scheme: ColorScheme for rendering
         eca_rule: Rule number for ECA background

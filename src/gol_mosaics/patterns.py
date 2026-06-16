@@ -27,7 +27,7 @@ class PatternLibrary:
     minimize memory usage.
 
     Attributes:
-        level: Pattern complexity level (3-5 for pre-computed, others require generation)
+        level: Pattern complexity level (1-5 pre-computed, others require generation)
         pond_width: Fixed width parameter (6) for pattern generation
 
     Example:
@@ -190,7 +190,7 @@ class PatternLibrary:
                 "Gurobi is required for pattern generation but is not installed. "
                 "Install with: pip install gurobipy\n"
                 "Note: Gurobi requires a license (free academic licenses available at gurobi.com).\n"
-                "For pre-computed patterns (levels 3-5), use PatternLibrary.load() instead."
+                "For pre-computed patterns (levels 1-5), use PatternLibrary.load() instead."
             )
 
         library = cls(level=level)
