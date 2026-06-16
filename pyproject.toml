@@ -45,7 +45,7 @@ gurobi = [
     "gurobipy>=11.0.0",
 ]
 bg-removal = [
-    "rembg>=2.0.0",
+    "rembg[cpu]>=2.0.0",
 ]
 
 [project.urls]

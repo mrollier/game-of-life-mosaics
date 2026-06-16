@@ -64,6 +64,8 @@ pip install -r requirements.txt
 > **Note on Gurobi**: Gurobi is only required for *generating* new patterns. Using pre-computed patterns (levels 1-5) works without a Gurobi license. For pattern generation, obtain a free academic license or trial from [gurobi.com](https://www.gurobi.com/). Note that (with the current algorithm) calculating all patterns for level > 5 is computationally highly demanding.
 
 > **Note on background removal**: `rembg` is only required when the algorithm removes an image's background for you (the `remove_background='auto'` default, or `remove_background=True`). Install it with `pip install gol-mosaics[bg-removal]`. If your images already have transparent backgrounds, you don't need it.
+>
+> Removal automatically prefers any available GPU/accelerator (CoreML on Apple Silicon, or CUDA if you have installed `onnxruntime-gpu`) and otherwise uses the CPU. To force CPU, set `ImageProcessor.background_removal_providers = ['CPUExecutionProvider']` before the first removal.
 
 ## Quick Start
 
@@ -163,6 +165,7 @@ mosaic.save('output.png')
 - **empty_tiles_cutoff** (0-1): Brightness threshold above which tiles are empty. Lower = more empty tiles.
 - **alpha_cutoff** (0-1): Transparency threshold. Transparent areas get filled with ECA pattern.
 - **supersample**: ECA upsampling factor. Must divide mosaic width evenly. Higher = finer ECA detail.
+- **contrast**: Sigmoid (S-curve) contrast boost on the greyscale before tiling. 0 disables; higher is punchier (default 5.0). High-contrast images give the most striking mosaics.
 
 ### Working with Pattern Library
 
@@ -265,7 +268,7 @@ MosaicGenerator(level=4, grid_size=30, color_scheme=None,
 ```
 
 **Methods:**
-- `generate_from_image(image_path, empty_tiles_cutoff=1.0, alpha_cutoff=0.5, supersample=15, remove_background='auto')` - Generate from image file
+- `generate_from_image(image_path, empty_tiles_cutoff=1.0, alpha_cutoff=0.5, supersample=15, remove_background='auto', contrast=5.0)` - Generate from image file
 - `generate_from_gif(gif_path, ...)` - Process animated GIF
 
 ### PatternLibrary
@@ -325,13 +328,14 @@ ECABackground(rule=106)
 Image loading, background removal, and preprocessing.
 
 **Methods:**
-- `load_image(image_path, alpha_color, return_alpha, remove_background='auto')` - Load with alpha handling
+- `load_image(image_path, alpha_color, return_alpha, remove_background='auto', contrast=5.0)` - Load with alpha handling
 - `has_background(img, opaque_threshold=0.99)` - Detect whether a background is still present
-- `remove_background(img)` - Remove the background with `rembg` (returns RGBA)
+- `remove_background(img, model='u2net', alpha_matting=False, **kwargs)` - Remove the background with `rembg` (returns RGBA)
+- `enhance_contrast(img, contrast=5.0, midpoint=0.5)` - Sigmoid (S-curve) contrast boost on a greyscale image
 - `square_image(img, return_aspect, fill_color)` - Pad to square
 - `rotate_and_pixelate(img, grid_size, expand)` - Rotate 45° and pixelate
 - `extract_diagonal_patterns(lowres)` - Extract two diagonal grids
-- `preprocess_for_mosaic(image_path, grid_size, remove_background='auto')` - Complete preprocessing pipeline
+- `preprocess_for_mosaic(image_path, grid_size, remove_background='auto', contrast=5.0)` - Complete preprocessing pipeline
 
 ### MosaicRenderer
 
@@ -353,6 +357,7 @@ MosaicRenderer(color_scheme)
 See the [notebooks/](notebooks/) directory for Jupyter notebooks with detailed examples:
 
 - **quickstart.ipynb** - Simple 10-line example to get started
+- **preprocessing_demo.ipynb** - Explore the preprocessing steps: background removal (models, alpha matting) and the S-curve contrast boost
 - **parameter_demo.ipynb** - Demonstration of the visual effect of some of the most important parameters
 - **playground.ipynb** - Notebook in which you can easily play around with the parameter values yourself
 - **golly.ipynb** - Demonstration of how to export a Mosaic as a `.cells` file for import into Golly

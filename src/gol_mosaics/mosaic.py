@@ -121,11 +121,12 @@ class MosaicGenerator:
 
     def generate_from_image(self,
                            image_path: str,
-                           empty_tiles_cutoff: float = 0.75,
+                           empty_tiles_cutoff: float = 0.65,
                            alpha_cutoff: float = 0.5,
                            supersample: Optional[int] = None,
                            no_eca = False,
-                           remove_background: Union[bool, str] = 'auto') -> Image.Image:
+                           remove_background: Union[bool, str] = 'auto',
+                           contrast: float = 5.0) -> Image.Image:
         """
         Generate mosaic from image file.
 
@@ -148,6 +149,8 @@ class MosaicGenerator:
                 'auto' removes the background only when it is still present;
                 True always removes it; False never does. Removal needs the
                 optional 'rembg' package.
+            contrast: Sigmoid contrast strength applied to the greyscale before
+                tiling (default 5.0; 0 disables). See ImageProcessor.enhance_contrast.
 
         Returns:
             PIL Image in RGBA mode with mosaic and ECA background
@@ -173,7 +176,8 @@ class MosaicGenerator:
         results = ImageProcessor.preprocess_for_mosaic(
             image_path,
             self.grid_size,
-            remove_background=remove_background
+            remove_background=remove_background,
+            contrast=contrast
         )
         lowres_first, lowres_second, mask_first, mask_second, aspect_ratio = results
 
@@ -220,7 +224,8 @@ class MosaicGenerator:
                          empty_tiles_cutoff: float = 0.75,
                          alpha_cutoff: float = 0.5,
                          supersample: int = 15,
-                         remove_background: Union[bool, str] = 'auto') -> Image.Image:
+                         remove_background: Union[bool, str] = 'auto',
+                         contrast: float = 5.0) -> Image.Image:
         """
         Convert animated GIF to mosaic GIF.
 
@@ -271,7 +276,8 @@ class MosaicGenerator:
                         empty_tiles_cutoff=empty_tiles_cutoff,
                         alpha_cutoff=alpha_cutoff,
                         supersample=supersample,
-                        remove_background=remove_background
+                        remove_background=remove_background,
+                        contrast=contrast
                     )
                     frames.append(mosaic)
                     durations.append(gif.info.get('duration', 100))

@@ -19,7 +19,8 @@ Pillow>=9.0.0
 # Automatic background removal (optional)
 # Only needed when generate_from_image runs background removal (the 'auto'
 # default, or remove_background=True). Install with: pip install gol-mosaics[bg-removal]
-# rembg>=2.0.0
+# (rembg needs an onnxruntime backend, hence the [cpu] extra)
+# rembg[cpu]>=2.0.0
 
 # Testing (development)
 pytest>=7.0.0

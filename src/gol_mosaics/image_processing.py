@@ -27,14 +27,21 @@ class ImageProcessor:
         >>> lowres = ImageProcessor.rotate_and_pixelate(square_img, grid_size=30)
     """
 
-    # Cached rembg session (created lazily on first background removal).
-    _REMBG_SESSION = None
+    # Cached rembg sessions, keyed by model name (created lazily on first use).
+    _REMBG_SESSIONS = {}
+
+    # ONNX Runtime execution providers for background removal. None auto-detects
+    # (prefer GPU/accelerator, fall back to CPU). Set to a list to force, e.g.
+    # ImageProcessor.background_removal_providers = ['CPUExecutionProvider'].
+    # Must be set before the first removal, as the session is cached.
+    background_removal_providers = None
 
     @staticmethod
     def load_image(image_path: str,
                   alpha_color: str = 'white',
                   return_alpha: bool = False,
-                  remove_background: Union[bool, str] = 'auto') -> Union[Image.Image, Tuple[Image.Image, Image.Image]]:
+                  remove_background: Union[bool, str] = 'auto',
+                  contrast: float = 5.0) -> Union[Image.Image, Tuple[Image.Image, Image.Image]]:
         """
         Load an image from file with alpha channel handling.
 
@@ -50,6 +57,8 @@ class ImageProcessor:
             remove_background: Background removal mode (default: 'auto').
                 'auto' removes the background only when has_background() detects
                 it is still present; True always removes it; False never does.
+            contrast: Sigmoid contrast strength applied to the greyscale
+                (default 5.0; 0 disables). See enhance_contrast().
 
         Returns:
             If return_alpha=False: Grayscale PIL Image
@@ -93,6 +102,9 @@ class ImageProcessor:
         # Convert to grayscale
         img = img.convert('L')
 
+        # Increase contrast (S-curve) so the mosaic reads more clearly
+        img = ImageProcessor.enhance_contrast(img, contrast=contrast)
+
         if return_alpha:
             return img, mask
         return img
@@ -122,17 +134,61 @@ class ImageProcessor:
         alpha = np.asarray(img.convert('RGBA').split()[-1])
         return bool((alpha == 255).mean() >= opaque_threshold)
 
+    @staticmethod
+    def enhance_contrast(img: Image.Image,
+                        contrast: float = 5.0,
+                        midpoint: float = 0.5) -> Image.Image:
+        """
+        Increase contrast with a sigmoid (S-curve).
+
+        Pushes light tones lighter and dark tones darker while keeping pure
+        black and white fixed, so high-contrast portraits map to clearer
+        mosaics. The curve is normalised so the endpoints stay at 0 and 255.
+
+        Args:
+            img: Greyscale ('L') PIL Image.
+            contrast: Sigmoid steepness. 0 leaves the image unchanged; higher
+                values increase contrast (default 5.0).
+            midpoint: Pivot of the curve in 0-1 (default 0.5 = mid-grey). Tones
+                below it are darkened, tones above it are lightened.
+
+        Returns:
+            Contrast-enhanced greyscale PIL Image.
+
+        Example:
+            >>> grey = ImageProcessor.load_image('portrait.png')
+            >>> punchy = ImageProcessor.enhance_contrast(grey, contrast=6)
+        """
+        if not contrast:
+            return img
+
+        arr = np.asarray(img, dtype=np.float64) / 255.0
+        sigmoid = lambda x: 1.0 / (1.0 + np.exp(-contrast * (x - midpoint)))
+        lo, hi = sigmoid(0.0), sigmoid(1.0)
+        out = np.clip((sigmoid(arr) - lo) / (hi - lo), 0.0, 1.0)
+        return Image.fromarray((out * 255).round().astype(np.uint8), mode='L')
+
     @classmethod
-    def remove_background(cls, img: Image.Image) -> Image.Image:
+    def remove_background(cls, img: Image.Image,
+                         model: str = 'u2net',
+                         alpha_matting: bool = False,
+                         **kwargs) -> Image.Image:
         """
         Remove an image's background, returning RGBA with the subject opaque.
 
-        Uses the optional ``rembg`` package (a U2-Net segmentation model),
-        which is well suited to the portraits this project targets. The model
-        session is created once and reused across calls.
+        Uses the optional ``rembg`` package. Sessions are created once per model
+        and reused across calls.
 
         Args:
             img: PIL Image to process.
+            model: rembg segmentation model. 'u2net' (default) is general
+                purpose; 'u2net_human_seg' is tuned for people; others include
+                'isnet-general-use' and 'silueta'. Each downloads on first use.
+            alpha_matting: Refine the cutout edges with alpha matting (slower,
+                softer edges). Default False.
+            **kwargs: Forwarded to ``rembg.remove`` — e.g. the alpha-matting
+                thresholds ``alpha_matting_foreground_threshold``,
+                ``alpha_matting_background_threshold``, ``alpha_matting_erode_size``.
 
         Returns:
             RGBA PIL Image whose background pixels are transparent.
@@ -147,22 +203,55 @@ class ImageProcessor:
         """
         try:
             from rembg import remove
-        except ImportError as exc:
+        except (ImportError, SystemExit) as exc:
+            # rembg raises ImportError when absent, and sys.exit()s on import
+            # when installed without an onnxruntime backend.
             raise ImportError(
-                "Background removal requires the optional 'rembg' package. "
-                "Install it with `pip install rembg` "
+                "Background removal requires the optional 'rembg' package with "
+                "an onnxruntime backend. Install it with `pip install \"rembg[cpu]\"` "
                 "(or `pip install gol-mosaics[bg-removal]`), "
                 "or pass remove_background=False to skip removal."
             ) from exc
-        return remove(img, session=cls._rembg_session()).convert('RGBA')
+        return remove(img, session=cls._rembg_session(model),
+                      alpha_matting=alpha_matting, **kwargs).convert('RGBA')
 
     @classmethod
-    def _rembg_session(cls):
-        """Create (once) and return a cached rembg session."""
-        if cls._REMBG_SESSION is None:
+    def _rembg_session(cls, model: str = 'u2net'):
+        """Create (once per model) and return a cached rembg session.
+
+        rembg's own auto-selection never considers Apple's CoreML provider, so
+        we pass an explicit provider list that prefers hardware acceleration
+        (CUDA/ROCm on NVIDIA/AMD, CoreML on Apple Silicon) and falls back to CPU.
+        """
+        if model not in cls._REMBG_SESSIONS:
+            import onnxruntime as ort
             from rembg import new_session
-            cls._REMBG_SESSION = new_session()
-        return cls._REMBG_SESSION
+            providers = cls.background_removal_providers or cls._preferred_providers(
+                ort.get_available_providers()
+            )
+            cls._REMBG_SESSIONS[model] = new_session(model, providers=providers)
+        return cls._REMBG_SESSIONS[model]
+
+    @staticmethod
+    def _preferred_providers(available) -> list:
+        """Order available ONNX Runtime providers best-first, CPU last.
+
+        Args:
+            available: Provider names from onnxruntime.get_available_providers().
+
+        Returns:
+            Accelerated providers (if present) followed by CPU as a fallback.
+        """
+        preferred = [
+            'CUDAExecutionProvider',    # NVIDIA
+            'ROCMExecutionProvider',    # AMD
+            'CoreMLExecutionProvider',  # Apple Silicon
+            'CPUExecutionProvider',
+        ]
+        ordered = [p for p in preferred if p in available]
+        if 'CPUExecutionProvider' not in ordered:
+            ordered.append('CPUExecutionProvider')
+        return ordered
 
     @staticmethod
     def square_image(img: Image.Image,
@@ -303,7 +392,8 @@ class ImageProcessor:
                              grid_size: int,
                              alpha_color: str = 'white',
                              fill_color: str = 'white',
-                             remove_background: Union[bool, str] = 'auto') -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float]:
+                             remove_background: Union[bool, str] = 'auto',
+                             contrast: float = 5.0) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float]:
         """
         Complete preprocessing pipeline from image file to diagonal patterns.
 
@@ -317,6 +407,8 @@ class ImageProcessor:
             fill_color: Padding color for squaring
             remove_background: Background removal mode passed to load_image
                 ('auto', True or False; default 'auto')
+            contrast: Sigmoid contrast strength passed to load_image
+                (default 5.0; 0 disables)
 
         Returns:
             Tuple of:
@@ -333,7 +425,8 @@ class ImageProcessor:
         """
         # Load image and mask
         img, mask = cls.load_image(image_path, alpha_color=alpha_color,
-                                   return_alpha=True, remove_background=remove_background)
+                                   return_alpha=True, remove_background=remove_background,
+                                   contrast=contrast)
 
         # Process grayscale image
         square_img, aspect_ratio = cls.square_image(img, return_aspect=True, fill_color=fill_color)
