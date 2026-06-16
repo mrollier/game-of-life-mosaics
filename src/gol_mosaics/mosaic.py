@@ -74,6 +74,12 @@ class MosaicGenerator:
         """
         # Pick random grid size and level if not provided
         self.grid_size = grid_size or self._auto_select_grid_size()
+        if self.grid_size % 2 != 0:
+            raise ValueError(
+                f"grid_size must be even, got {self.grid_size}. "
+                "The diamond layout interlocks two diagonal grids and "
+                "requires an even number of tiles."
+            )
         self.level = level or self._auto_select_level()
 
         # Pick random ECA rule from some interesting ones if not provided

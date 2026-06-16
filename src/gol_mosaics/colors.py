@@ -66,6 +66,37 @@ class ColorScheme:
         )
 
     @classmethod
+    def monochrome(cls,
+                   foreground: str = '#000000',
+                   background: str = '#FFFFFF') -> 'ColorScheme':
+        """
+        Two-colour monochrome scheme.
+
+        Uses a single foreground colour on a single background colour for
+        both the Game of Life patterns and the ECA overlay.
+
+        Args:
+            foreground: Pixel/foreground colour (default: black)
+            background: Background colour (default: white)
+
+        Returns:
+            ColorScheme with the same two colours for GoL and ECA
+
+        Example:
+            >>> colors = ColorScheme.monochrome()
+            >>> colors.gol_pixel
+            '#000000'
+            >>> # Red on green
+            >>> colors = ColorScheme.monochrome(foreground='#FF0000', background='#00FF00')
+        """
+        return cls(
+            gol_background=background,
+            gol_pixel=foreground,
+            eca_background=background,
+            eca_pixel=foreground
+        )
+
+    @classmethod
     def custom(cls,
                gol_background: str = '#FFFFFF',
                gol_pixel: str = '#000000',

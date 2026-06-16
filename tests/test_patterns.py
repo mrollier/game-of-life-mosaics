@@ -18,7 +18,7 @@ def test_pattern_library_load():
 def test_pattern_library_invalid_level():
     """Test error for invalid level."""
     with pytest.raises(ValueError):
-        PatternLibrary.load(level=2)  # Not pre-computed
+        PatternLibrary.load(level=0)  # Below supported range
 
     with pytest.raises(ValueError):
         PatternLibrary.load(level=6)  # Not pre-computed
