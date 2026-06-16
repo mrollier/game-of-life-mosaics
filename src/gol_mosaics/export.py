@@ -25,7 +25,7 @@ class GollyExporter:
     @staticmethod
     def export_to_cells(mosaic: np.ndarray,
                        filename: str = "output.cells",
-                       add_glider: bool = False) -> None:
+                       add_glider: Optional[str] = None) -> None:
         """
         Export mosaic to .cells format for Golly simulator.
 
@@ -37,11 +37,14 @@ class GollyExporter:
         Args:
             mosaic: Binary numpy array (0=dead, 1=alive)
             filename: Output filename (should end with .cells)
-            add_glider: If True, adds a glider pattern to top-left corner
+            add_glider: If None (default), no glider is added. Otherwise a
+                       corner name ('top left', 'top right', 'bottom left',
+                       'bottom right') that places a glider in that corner
                        for animation testing
 
         Raises:
-            ValueError: If mosaic is not 2D or contains values other than 0/1
+            ValueError: If mosaic is not 2D, contains values other than 0/1,
+                       or add_glider is not a recognised corner name
 
         Example:
             >>> mosaic = np.zeros((10, 10))
@@ -52,7 +55,7 @@ class GollyExporter:
             >>> GollyExporter.export_to_cells(
             ...     mosaic,
             ...     'animated.cells',
-            ...     add_glider=True
+            ...     add_glider='bottom right'
             ... )
         """
         # Validate input
@@ -69,7 +72,7 @@ class GollyExporter:
         # Make a copy if we're adding a glider
         if add_glider:
             mosaic = mosaic.copy()
-            mosaic = GollyExporter._add_glider_pattern(mosaic)
+            mosaic = GollyExporter._add_glider_pattern(mosaic, add_glider)
 
         # Write to file
         with open(filename, 'w') as f:
@@ -79,19 +82,29 @@ class GollyExporter:
                 f.write(line + '\n')
 
     @staticmethod
-    def _add_glider_pattern(mosaic: np.ndarray) -> np.ndarray:
+    def _add_glider_pattern(mosaic: np.ndarray, add_glider: str = 'bottom right') -> np.ndarray:
         """
-        Add a glider pattern to the top-left corner of the mosaic.
+        Add a glider pattern to the chosen corner of the mosaic.
 
         The glider is a simple moving pattern in Conway's Game of Life
-        that travels diagonally across the grid.
+        that travels diagonally across the grid. It is oriented to travel
+        inward from the chosen corner.
 
         Args:
             mosaic: Binary numpy array to add glider to
+            add_glider: Corner to place the glider in ('top left', 'top right',
+                       'bottom left', 'bottom right')
 
         Returns:
-            Modified mosaic with glider in top-left corner
+            Modified mosaic with a glider in the chosen corner
         """
+
+        if add_glider not in ['top left', 'bottom right', 'top right', 'bottom left']:
+            raise ValueError(
+                f"Invalid add_glider option: {add_glider}. "
+                "Choose from 'top left', 'bottom right', 'top right', 'bottom left'."
+            )
+
         glider_pattern = np.array([
             [0, 1, 0],
             [0, 0, 1],
@@ -100,7 +113,24 @@ class GollyExporter:
 
         # Only add if mosaic is large enough
         if mosaic.shape[0] >= 3 and mosaic.shape[1] >= 3:
-            mosaic[:glider_pattern.shape[0], :glider_pattern.shape[1]] = glider_pattern
+            # add to top-left corner
+            if add_glider == 'top left':
+                mosaic[:glider_pattern.shape[0], :glider_pattern.shape[1]] = glider_pattern
+            # add to bottom-right corner
+            elif add_glider == 'bottom right':
+                # rotate glider_pattern 180 degrees for correct orientation
+                glider_pattern = np.rot90(glider_pattern, 2)
+                mosaic[-glider_pattern.shape[0]:, -glider_pattern.shape[1]:] = glider_pattern
+            # add to top-right corner
+            elif add_glider == 'top right':
+                # rotate glider_pattern 90 degrees for correct orientation
+                glider_pattern = np.rot90(glider_pattern, 3)
+                mosaic[:glider_pattern.shape[0], -glider_pattern.shape[1]:] = glider_pattern
+            # add to bottom-left corner
+            elif add_glider == 'bottom left':
+                # rotate glider_pattern 270 degrees for correct orientation
+                glider_pattern = np.rot90(glider_pattern, 3)
+                mosaic[-glider_pattern.shape[0]:, :glider_pattern.shape[1]] = glider_pattern
 
         return mosaic
 

@@ -192,7 +192,7 @@ import numpy as np
 
 # After generating your mosaic, convert to binary and export
 mosaic_array = np.array(mosaic.convert('L')) > 128
-GollyExporter.export_to_cells(mosaic_array, 'output/golly/my_mosaic.cells', add_glider=True)
+GollyExporter.export_to_cells(mosaic_array, 'output/golly/my_mosaic.cells', add_glider='bottom right')
 
 # Now open output/golly/my_mosaic.cells in Golly to see your mosaic as a Game of Life pattern!
 ```
@@ -296,7 +296,7 @@ Immutable color configuration (dataclass).
 Export to Golly simulator format.
 
 **Static Methods:**
-- `export_to_cells(mosaic, filename, add_glider)` - Export to .cells format
+- `export_to_cells(mosaic, filename, add_glider)` - Export to .cells format. `add_glider` is `None` (default) or a corner: `'top left'`, `'top right'`, `'bottom left'`, `'bottom right'`
 - `export_to_rle(mosaic, filename, name, comments)` - Export to RLE format
 
 ### ECABackground

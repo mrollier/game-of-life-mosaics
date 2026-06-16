@@ -50,8 +50,14 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# Project specific (currently empty)
-# Personal input and output directories (keep examples in output/images/ and output/golly/)
+# Project specific
+# Keep curated examples in input/images/, output/images/ and output/golly/.
+# Ignore personal/presentation artifacts and locally generated exports.
+notebooks/*.pdf
+notebooks/*_thesis.*
+notebooks/images_thesis.ipynb
+input/images/jan.png
+output/golly/jan.cells
 
 
 # Temporary files
