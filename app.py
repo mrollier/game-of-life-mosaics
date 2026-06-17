@@ -16,7 +16,13 @@ Design notes:
 """
 
 import os
+import re
+import random
+import tempfile
+from functools import lru_cache
+from typing import Optional
 
+import numpy as np
 from PIL import Image
 import gradio as gr
 
@@ -44,13 +50,70 @@ MIN_GRID, MAX_GRID, DEFAULT_GRID = 40, 120, 60
 # lazily per instance, which would re-read the 19 MB level-5 file on each request.
 PATTERN_LIBRARIES = {level: PatternLibrary.load(level) for level in (1, 2, 3, 4, 5)}
 
-# Colour schemes, by UI label. Each value is a factory so Warhol re-randomises
-# per request (it deliberately picks fresh colours every call).
-COLOR_SCHEMES = {
-    "UGent (yellow/blue)": ColorScheme.ugent,
-    "Monochrome (black/white)": ColorScheme.monochrome,
-    "Warhol (random pop colours)": ColorScheme.warhol,
-}
+# Colour scheme UI labels. UGent and monochrome are deterministic; Warhol picks
+# random pop colours every call.
+UGENT = "UGent (yellow/blue)"
+MONOCHROME = "Monochrome (black/white)"
+WARHOL = "Warhol (random pop colours)"
+MANUAL = "Manual (pick your own)"
+COLOR_SCHEME_LABELS = [UGENT, MONOCHROME, WARHOL, MANUAL]
+
+# Default manual colours = the UGent palette (a sensible starting point).
+DEFAULT_MANUAL = ColorScheme.ugent()
+
+
+def _to_hex(color: str) -> str:
+    """Normalise a colour-picker value to '#RRGGBB'.
+
+    gr.ColorPicker usually returns '#rrggbb', but can hand back 'rgb(...)' /
+    'rgba(...)' or shorthand '#abc'; the renderer needs full 6-digit hex.
+    """
+    if not color:
+        return "#000000"
+    color = color.strip()
+    if color.startswith("#"):
+        h = color[1:]
+        if len(h) == 3:  # #abc -> #aabbcc
+            h = "".join(c * 2 for c in h)
+        return "#" + h[:6].lower()
+    if color.startswith("rgb"):
+        r, g, b = (int(round(float(n))) for n in re.findall(r"[\d.]+", color)[:3])
+        return f"#{r:02x}{g:02x}{b:02x}"
+    return color
+
+
+@lru_cache(maxsize=256)
+def _warhol_for_seed(seed: int) -> ColorScheme:
+    """A Warhol palette that stays fixed for a given seed.
+
+    ColorScheme.warhol() draws from its own RNG (independent of numpy's global
+    seed), so live tweaking would otherwise reshuffle the colours on every
+    change. Caching by the effective seed keeps the palette stable while the
+    user adjusts other settings, and a new seed (the "New variation" button)
+    yields fresh colours. Bounded by lru_cache so it can't grow without limit.
+    """
+    return ColorScheme.warhol()
+
+
+def _scheme_for(label: str, seed: int, manual_colors=None) -> ColorScheme:
+    """Build the ColorScheme for a UI label, keeping Warhol stable per seed.
+
+    manual_colors is a (gol_background, gol_pixel, eca_background, eca_pixel)
+    tuple of colour-picker values, used only for the 'Manual' scheme.
+    """
+    if label == MANUAL:
+        gol_bg, gol_px, eca_bg, eca_px = manual_colors
+        return ColorScheme.custom(
+            gol_background=_to_hex(gol_bg),
+            gol_pixel=_to_hex(gol_px),
+            eca_background=_to_hex(eca_bg),
+            eca_pixel=_to_hex(eca_px),
+        )
+    if label == WARHOL:
+        return _warhol_for_seed(seed)
+    if label == MONOCHROME:
+        return ColorScheme.monochrome()
+    return ColorScheme.ugent()
 
 # ECA rule dropdown: a curated set of interesting rules, plus a random option.
 # Values are ints, or the sentinel "random" which lets the generator choose.
@@ -71,15 +134,53 @@ def _bound_input(img: Image.Image) -> Image.Image:
     return img
 
 
-def generate(image, level, color_scheme, grid_size,
-             empty_tiles_cutoff, alpha_cutoff, eca_rule, seed):
-    """Generate a mosaic from the uploaded image and UI settings.
+def _hex_to_rgba(hex_color: str, alpha: int = 255) -> tuple:
+    """Convert '#RRGGBB' to an (R, G, B, alpha) tuple."""
+    h = _to_hex(hex_color).lstrip("#")
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), alpha)
 
-    Returns the RGBA result for display/download. Raises gr.Error with a
-    friendly message on bad input rather than crashing the request.
+
+def _pad_to_aspect(img: Image.Image, target_ratio: float, fill_rgba: tuple
+                   ) -> Image.Image:
+    """Pad the shorter axis with `fill_rgba` so width/height matches target_ratio.
+
+    Only adds rows/columns (never crops), centred so the subject stays middle.
+    The tile-rounded crop inside the pipeline leaves the output a little off the
+    original ratio; this corrects that residual at the final stage.
+    """
+    width, height = img.size
+    if width == 0 or height == 0:
+        return img
+
+    if width / height < target_ratio:        # too narrow -> add columns
+        new_width, new_height = round(height * target_ratio), height
+    else:                                     # too wide -> add rows
+        new_width, new_height = width, round(width / target_ratio)
+
+    if new_width <= width and new_height <= height:
+        return img  # already matches to the nearest pixel
+
+    canvas = Image.new("RGBA", (new_width, new_height), fill_rgba)
+    canvas.paste(img, ((new_width - width) // 2, (new_height - height) // 2))
+    return canvas
+
+
+def render_mosaic(image, level, color_scheme, grid_size,
+                  empty_tiles_cutoff, alpha_cutoff, eca_rule, seed, auto_seed,
+                  gol_background, gol_pixel, eca_background, eca_pixel
+                  ) -> Optional[Image.Image]:
+    """Core generation: returns the RGBA mosaic (or None if there's no image).
+
+    With no image yet (e.g. a live trigger fired before upload) it returns None
+    silently rather than erroring, so adjusting controls is smooth. Genuine
+    failures raise gr.Error.
+
+    The effective seed keeps live tweaking stable: an explicit seed (if given)
+    wins, otherwise the session's auto_seed is used, so changing one control
+    only changes that aspect. The "New variation" button rerolls auto_seed.
     """
     if image is None:
-        raise gr.Error("Please upload an image first.")
+        return None
 
     # Normalise and bound the settings.
     level = int(level)
@@ -89,11 +190,17 @@ def generate(image, level, color_scheme, grid_size,
     grid_size = max(MIN_GRID, min(MAX_GRID, grid_size))
 
     rule = None if eca_rule == "random" else int(eca_rule)
-    seed = int(seed) if seed not in (None, "") else None
+    effective_seed = int(seed) if seed not in (None, "") else int(auto_seed)
+    manual_colors = (gol_background, gol_pixel, eca_background, eca_pixel)
 
     try:
         image = _bound_input(image)
-        scheme = COLOR_SCHEMES[color_scheme]()
+        target_ratio = image.width / image.height  # original upload's aspect
+        scheme = _scheme_for(color_scheme, effective_seed, manual_colors)
+        # Seed before constructing the generator: with a "random" ECA rule the
+        # rule is drawn in __init__ (before generate_from_pil reseeds), so this
+        # is what keeps the background stable across live tweaks.
+        np.random.seed(effective_seed)
         generator = MosaicGenerator(
             level=level,
             grid_size=grid_size,
@@ -103,17 +210,34 @@ def generate(image, level, color_scheme, grid_size,
         # Inject the preloaded library instead of reloading it from disk.
         generator._pattern_library = PATTERN_LIBRARIES[level]
 
-        return generator.generate_from_pil(
+        mosaic = generator.generate_from_pil(
             image,
             empty_tiles_cutoff=float(empty_tiles_cutoff),
             alpha_cutoff=float(alpha_cutoff),
             remove_background=False,  # the app never runs rembg
-            seed=seed,
+            seed=effective_seed,
         )
-    except gr.Error:
-        raise
+        # Pad to the original aspect ratio with the ECA background colour.
+        return _pad_to_aspect(
+            mosaic, target_ratio, _hex_to_rgba(scheme.eca_background)
+        )
     except Exception as exc:  # surface a friendly message, keep the app alive
         raise gr.Error(f"Could not generate the mosaic: {exc}")
+
+
+def generate(*args) -> Optional[str]:
+    """UI handler: render the mosaic and save it so the download is named
+    'gol-mosaic.png'. Returns a filepath (or None when there's no image).
+
+    A unique temp directory per call avoids collisions between concurrent users
+    while keeping the basename fixed for the download.
+    """
+    mosaic = render_mosaic(*args)
+    if mosaic is None:
+        return None
+    out_path = os.path.join(tempfile.mkdtemp(prefix="gol_"), "gol-mosaic.png")
+    mosaic.save(out_path)
+    return out_path
 
 
 ABOUT = """
@@ -136,25 +260,35 @@ be added in a future version.
 
 
 def build_demo() -> gr.Blocks:
-    """Build the Gradio interface."""
+    """Build the Gradio interface.
+
+    Layout: a compact controls column on the left and the large mosaic on the
+    right, so the controls and result are visible together without scrolling.
+    The mosaic regenerates live whenever a control changes.
+    """
     with gr.Blocks(title="Game of Life Mosaics") as demo:
-        gr.Markdown("# 🔬 Game of Life Mosaics")
         gr.Markdown(
+            "# 🔬 Game of Life Mosaics\n"
             "Turn a portrait into a mosaic of Conway's Game of Life still lifes. "
-            "**For best results, upload an image with the background already "
-            "removed** (e.g. via [remove.bg](https://www.remove.bg)) — the subject "
-            "should sit on a transparent background."
+            "**For best results upload a background-free image** "
+            "(e.g. via [remove.bg](https://www.remove.bg)) — the subject on a "
+            "transparent background."
         )
 
-        with gr.Row():
-            with gr.Column(scale=1):
+        # Session seed used when the seed field is blank, so live tweaks stay
+        # stable. Randomised per session and rerolled by "New variation".
+        auto_seed = gr.State(random.randrange(2**31))
+
+        with gr.Row(equal_height=False):
+            # --- Controls (compact, left) ------------------------------------
+            with gr.Column(scale=2, min_width=280):
                 image_in = gr.Image(
                     label="Upload image (PNG/JPG)",
                     type="pil",
                     image_mode="RGBA",  # preserve transparency of bg-free PNGs
                     sources=["upload"],
+                    height=170,  # small thumbnail — the mosaic is the star
                 )
-
                 level_in = gr.Dropdown(
                     label="Detail level",
                     choices=LEVELS,
@@ -163,14 +297,30 @@ def build_demo() -> gr.Blocks:
                 )
                 color_in = gr.Dropdown(
                     label="Colour scheme",
-                    choices=list(COLOR_SCHEMES.keys()),
-                    value="UGent (yellow/blue)",
+                    choices=COLOR_SCHEME_LABELS,
+                    value=UGENT,
                 )
+                # Manual colour pickers, shown only when "Manual" is selected.
+                with gr.Group(visible=False) as manual_group:
+                    with gr.Row():
+                        gol_bg_in = gr.ColorPicker(
+                            label="GoL background", value=DEFAULT_MANUAL.gol_background)
+                        gol_px_in = gr.ColorPicker(
+                            label="GoL pixel", value=DEFAULT_MANUAL.gol_pixel)
+                    with gr.Row():
+                        eca_bg_in = gr.ColorPicker(
+                            label="ECA background", value=DEFAULT_MANUAL.eca_background)
+                        eca_px_in = gr.ColorPicker(
+                            label="ECA pixel", value=DEFAULT_MANUAL.eca_pixel)
+
                 grid_in = gr.Slider(
                     label="Grid size (tiles across)",
                     minimum=MIN_GRID, maximum=MAX_GRID, value=DEFAULT_GRID, step=2,
                     info="Must be even; larger = more, smaller tiles.",
                 )
+
+                # Above the accordion so it doesn't shift when Advanced opens.
+                reroll_btn = gr.Button("🎲 New variation", variant="primary")
 
                 with gr.Accordion("Advanced settings", open=False):
                     empty_in = gr.Slider(
@@ -191,26 +341,48 @@ def build_demo() -> gr.Blocks:
                     seed_in = gr.Number(
                         label="Seed (optional)",
                         value=None, precision=0,
-                        info="Set for a reproducible result. Blank = random. "
-                             "Note: the Warhol scheme stays random regardless.",
+                        info="Set for a fully reproducible result. Blank = a stable "
+                             "per-session look; use 'New variation' to reroll.",
                     )
 
-                generate_btn = gr.Button("Generate mosaic", variant="primary")
-
-            with gr.Column(scale=1):
+            # --- Result (prominent, right) -----------------------------------
+            with gr.Column(scale=3, min_width=320):
                 image_out = gr.Image(
-                    label="Mosaic (use the toolbar to download as PNG)",
-                    type="pil",
+                    label="Mosaic (use the toolbar to download as gol-mosaic.png)",
+                    type="filepath",  # return a path so the download keeps its name
                     format="png",
+                    height=620,
                 )
                 with gr.Accordion("About", open=False):
                     gr.Markdown(ABOUT)
 
-        generate_btn.click(
-            fn=generate,
-            inputs=[image_in, level_in, color_in, grid_in,
-                    empty_in, alpha_in, eca_in, seed_in],
-            outputs=image_out,
+        # Inputs passed to every generation call (order matches render_mosaic).
+        gen_inputs = [image_in, level_in, color_in, grid_in,
+                      empty_in, alpha_in, eca_in, seed_in, auto_seed,
+                      gol_bg_in, gol_px_in, eca_bg_in, eca_px_in]
+
+        # Show the manual colour pickers only for the "Manual" scheme.
+        color_in.change(
+            fn=lambda label: gr.update(visible=(label == MANUAL)),
+            inputs=color_in, outputs=manual_group,
+        )
+
+        # Live regeneration: sliders fire on release (not every pixel of drag),
+        # dropdowns / number / image / colour pickers fire on change.
+        live_triggers = [
+            image_in.change, level_in.change, color_in.change,
+            grid_in.release, empty_in.release, alpha_in.release,
+            eca_in.change, seed_in.change,
+            gol_bg_in.change, gol_px_in.change, eca_bg_in.change, eca_px_in.change,
+        ]
+        gr.on(triggers=live_triggers, fn=generate,
+              inputs=gen_inputs, outputs=image_out)
+
+        # "New variation": pick a fresh session seed, then regenerate.
+        reroll_btn.click(
+            fn=lambda: random.randrange(2**31), outputs=auto_seed
+        ).then(
+            fn=generate, inputs=gen_inputs, outputs=image_out
         )
 
     return demo
