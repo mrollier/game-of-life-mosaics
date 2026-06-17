@@ -137,3 +137,26 @@ def test_generator_repr():
     repr_str = repr(generator)
     assert 'level=4' in repr_str
     assert 'grid_size=30' in repr_str
+
+
+def test_generate_from_pil_smoke(transparent_image_path):
+    """The in-memory entry point returns a valid RGBA mosaic from a PIL image
+    (the path the web app uses, without writing a temp file)."""
+    generator = MosaicGenerator(level=3, grid_size=10)
+    result = generator.generate_from_pil(Image.open(transparent_image_path),
+                                          supersample=12)
+
+    assert isinstance(result, Image.Image)
+    assert result.mode == 'RGBA'
+    assert result.size[0] > 0 and result.size[1] > 0
+
+
+def test_seed_makes_generation_reproducible(test_image_path):
+    """Same image + settings + seed reproduces a byte-identical mosaic."""
+    kwargs = dict(supersample=12, remove_background=False, seed=123)
+    first = MosaicGenerator(level=3, grid_size=10).generate_from_pil(
+        Image.open(test_image_path), **kwargs)
+    second = MosaicGenerator(level=3, grid_size=10).generate_from_pil(
+        Image.open(test_image_path), **kwargs)
+
+    assert np.array_equal(np.asarray(first), np.asarray(second))

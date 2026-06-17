@@ -65,3 +65,8 @@ output/golly/jan.cells
 *.temp
 temp/
 tmp/
+
+# Gradio web app artifacts
+flagged/
+.gradio/
+gradio_cached_examples/
