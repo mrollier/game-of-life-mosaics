@@ -1,8 +1,8 @@
 """
-Mosaic rendering and color mapping.
+Mosaic rendering and colour mapping.
 
 This module provides the MosaicRenderer class for converting
-numpy arrays to colored PIL Images.
+numpy arrays to coloured PIL Images.
 """
 
 import numpy as np
@@ -14,14 +14,14 @@ from .colors import ColorScheme
 
 class MosaicRenderer:
     """
-    Renders mosaic arrays as colored PIL Images.
+    Renders mosaic arrays as coloured PIL Images.
 
-    Takes binary or multi-valued numpy arrays and applies color
+    Takes binary or multi-valued numpy arrays and applies colour
     mapping to create the final RGBA images. Handles both GoL
     mosaics and ECA overlays.
 
     Attributes:
-        color_scheme: ColorScheme instance defining colors to use
+        color_scheme: ColorScheme instance defining colours to use
 
     Example:
         >>> from gol_mosaics import ColorScheme, MosaicRenderer
@@ -34,10 +34,10 @@ class MosaicRenderer:
 
     def __init__(self, color_scheme: ColorScheme):
         """
-        Initialize renderer with color scheme.
+        Initialise renderer with colour scheme.
 
         Args:
-            color_scheme: ColorScheme instance defining colors
+            color_scheme: ColorScheme instance defining colours
 
         Example:
             >>> colors = ColorScheme.ugent()
@@ -47,7 +47,7 @@ class MosaicRenderer:
 
     def render_gol_mosaic(self, mosaic: np.ndarray) -> Image.Image:
         """
-        Render Game of Life mosaic with GoL colors.
+        Render Game of Life mosaic with GoL colours.
 
         Args:
             mosaic: Binary array (0=background, 1=pixel)
@@ -89,8 +89,8 @@ class MosaicRenderer:
 
         The eca_mask should have values:
         - 0: Transparent (no overlay)
-        - 1: ECA background color
-        - 2: ECA pixel color
+        - 1: ECA background colour
+        - 2: ECA pixel colour
 
         Args:
             eca_mask: Array with values 0, 1, 2
@@ -115,7 +115,7 @@ class MosaicRenderer:
         h, w = eca_mask.shape
         overlay = np.zeros((h, w, 4), dtype=np.uint8)
 
-        # Convert hex colors to RGB
+        # Convert hex colours to RGB
         rgb1 = self._hex_to_rgb(self.color_scheme.eca_background)
         rgb2 = self._hex_to_rgb(self.color_scheme.eca_pixel)
 
@@ -170,11 +170,11 @@ class MosaicRenderer:
     @staticmethod
     def _array_to_rgb(arr: np.ndarray, color_map: Dict[int, str]) -> np.ndarray:
         """
-        Convert array to RGB using color mapping.
+        Convert array to RGB using colour mapping.
 
         Args:
             arr: 2D array with integer values
-            color_map: Dictionary mapping values to hex colors
+            color_map: Dictionary mapping values to hex colours
 
         Returns:
             RGB array of shape (*arr.shape, 3)
@@ -191,10 +191,10 @@ class MosaicRenderer:
     @staticmethod
     def _hex_to_rgb(hex_color: str) -> tuple:
         """
-        Convert hex color string to RGB tuple.
+        Convert hex colour string to RGB tuple.
 
         Args:
-            hex_color: Hex color string (e.g., '#FFFFFF')
+            hex_color: Hex colour string (e.g., '#FFFFFF')
 
         Returns:
             RGB tuple (e.g., (255, 255, 255))
@@ -234,7 +234,7 @@ class MosaicRenderer:
 
     def change_colors(self, new_color_scheme: ColorScheme) -> 'MosaicRenderer':
         """
-        Create new renderer with different colors.
+        Create new renderer with different colours.
 
         Args:
             new_color_scheme: New ColorScheme to use

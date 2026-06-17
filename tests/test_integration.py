@@ -72,7 +72,7 @@ def test_full_pipeline(test_image_path):
 
 
 def test_custom_colors(test_image_path):
-    """Test mosaic generation with custom colors."""
+    """Test mosaic generation with custom colours."""
     colors = ColorScheme.monochrome()
     generator = MosaicGenerator(level=3, grid_size=10, color_scheme=colors)
     # Use supersample=12 which divides the mosaic width (144) evenly.

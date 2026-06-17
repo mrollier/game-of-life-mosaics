@@ -48,12 +48,12 @@ class MosaicGenerator:
                  random_patterns: bool = True,
                  invert: bool = True):
         """
-        Initialize mosaic generator.
+        Initialise mosaic generator.
 
         Args:
             level: Pattern complexity level (2-5 for pre-computed patterns)
             grid_size: Number of tiles in the grid (must be even)
-            color_scheme: ColorScheme instance (defaults to UGent colors)
+            color_scheme: ColorScheme instance (defaults to UGent colours)
             eca_rule: Rule number for Elementary Cellular Automaton background.
                      If None, randomly selects from interesting rules for variety.
             random_patterns: Use random pattern selection vs deterministic
@@ -85,10 +85,10 @@ class MosaicGenerator:
         # Pick random ECA rule from some interesting ones if not provided
         self.eca_rule = eca_rule or self._auto_select_eca_rule()
 
-        # Select default UGent color scheme if not provided
+        # Select default UGent colour scheme if not provided
         self.color_scheme = color_scheme or ColorScheme.ugent()
 
-        # Pick random patterns and invert colors.
+        # Pick random patterns and invert colours.
         # These can be touched but generally look better with default values.
         self.random_patterns = random_patterns
         self.invert = invert
@@ -179,7 +179,7 @@ class MosaicGenerator:
         Args:
             img: Input PIL Image (any mode; converted internally).
             empty_tiles_cutoff: Threshold for empty tiles (0-1).
-                Grayscale values above this become empty tiles. Default: 0.65.
+                Greyscale values above this become empty tiles. Default: 0.65.
             alpha_cutoff: Threshold for transparency masking (0-1).
                 Alpha values below this get filled with ECA. Default: 0.5.
             supersample: ECA upsampling factor (must divide mosaic width evenly).
@@ -352,8 +352,8 @@ class MosaicGenerator:
         Build GoL mosaic from diagonal patterns.
 
         Args:
-            lowres_first: First diagonal grayscale pattern
-            lowres_second: Second diagonal grayscale pattern
+            lowres_first: First diagonal greyscale pattern
+            lowres_second: Second diagonal greyscale pattern
             empty_tiles_cutoff: Threshold for empty tiles
 
         Returns:

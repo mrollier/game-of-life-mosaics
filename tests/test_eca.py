@@ -6,7 +6,7 @@ from src.gol_mosaics.eca import ECABackground
 
 
 def test_eca_initialization():
-    """Test ECA initialization."""
+    """Test ECA initialisation."""
     eca = ECABackground(rule=106)
     assert eca.rule == 106
 

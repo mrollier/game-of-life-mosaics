@@ -37,7 +37,7 @@ def test_pattern_densities():
     densities = library.densities
     assert densities.shape[0] == library.solutions.shape[0]
     assert np.all(densities >= 0) and np.all(densities <= 1)
-    # Should be normalized
+    # Should be normalised
     assert np.isclose(densities.min(), 0.0)
     assert np.isclose(densities.max(), 1.0)
 

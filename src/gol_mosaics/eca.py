@@ -38,7 +38,7 @@ class ECABackground:
 
     def __init__(self, rule: int = 106):
         """
-        Initialize ECA background generator.
+        Initialise ECA background generator.
 
         Args:
             rule: Wolfram rule number (0-255). Default is 106 (chaotic)
@@ -103,7 +103,7 @@ class ECABackground:
         eca_width = -(-width // supersample)   # ceil division
         eca_height = -(-height // supersample)
 
-        # Initialize with random state
+        # Initialise with random state
         eca = cpl.init_random(eca_width)
 
         # Evolve the cellular automaton

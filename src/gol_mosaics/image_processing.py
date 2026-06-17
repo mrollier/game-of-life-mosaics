@@ -46,8 +46,8 @@ class ImageProcessor:
         Load an image from file (or accept an in-memory PIL image) with alpha
         channel handling.
 
-        Transparent pixels are composited onto a solid color background
-        before converting to grayscale. The alpha channel becomes the mask
+        Transparent pixels are composited onto a solid colour background
+        before converting to greyscale. The alpha channel becomes the mask
         that tells the mosaic subject from background, so an image whose
         background is still present is optionally removed first.
 
@@ -55,7 +55,7 @@ class ImageProcessor:
             image_path: Path to an image file (PNG, JPG, etc.) or an already
                 loaded PIL Image. Accepting a PIL Image lets callers (e.g. a web
                 backend) pass an in-memory upload without writing a temp file.
-            alpha_color: Color for transparent background (default: 'white')
+            alpha_color: Colour for transparent background (default: 'white')
             return_alpha: If True, also return the alpha mask
             remove_background: Background removal mode (default: 'auto').
                 'auto' removes the background only when has_background() detects
@@ -64,8 +64,8 @@ class ImageProcessor:
                 (default 5.0; 0 disables). See enhance_contrast().
 
         Returns:
-            If return_alpha=False: Grayscale PIL Image
-            If return_alpha=True: Tuple of (grayscale Image, alpha mask Image)
+            If return_alpha=False: Greyscale PIL Image
+            If return_alpha=True: Tuple of (greyscale Image, alpha mask Image)
 
         Raises:
             FileNotFoundError: If image_path doesn't exist
@@ -97,12 +97,12 @@ class ImageProcessor:
         # Extract alpha channel
         mask = img.split()[-1]
 
-        # Composite onto background color
+        # Composite onto background colour
         bg = Image.new('RGBA', img.size, alpha_color)
         bg.paste(img, mask=mask)
         img = bg
 
-        # Convert to grayscale
+        # Convert to greyscale
         img = img.convert('L')
 
         # Increase contrast (S-curve) so the mosaic reads more clearly
@@ -261,7 +261,7 @@ class ImageProcessor:
                     return_aspect: bool = True,
                     fill_color: str = 'white') -> Union[Image.Image, Tuple[Image.Image, float]]:
         """
-        Make image square by padding with specified color.
+        Make image square by padding with specified colour.
 
         Preserves the original aspect ratio by adding padding to the shorter
         dimension rather than cropping.
@@ -269,7 +269,7 @@ class ImageProcessor:
         Args:
             img: PIL Image to make square
             return_aspect: If True, also return original aspect ratio
-            fill_color: Color for padding (default: 'white')
+            fill_color: Colour for padding (default: 'white')
 
         Returns:
             If return_aspect=False: Square PIL Image
@@ -407,8 +407,8 @@ class ImageProcessor:
             image_path: Path to input image, or an already loaded PIL Image
                 (passed straight through to load_image).
             grid_size: Target grid size (must be even)
-            alpha_color: Background color for transparent pixels
-            fill_color: Padding color for squaring
+            alpha_color: Background colour for transparent pixels
+            fill_color: Padding colour for squaring
             remove_background: Background removal mode passed to load_image
                 ('auto', True or False; default 'auto')
             contrast: Sigmoid contrast strength passed to load_image
@@ -416,8 +416,8 @@ class ImageProcessor:
 
         Returns:
             Tuple of:
-            - lowres_first: First diagonal grayscale pattern
-            - lowres_second: Second diagonal grayscale pattern
+            - lowres_first: First diagonal greyscale pattern
+            - lowres_second: Second diagonal greyscale pattern
             - mask_first: First diagonal alpha mask
             - mask_second: Second diagonal alpha mask
             - aspect_ratio: Original width/height ratio
@@ -432,7 +432,7 @@ class ImageProcessor:
                                    return_alpha=True, remove_background=remove_background,
                                    contrast=contrast)
 
-        # Process grayscale image
+        # Process greyscale image
         square_img, aspect_ratio = cls.square_image(img, return_aspect=True, fill_color=fill_color)
         lowres = cls.rotate_and_pixelate(square_img, grid_size, expand=True)
         lowres_first, lowres_second = cls.extract_diagonal_patterns(lowres)
