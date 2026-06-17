@@ -140,28 +140,30 @@ def _hex_to_rgba(hex_color: str, alpha: int = 255) -> tuple:
     return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), alpha)
 
 
-def _pad_to_aspect(img: Image.Image, target_ratio: float, fill_rgba: tuple
+def _fit_to_aspect(img: Image.Image, target_ratio: float, fill_rgba: tuple
                    ) -> Image.Image:
-    """Pad the shorter axis with `fill_rgba` so width/height matches target_ratio.
+    """Place the mosaic on a solid `fill_rgba` backdrop sized to target_ratio.
 
-    Only adds rows/columns (never crops), centred so the subject stays middle.
-    The tile-rounded crop inside the pipeline leaves the output a little off the
-    original ratio; this corrects that residual at the final stage.
+    The shorter axis is padded (never cropped) so width/height matches the
+    original aspect ratio, and the SAME colour fills both that padding and the
+    mosaic's transparent rim. Result: one uniform backdrop, centred subject, no
+    detached bars or mismatched transparent edges.
     """
     width, height = img.size
     if width == 0 or height == 0:
         return img
 
-    if width / height < target_ratio:        # too narrow -> add columns
+    if width / height < target_ratio:        # too narrow -> widen (add columns)
         new_width, new_height = round(height * target_ratio), height
-    else:                                     # too wide -> add rows
+    else:                                     # too wide -> heighten (add rows)
         new_width, new_height = width, round(width / target_ratio)
-
-    if new_width <= width and new_height <= height:
-        return img  # already matches to the nearest pixel
+    new_width, new_height = max(new_width, width), max(new_height, height)
 
     canvas = Image.new("RGBA", (new_width, new_height), fill_rgba)
-    canvas.paste(img, ((new_width - width) // 2, (new_height - height) // 2))
+    offset = ((new_width - width) // 2, (new_height - height) // 2)
+    # Use the mosaic's own alpha as the mask, so its transparent rim lets the
+    # solid backdrop show through (rim + padding become one uniform colour).
+    canvas.paste(img, offset, mask=img)
     return canvas
 
 
@@ -217,8 +219,9 @@ def render_mosaic(image, level, color_scheme, grid_size,
             remove_background=False,  # the app never runs rembg
             seed=effective_seed,
         )
-        # Pad to the original aspect ratio with the ECA background colour.
-        return _pad_to_aspect(
+        # Fit to the original aspect ratio on a solid ECA-background backdrop
+        # (fills both the aspect padding and the mosaic's transparent rim).
+        return _fit_to_aspect(
             mosaic, target_ratio, _hex_to_rgba(scheme.eca_background)
         )
     except Exception as exc:  # surface a friendly message, keep the app alive
@@ -351,7 +354,9 @@ def build_demo() -> gr.Blocks:
                     label="Mosaic (use the toolbar to download as gol-mosaic.png)",
                     type="filepath",  # return a path so the download keeps its name
                     format="png",
-                    height=620,
+                    # No fixed height: display the image at its true aspect ratio
+                    # so the preview shows exactly the saved file (no letterbox
+                    # bars on the sides of a portrait mosaic).
                 )
                 with gr.Accordion("About", open=False):
                     gr.Markdown(ABOUT)
