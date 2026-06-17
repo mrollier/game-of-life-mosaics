@@ -14,6 +14,10 @@ Notation used throughout:
 - `L` = `level` (3, 4 or 5 are pre-computed).
 - `t` = tile edge in pixels = `6 * L` (level 3 → 18, level 4 → 24, level 5 → 30).
   Each Game-of-Life still-life tile is a `t × t` binary block.
+- `R` = the rotated diamond's side after stage 2b ≈ `√2 · G` (e.g. G=40 → 56,
+  G=60 → 84, G=100 → 140). **The diagonal grids and the whole mosaic are sized
+  off `R`, not `G`** — this is the single most important thing to get right when
+  predicting output shapes.
 
 ---
 
@@ -81,25 +85,32 @@ For the greyscale ([image_processing.py:436-438](src/gol_mosaics/image_processin
    - **rotate 45°** with `expand=True`, filling exposed corners with `255` (white),
    - convert to numpy and **trim one pixel off every edge**: `arr[1:-1, 1:-1]`.
 
-   Result: a roughly `(≈√2·G) × (≈√2·G)` diamond array.
+   Result: the rotated diamond array, side `R ≈ √2·G` (e.g. G=40 → 56). PIL's
+   `expand=True` rounds the bounding box **up** before the `[1:-1,1:-1]` trim, so
+   `R` is a touch larger than `√2·G − 2` (measured `R = 1.4·G` for the standard
+   grid sizes). Everything downstream is sized off this `R`.
 
 The mask is run through the **same** square→rotate→pixelate path
 ([image_processing.py:441-443](src/gol_mosaics/image_processing.py#L441-L443))
 with white padding, so the mask and greyscale stay pixel-aligned.
 
 ### 2c. Extract the two interlocking diagonal grids — `extract_diagonal_patterns` ([image_processing.py:342](src/gol_mosaics/image_processing.py#L342))
-The 45°-rotated diamond is sampled along two diagonal lattices, giving two grids:
-- `first`  → shape `(G/2 + 1, G/2)`
-- `second` → shape `(G/2, G/2 + 1)`
+The 45°-rotated diamond is sampled along two diagonal lattices, giving two grids.
+`extract_diagonal_patterns` reads its size from `grid_size = lowres.shape[0]`,
+i.e. the **rotated** side `R`, not `G`:
+- `first`  → shape `(R/2 + 1, R/2)`  (e.g. G=40 → `(29, 28)`)
+- `second` → shape `(R/2, R/2 + 1)`  (e.g. G=40 → `(28, 29)`)
 
 These two grids are the even/odd tiles that interlock into the diamond mosaic.
+Because `R ≈ √2·G`, each grid is ≈`0.7·G` tiles across — **not** `0.5·G`.
 
 > ⚠️ **Fragile spot #1 — the rotation/trim/diagonal-index geometry.** The index
-> math in `extract_diagonal_patterns` assumes a fixed relationship between the
-> rotated array size and `G`. The hard-coded `[1:-1, 1:-1]` trim in
-> `rotate_and_pixelate` and the half-open `range(G//2 …)` bounds are exactly
-> where "cropped half-tile" / "too few tiles at the edge" symptoms originate.
-> If the edges look wrong, this is the first place to look.
+> math in `extract_diagonal_patterns` works entirely off `R = lowres.shape[0]`
+> (the rotated size), so it is the `[1:-1, 1:-1]` trim in `rotate_and_pixelate`
+> that fixes the exact relationship between `R` and `G`. The hard-coded trim and
+> the half-open `range(R//2 …)` bounds are exactly where "cropped half-tile" /
+> "too few tiles at the edge" symptoms originate. If the edges look wrong, this
+> is the first place to look.
 
 ---
 
@@ -121,7 +132,8 @@ For each diagonal grid:
    ([mosaic.py:389-402](src/gol_mosaics/mosaic.py#L389-L402)):
    - `pad_size = ((6-3)·(2L-1) + 1 + 2) // 2 = 3L = t/2`,
    - `first` is padded left/right, `second` is padded top/bottom,
-   - the two are **added** → final square mosaic of side `(G/2 + 1) · t` pixels.
+   - the two are **added** → final square mosaic of side `(R/2 + 1) · t` pixels
+     (e.g. G=40, L=3 → `29 · 18 = 522`; **not** `(G/2 + 1) · t = 378`).
 
 > 📐 **Why `pad_size` works:** padding each diagonal by exactly `t/2` makes the
 > two complementary grids land on the same shape and interlock. If you ever
@@ -140,6 +152,13 @@ Same block/pad geometry as stage 3, but driven by the **alpha** grids via
 - alpha value **≥ `alpha_cutoff`** (default 0.5, i.e. opaque subject) → **empty
   tile (0)**;
 - alpha value **< `alpha_cutoff`** (transparent background) → **filled tile (1)**.
+
+The "filled tile" is `binary_fill_holes(solutions[-1])`
+([patterns.py:534](src/gol_mosaics/patterns.py#L534)) — a filled *diamond*
+(~44% ones for L=4), **not** a solid `t × t` square. Because the two diagonal
+mask grids interlock with the same geometry as the GoL tiles, those diamonds
+still tile to cover the whole background region; the final `binary_fill_holes`
+below closes any residue.
 
 So in the resulting `mask`: **`1` = background region (gets ECA), `0` = subject
 region (shows the GoL mosaic).**
@@ -223,8 +242,17 @@ The final image returned by `generate_from_pil` is this composited RGBA, sized
 
 ## 8. (GIF only) repeat per frame — `generate_from_gif` ([mosaic.py:264](src/gol_mosaics/mosaic.py#L264))
 
-Each frame is run through stages 1-7 independently and reassembled into an
-animated GIF.
+Each frame is run through stages 1-7 independently (via `generate_from_image`).
+
+> ⚠️ **Caveat — the result is currently a single still, not an animation.**
+> Every frame is processed and appended to `frames`, but the function only
+> returns `frames[0]` ([mosaic.py:341-345](src/gol_mosaics/mosaic.py#L341-L345));
+> `frames[1:]` are computed and then discarded (never attached via
+> `append_images=`), so the caller cannot reassemble the animation even with
+> `save_all=True`. Note also that this path uses different defaults from the
+> still pipeline (`empty_tiles_cutoff=0.75`, fixed `supersample=15`) and passes
+> no `seed`, so with `random_patterns=True` the tiles would flicker frame to
+> frame if the animation were reassembled.
 
 ---
 
@@ -243,14 +271,17 @@ The two colours differ unless the scheme makes them equal.
 
 ## End-to-end data-shape summary
 
+Recall `R ≈ √2·G` (the rotated diamond side; measured `1.4·G`). Everything from
+stage 2c on is sized off `R`, **not** `G`.
+
 | Stage | Array | Approx. shape |
 |-------|-------|---------------|
 | input | PIL image | `W₀ × H₀` |
 | 2b | resized | `G × G` |
-| 2b | rotated+trimmed | `≈(√2·G−2) × (√2·G−2)` |
-| 2c | diagonal grids | `(G/2+1, G/2)` and `(G/2, G/2+1)` |
-| 3/4 | tiled + padded square | `(G/2+1)·t  ×  (G/2+1)·t` |
-| 5 | aspect-cropped | `(G/2+1)·t` along one axis, tile-rounded on the other |
+| 2b | rotated+trimmed | `R × R`, `R ≈ √2·G` (e.g. G=40 → 56) |
+| 2c | diagonal grids | `(R/2+1, R/2)` and `(R/2, R/2+1)` |
+| 3/4 | tiled + padded square | `(R/2+1)·t  ×  (R/2+1)·t` |
+| 5 | aspect-cropped | `(R/2+1)·t` along one axis, tile-rounded on the other |
 | 7 | final RGBA | same as stage 5 |
 | 9 | app-fitted | exactly the upload's aspect ratio |
 
