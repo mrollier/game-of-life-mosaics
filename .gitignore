@@ -70,3 +70,6 @@ tmp/
 flagged/
 .gradio/
 gradio_cached_examples/
+
+# Hugging Face Space staging (transient)
+hf_space/
