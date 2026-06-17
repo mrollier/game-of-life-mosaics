@@ -127,25 +127,68 @@ class MosaicGenerator:
                            no_eca = False,
                            remove_background: Union[bool, str] = 'auto',
                            contrast: float = 5.0,
-                           rim_color = None) -> Image.Image:
+                           rim_color = None,
+                           seed: Optional[int] = None) -> Image.Image:
         """
-        Generate mosaic from image file.
+        Generate mosaic from an image file.
 
-        This is the main method for converting images to mosaics. It handles
-        the complete pipeline: loading, preprocessing, pattern mapping,
-        ECA background generation, and final rendering.
+        Thin path-based wrapper around generate_from_pil: it opens the file and
+        delegates the full pipeline. See generate_from_pil for the parameters.
 
         Args:
-            image_path: Path to input image (PNG, JPG, etc.)
+            image_path: Path to input image (PNG, JPG, etc.). All other
+                arguments are forwarded to generate_from_pil.
+
+        Returns:
+            PIL Image in RGBA mode with mosaic and ECA background
+
+        Raises:
+            FileNotFoundError: If image_path doesn't exist
+
+        Example:
+            >>> generator = MosaicGenerator(level=5, grid_size=100)
+            >>> mosaic = generator.generate_from_image('portrait.png')
+            >>> mosaic.save('output.png')
+        """
+        return self.generate_from_pil(
+            Image.open(image_path),
+            empty_tiles_cutoff=empty_tiles_cutoff,
+            alpha_cutoff=alpha_cutoff,
+            supersample=supersample,
+            no_eca=no_eca,
+            remove_background=remove_background,
+            contrast=contrast,
+            rim_color=rim_color,
+            seed=seed,
+        )
+
+    def generate_from_pil(self,
+                          img: Image.Image,
+                          empty_tiles_cutoff: float = 0.65,
+                          alpha_cutoff: float = 0.5,
+                          supersample: Optional[int] = None,
+                          no_eca = False,
+                          remove_background: Union[bool, str] = 'auto',
+                          contrast: float = 5.0,
+                          rim_color = None,
+                          seed: Optional[int] = None) -> Image.Image:
+        """
+        Generate mosaic from an in-memory PIL image.
+
+        This is the main pipeline: preprocessing, pattern mapping, ECA background
+        generation, and final rendering. It accepts an already-loaded image so a
+        web backend can process an upload without writing a temp file.
+
+        Args:
+            img: Input PIL Image (any mode; converted internally).
             empty_tiles_cutoff: Threshold for empty tiles (0-1).
-                Grayscale values above this become empty tiles.
-                Default: 0.9 (brightest 10% become white space)
+                Grayscale values above this become empty tiles. Default: 0.65.
             alpha_cutoff: Threshold for transparency masking (0-1).
-                Alpha values below this get filled with ECA.
-                Default: 0.5
+                Alpha values below this get filled with ECA. Default: 0.5.
             supersample: ECA upsampling factor (must divide mosaic width evenly).
                 Higher values create finer ECA patterns.
                 If None (default), automatically selects a valid value close to 15.
+            no_eca: If True, skip the ECA background.
             remove_background: Background removal mode (default: 'auto').
                 'auto' removes the background only when it is still present;
                 True always removes it; False never does. Removal needs the
@@ -155,30 +198,31 @@ class MosaicGenerator:
             rim_color: Colour of the outer rim (the rotation/padding border).
                 None (default) makes it transparent; an (R, G, B) tuple or hex
                 string fills it with that colour.
+            seed: Optional integer to seed numpy's global RNG before generation,
+                so the same image and settings reproduce the same mosaic.
+                Note: ColorScheme.warhol() uses its own np.random.default_rng()
+                and is therefore NOT made reproducible by this seed.
 
         Returns:
             PIL Image in RGBA mode with mosaic and ECA background
 
         Raises:
             ValueError: If supersample doesn't divide mosaic width evenly
-            FileNotFoundError: If image_path doesn't exist
 
         Example:
+            >>> from PIL import Image
             >>> generator = MosaicGenerator(level=5, grid_size=100)
-            >>> mosaic = generator.generate_from_image('portrait.png')
+            >>> mosaic = generator.generate_from_pil(Image.open('portrait.png'))
             >>> mosaic.save('output.png')
-
-            >>> # With custom parameters
-            >>> mosaic = generator.generate_from_image(
-            ...     'portrait.png',
-            ...     empty_tiles_cutoff=0.6,
-            ...     alpha_cutoff=0.8,
-            ...     supersample=15
-            ... )
         """
+        # Seed numpy's global RNG for reproducibility when requested. Pattern,
+        # supersample and ECA selection all draw from np.random.
+        if seed is not None:
+            np.random.seed(seed)
+
         # Preprocess image
         results = ImageProcessor.preprocess_for_mosaic(
-            image_path,
+            img,
             self.grid_size,
             remove_background=remove_background,
             contrast=contrast

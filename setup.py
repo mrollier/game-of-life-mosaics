@@ -40,7 +40,7 @@ setup(
     },
     include_package_data=True,
     package_data={
-        "gol_mosaics": ["../../data/*.npy"],
+        "gol_mosaics": ["data/*.npy"],
     },
     zip_safe=False,
 )

@@ -61,7 +61,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-gol_mosaics = ["../../data/*.npy"]
+gol_mosaics = ["data/*.npy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -37,13 +37,14 @@ class ImageProcessor:
     background_removal_providers = None
 
     @staticmethod
-    def load_image(image_path: str,
+    def load_image(image_path: Union[str, Image.Image],
                   alpha_color: str = 'white',
                   return_alpha: bool = False,
                   remove_background: Union[bool, str] = 'auto',
                   contrast: float = 5.0) -> Union[Image.Image, Tuple[Image.Image, Image.Image]]:
         """
-        Load an image from file with alpha channel handling.
+        Load an image from file (or accept an in-memory PIL image) with alpha
+        channel handling.
 
         Transparent pixels are composited onto a solid color background
         before converting to grayscale. The alpha channel becomes the mask
@@ -51,7 +52,9 @@ class ImageProcessor:
         background is still present is optionally removed first.
 
         Args:
-            image_path: Path to image file (PNG, JPG, etc.)
+            image_path: Path to an image file (PNG, JPG, etc.) or an already
+                loaded PIL Image. Accepting a PIL Image lets callers (e.g. a web
+                backend) pass an in-memory upload without writing a temp file.
             alpha_color: Color for transparent background (default: 'white')
             return_alpha: If True, also return the alpha mask
             remove_background: Background removal mode (default: 'auto').
@@ -74,8 +77,8 @@ class ImageProcessor:
             >>> img = ImageProcessor.load_image('portrait.png')
             >>> img, mask = ImageProcessor.load_image('portrait.png', return_alpha=True)
         """
-        # Open image
-        img = Image.open(image_path)
+        # Accept either a filesystem path or an already-loaded PIL image.
+        img = image_path if isinstance(image_path, Image.Image) else Image.open(image_path)
 
         # Convert to RGBA
         img = img.convert('RGBA')
@@ -391,7 +394,7 @@ class ImageProcessor:
 
     @classmethod
     def preprocess_for_mosaic(cls,
-                             image_path: str,
+                             image_path: Union[str, Image.Image],
                              grid_size: int,
                              alpha_color: str = 'white',
                              fill_color: str = 'white',
@@ -404,7 +407,8 @@ class ImageProcessor:
         workflow.
 
         Args:
-            image_path: Path to input image
+            image_path: Path to input image, or an already loaded PIL Image
+                (passed straight through to load_image).
             grid_size: Target grid size (must be even)
             alpha_color: Background color for transparent pixels
             fill_color: Padding color for squaring
