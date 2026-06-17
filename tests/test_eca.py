@@ -29,11 +29,29 @@ def test_eca_generate():
     assert np.all(np.isin(pattern, [0, 1]))
 
 
-def test_eca_invalid_supersample():
-    """Test error for invalid supersample."""
+def test_eca_generate_supersample_not_dividing_dimensions():
+    """Supersample need not divide the dimensions; output is cropped to size."""
+    eca = ECABackground(rule=106)
+    # 7 divides neither 100 nor 100 evenly; previously this raised.
+    pattern = eca.generate(width=100, height=100, supersample=7)
+    assert pattern.shape == (100, 100)
+    assert np.all(np.isin(pattern, [0, 1]))
+
+
+def test_eca_generate_non_square_indivisible():
+    """Width and height differ and neither is divisible by supersample."""
+    eca = ECABackground(rule=106)
+    # The real-pipeline failure case: width 588, height 522, supersample 14.
+    pattern = eca.generate(width=588, height=522, supersample=14)
+    assert pattern.shape == (522, 588)
+    assert np.all(np.isin(pattern, [0, 1]))
+
+
+def test_eca_generate_rejects_non_positive_supersample():
+    """Supersample must still be a positive integer."""
     eca = ECABackground(rule=106)
     with pytest.raises(ValueError):
-        eca.generate(width=100, height=100, supersample=7)  # Doesn't divide 100
+        eca.generate(width=100, height=100, supersample=0)
 
 
 def test_eca_validate_supersample():
