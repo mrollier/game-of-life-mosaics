@@ -271,10 +271,10 @@ def build_demo() -> gr.Blocks:
     """
     with gr.Blocks(title="Game of Life Mosaics") as demo:
         gr.Markdown(
-            "# 🔬 Game of Life Mosaics\n"
+            "# Game of Life Mosaics\n"
             "Turn a portrait into a mosaic of Conway's Game of Life still lifes. "
             "**For best results upload a background-free image** "
-            "(e.g. via [remove.bg](https://www.remove.bg)) — the subject on a "
+            "(e.g. via [remove.bg](https://www.remove.bg)): the subject on a "
             "transparent background."
         )
 
