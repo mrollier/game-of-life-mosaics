@@ -134,7 +134,7 @@ class ColorScheme:
         )
 
     @classmethod
-    def warhol(cls, force_white=False, dark_on_light=True) -> 'ColorScheme':
+    def warhol(cls, force_white=False, dark_on_light=True, seed=None) -> 'ColorScheme':
         """
         Warhol-inspired color scheme.
 
@@ -143,14 +143,20 @@ class ColorScheme:
         Args:
             force_white: If True, forces the Game of Life background to be white (default: False)
             dark_on_light: If True, uses dark colors on a light background; if False, just picks randomly from the palette (default: True)
+            seed: If given, makes the palette a deterministic function of the
+                seed (same seed -> same colours). If None (default), a fresh
+                random palette is drawn each call.
 
         Returns:
             ColorScheme with Warhol-inspired colors
-        
+
         Example:
             >>> colors = ColorScheme.warhol()
             >>> colors.gol_pixel  # Bright magenta
             '#FF00FF'
+            >>> # Reproducible: the same seed always yields the same palette
+            >>> ColorScheme.warhol(seed=7) == ColorScheme.warhol(seed=7)
+            True
         """
 
         # Warhol-inspired colour palette with bright, contrasting colours
@@ -214,8 +220,10 @@ class ColorScheme:
         # Merge dicts
         warhol_colors = {**warhol_light_colors, **warhol_dark_colors}
 
-        # Prepare random generator
-        rng = np.random.default_rng()
+        # Prepare random generator. Seeding it makes the whole palette a pure
+        # function of the seed, so the web app can keep colours stable during
+        # live tweaks yet reroll them when the seed changes ("New variation").
+        rng = np.random.default_rng(seed)
 
         # Randomly select colors based on the dark_on_light flag
         if not dark_on_light:

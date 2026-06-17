@@ -82,8 +82,10 @@ class MosaicGenerator:
             )
         self.level = level or self._auto_select_level()
 
-        # Pick random ECA rule from some interesting ones if not provided
-        self.eca_rule = eca_rule or self._auto_select_eca_rule()
+        # Pick random ECA rule from some interesting ones if not provided.
+        # Use an explicit None check: rule 0 is valid and must not be treated
+        # as "not provided" (which `or` would do).
+        self.eca_rule = eca_rule if eca_rule is not None else self._auto_select_eca_rule()
 
         # Select default UGent color scheme if not provided
         self.color_scheme = color_scheme or ColorScheme.ugent()
@@ -260,6 +262,68 @@ class MosaicGenerator:
         )
 
         return final_image
+
+    def build_gol_cells(self,
+                        img: Image.Image,
+                        empty_tiles_cutoff: float = 0.65,
+                        remove_background: Union[bool, str] = 'auto',
+                        contrast: float = 5.0,
+                        seed: Optional[int] = None) -> np.ndarray:
+        """
+        Build the binary Game of Life still-life mosaic (the tile collection).
+
+        Runs the same preprocessing and tile mapping as generate_from_pil but
+        stops before the ECA background and rendering, returning the raw 0/1
+        cell grid: the full mosaic of interlocking still-life tiles. This is
+        exactly what a Golly .cells export wants — every tile is a Conway
+        still life and the tiles are padded apart, so the whole pattern is
+        stable (it will not evolve in Golly).
+
+        We deliberately do NOT mask to the subject silhouette: clipping the
+        grid to the silhouette would cut individual tiles and break the still
+        lifes. The result is cropped to the bounding box of the live cells.
+
+        With the same image, settings and seed it reproduces the same tiles as
+        the rendered mosaic.
+
+        Args:
+            img: Input PIL Image (any mode; converted internally).
+            empty_tiles_cutoff: Threshold for empty tiles (0-1). Default 0.65.
+            remove_background: Background removal mode (default 'auto').
+            contrast: Sigmoid contrast strength (default 5.0; 0 disables).
+            seed: Optional integer to seed numpy's global RNG for reproducibility.
+
+        Returns:
+            2D numpy array of 0/1 (uint8): the still-life tile mosaic, cropped
+            to its live-cell bounding box. Empty if there are no live cells.
+        """
+        if seed is not None:
+            np.random.seed(seed)
+
+        results = ImageProcessor.preprocess_for_mosaic(
+            img,
+            self.grid_size,
+            remove_background=remove_background,
+            contrast=contrast
+        )
+        lowres_first, lowres_second, _, _, aspect_ratio = results
+
+        gol_mosaic = self._build_mosaic(
+            lowres_first, lowres_second, empty_tiles_cutoff
+        )
+        # _adjust_aspect_ratio crops both args identically; pass the mosaic
+        # twice since we don't need the transparency mask here.
+        gol_mosaic, _ = self._adjust_aspect_ratio(
+            gol_mosaic, gol_mosaic, aspect_ratio
+        )
+
+        # Binarise (overlapping diagonals can sum to 2) and crop to the live
+        # cells so Golly opens a tight pattern rather than a huge empty field.
+        cells = (gol_mosaic > 0).astype(np.uint8)
+        ys, xs = np.where(cells)
+        if ys.size:
+            cells = cells[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+        return cells
 
     def generate_from_gif(self,
                          gif_path: str,
