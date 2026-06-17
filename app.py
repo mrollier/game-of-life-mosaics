@@ -19,14 +19,13 @@ import os
 import re
 import random
 import tempfile
-from functools import lru_cache
 from typing import Optional
 
 import numpy as np
 from PIL import Image
 import gradio as gr
 
-from gol_mosaics import MosaicGenerator, PatternLibrary, ColorScheme
+from gol_mosaics import MosaicGenerator, PatternLibrary, ColorScheme, GollyExporter
 from gol_mosaics.eca import ECABackground
 
 # --- Safety / resource limits -------------------------------------------------
@@ -82,19 +81,6 @@ def _to_hex(color: str) -> str:
     return color
 
 
-@lru_cache(maxsize=256)
-def _warhol_for_seed(seed: int) -> ColorScheme:
-    """A Warhol palette that stays fixed for a given seed.
-
-    ColorScheme.warhol() draws from its own RNG (independent of numpy's global
-    seed), so live tweaking would otherwise reshuffle the colours on every
-    change. Caching by the effective seed keeps the palette stable while the
-    user adjusts other settings, and a new seed (the "New variation" button)
-    yields fresh colours. Bounded by lru_cache so it can't grow without limit.
-    """
-    return ColorScheme.warhol()
-
-
 def _scheme_for(label: str, seed: int, manual_colors=None) -> ColorScheme:
     """Build the ColorScheme for a UI label, keeping Warhol stable per seed.
 
@@ -110,18 +96,55 @@ def _scheme_for(label: str, seed: int, manual_colors=None) -> ColorScheme:
             eca_pixel=_to_hex(eca_px),
         )
     if label == WARHOL:
-        return _warhol_for_seed(seed)
+        # Seed the palette so it stays stable while other controls are tweaked
+        # but rerolls whenever the seed changes ("New variation").
+        return ColorScheme.warhol(seed=seed)
     if label == MONOCHROME:
         return ColorScheme.monochrome()
     return ColorScheme.ugent()
 
-# ECA rule dropdown: a curated set of interesting rules, plus a random option.
-# Values are ints, or the sentinel "random" which lets the generator choose.
+# ECA rule dropdown: a curated set of interesting rules, plus a random option
+# and a "custom" sentinel that reveals a 0-255 number field. Values are ints,
+# the sentinel "random" (let the generator choose), or "custom".
 ECA_CHOICES = (
     [("Random (recommended)", "random")]
     + [(f"Rule {r} — complex", r) for r in ECABackground.COMPLEX_RULES]
     + [(f"Rule {r} — chaotic", r) for r in ECABackground.CHAOTIC_RULES]
+    + [("Custom rule…", "custom")]
 )
+
+
+def _resolve_eca_rule(eca_rule, eca_custom_rule) -> Optional[int]:
+    """Map the ECA dropdown value to a rule int (or None for 'random').
+
+    'custom' uses the 0-255 number field, clamped into range; a blank custom
+    field falls back to a random rule.
+    """
+    if eca_rule == "random":
+        return None
+    if eca_rule == "custom":
+        if eca_custom_rule in (None, ""):
+            return None
+        return max(0, min(255, int(eca_custom_rule)))
+    return int(eca_rule)
+
+
+def _warn_if_opaque(img: Optional[Image.Image]) -> None:
+    """Toast a warning when an upload has no transparent pixels.
+
+    A fully opaque image almost certainly still has its background, so the
+    mosaic's subject-on-ECA effect won't show. We only warn (never block).
+    """
+    if img is None:
+        return
+    rgba = img.convert("RGBA")
+    alpha = np.asarray(rgba.getchannel("A"))
+    if alpha.min() == 255:
+        gr.Warning(
+            "This image has no transparent pixels — its background likely "
+            "wasn't removed, so you won't see the full effect. Try removing "
+            "the background first (e.g. remove.bg)."
+        )
 
 
 def _bound_input(img: Image.Image) -> Image.Image:
@@ -168,7 +191,8 @@ def _fit_to_aspect(img: Image.Image, target_ratio: float, fill_rgba: tuple
 
 
 def render_mosaic(image, level, color_scheme, grid_size,
-                  empty_tiles_cutoff, alpha_cutoff, eca_rule, seed, auto_seed,
+                  empty_tiles_cutoff, alpha_cutoff, eca_rule, eca_custom_rule,
+                  auto_seed,
                   gol_background, gol_pixel, eca_background, eca_pixel
                   ) -> Optional[Image.Image]:
     """Core generation: returns the RGBA mosaic (or None if there's no image).
@@ -177,9 +201,9 @@ def render_mosaic(image, level, color_scheme, grid_size,
     silently rather than erroring, so adjusting controls is smooth. Genuine
     failures raise gr.Error.
 
-    The effective seed keeps live tweaking stable: an explicit seed (if given)
-    wins, otherwise the session's auto_seed is used, so changing one control
-    only changes that aspect. The "New variation" button rerolls auto_seed.
+    The session's auto_seed keeps live tweaking stable: changing one control
+    only changes that aspect, while the "New variation" button rerolls
+    auto_seed for a fresh look.
     """
     if image is None:
         return None
@@ -191,8 +215,8 @@ def render_mosaic(image, level, color_scheme, grid_size,
         grid_size += 1
     grid_size = max(MIN_GRID, min(MAX_GRID, grid_size))
 
-    rule = None if eca_rule == "random" else int(eca_rule)
-    effective_seed = int(seed) if seed not in (None, "") else int(auto_seed)
+    rule = _resolve_eca_rule(eca_rule, eca_custom_rule)
+    effective_seed = int(auto_seed)
     manual_colors = (gol_background, gol_pixel, eca_background, eca_pixel)
 
     try:
@@ -243,6 +267,54 @@ def generate(*args) -> Optional[str]:
     return out_path
 
 
+def download_cells(image, level, color_scheme, grid_size,
+                   empty_tiles_cutoff, alpha_cutoff, eca_rule, eca_custom_rule,
+                   auto_seed,
+                   gol_background, gol_pixel, eca_background, eca_pixel
+                   ) -> Optional[str]:
+    """UI handler: export the still-life tile mosaic as a Golly .cells file.
+
+    Re-runs the deterministic pipeline (same seed as the displayed mosaic) but
+    stops before the ECA background, so the file holds only the stable
+    still-life tiles. Returns a filepath named 'gol-mosaic.cells' (or None when
+    there's no image yet). alpha_cutoff is accepted to share the generation
+    inputs but is unused: the still lifes don't depend on the transparency mask.
+    """
+    if image is None:
+        return None
+
+    level = int(level)
+    grid_size = int(grid_size)
+    if grid_size % 2:
+        grid_size += 1
+    grid_size = max(MIN_GRID, min(MAX_GRID, grid_size))
+
+    rule = _resolve_eca_rule(eca_rule, eca_custom_rule)
+    effective_seed = int(auto_seed)
+
+    try:
+        image = _bound_input(image)
+        np.random.seed(effective_seed)
+        generator = MosaicGenerator(
+            level=level,
+            grid_size=grid_size,
+            eca_rule=rule,
+        )
+        generator._pattern_library = PATTERN_LIBRARIES[level]
+
+        cells = generator.build_gol_cells(
+            image,
+            empty_tiles_cutoff=float(empty_tiles_cutoff),
+            remove_background=False,
+            seed=effective_seed,
+        )
+        out_path = os.path.join(tempfile.mkdtemp(prefix="gol_"), "gol-mosaic.cells")
+        GollyExporter.export_to_cells(cells, out_path)
+        return out_path
+    except Exception as exc:
+        raise gr.Error(f"Could not export the .cells file: {exc}")
+
+
 ABOUT = """
 ### About these mosaics
 
@@ -259,7 +331,57 @@ make noisier ones.
 **Tip:** upload an image whose background has already been removed
 (e.g. with [remove.bg](https://www.remove.bg)). Automatic background removal may
 be added in a future version.
+
+The full source code is on GitHub:
+[mrollier/game-of-life-mosaics](https://github.com/mrollier/game-of-life-mosaics).
 """
+
+
+# --- UGent-branded theme ------------------------------------------------------
+
+# UGent brand colours: blue (30,100,200) = #1E64C8 and yellow (255,210,0) =
+# #FFD200. Gradio themes need a full 50->950 ramp per hue, so we build shades by
+# tinting the base toward white (lighter) and black (darker), with the base at
+# the 500 step.
+_RAMP_MIX = {
+    "50": ("w", 0.95), "100": ("w", 0.90), "200": ("w", 0.75),
+    "300": ("w", 0.55), "400": ("w", 0.30), "500": ("w", 0.0),
+    "600": ("b", 0.12), "700": ("b", 0.28), "800": ("b", 0.42),
+    "900": ("b", 0.55), "950": ("b", 0.68),
+}
+
+
+def _ugent_ramp(base_hex: str, name: str) -> gr.themes.Color:
+    """Build a Gradio Color ramp (50-950) from a single base hex at step 500."""
+    base = tuple(int(base_hex.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+
+    def shade(toward: str, t: float) -> str:
+        target = (255, 255, 255) if toward == "w" else (0, 0, 0)
+        rgb = tuple(round(b + (target[i] - b) * t) for i, b in enumerate(base))
+        return "#{:02x}{:02x}{:02x}".format(*rgb)
+
+    shades = {f"c{k}": shade(*v) for k, v in _RAMP_MIX.items()}
+    return gr.themes.Color(name=name, **shades)
+
+
+UGENT_BLUE = _ugent_ramp("#1E64C8", "ugent_blue")
+UGENT_YELLOW = _ugent_ramp("#FFD200", "ugent_yellow")
+
+UGENT_THEME = gr.themes.Soft(
+    primary_hue=UGENT_BLUE,       # buttons, focus, sliders
+    secondary_hue=UGENT_YELLOW,   # secondary highlights
+    neutral_hue="slate",
+).set(
+    slider_color="*primary_500",
+    button_primary_background_fill="*primary_500",
+    button_primary_background_fill_hover="*primary_600",
+    # UGent yellow on secondary buttons (e.g. the .cells download) with dark
+    # text for contrast, so the yellow brand colour is clearly present.
+    button_secondary_background_fill="*secondary_400",
+    button_secondary_background_fill_hover="*secondary_500",
+    button_secondary_text_color="#1a1a1a",
+    button_secondary_border_color="*secondary_500",
+)
 
 
 def build_demo() -> gr.Blocks:
@@ -271,10 +393,10 @@ def build_demo() -> gr.Blocks:
     """
     with gr.Blocks(title="Game of Life Mosaics") as demo:
         gr.Markdown(
-            "# 🔬 Game of Life Mosaics\n"
+            "# Game of Life Mosaics\n"
             "Turn a portrait into a mosaic of Conway's Game of Life still lifes. "
             "**For best results upload a background-free image** "
-            "(e.g. via [remove.bg](https://www.remove.bg)) — the subject on a "
+            "(e.g. via [remove.bg](https://www.remove.bg)): the subject on a "
             "transparent background."
         )
 
@@ -341,11 +463,12 @@ def build_demo() -> gr.Blocks:
                         choices=ECA_CHOICES,
                         value="random",
                     )
-                    seed_in = gr.Number(
-                        label="Seed (optional)",
-                        value=None, precision=0,
-                        info="Set for a fully reproducible result. Blank = a stable "
-                             "per-session look; use 'New variation' to reroll.",
+                    # Shown only when "Custom rule…" is selected above.
+                    eca_custom_in = gr.Number(
+                        label="Custom ECA rule (0–255)",
+                        value=110, precision=0, minimum=0, maximum=255,
+                        visible=False,
+                        info="Wolfram rule number for the background automaton.",
                     )
 
             # --- Result (prominent, right) -----------------------------------
@@ -358,12 +481,21 @@ def build_demo() -> gr.Blocks:
                     # so the preview shows exactly the saved file (no letterbox
                     # bars on the sides of a portrait mosaic).
                 )
+                download_cells_btn = gr.DownloadButton(
+                    "⬇ Download .cells for Golly",
+                    variant="secondary",
+                )
+                gr.Markdown(
+                    "Download the subject's still-life pattern as a `.cells` file "
+                    "you can open in [Golly](https://golly.sourceforge.io)."
+                )
+
                 with gr.Accordion("About", open=False):
                     gr.Markdown(ABOUT)
 
         # Inputs passed to every generation call (order matches render_mosaic).
         gen_inputs = [image_in, level_in, color_in, grid_in,
-                      empty_in, alpha_in, eca_in, seed_in, auto_seed,
+                      empty_in, alpha_in, eca_in, eca_custom_in, auto_seed,
                       gol_bg_in, gol_px_in, eca_bg_in, eca_px_in]
 
         # Show the manual colour pickers only for the "Manual" scheme.
@@ -372,12 +504,22 @@ def build_demo() -> gr.Blocks:
             inputs=color_in, outputs=manual_group,
         )
 
+        # Reveal the custom-rule field only when "Custom rule…" is selected.
+        eca_in.change(
+            fn=lambda choice: gr.update(visible=(choice == "custom")),
+            inputs=eca_in, outputs=eca_custom_in,
+        )
+
+        # On upload, warn if the image has no transparent pixels: its background
+        # probably wasn't removed, so the algorithm's full effect won't show.
+        image_in.change(fn=_warn_if_opaque, inputs=image_in, outputs=None)
+
         # Live regeneration: sliders fire on release (not every pixel of drag),
         # dropdowns / number / image / colour pickers fire on change.
         live_triggers = [
             image_in.change, level_in.change, color_in.change,
             grid_in.release, empty_in.release, alpha_in.release,
-            eca_in.change, seed_in.change,
+            eca_in.change, eca_custom_in.change,
             gol_bg_in.change, gol_px_in.change, eca_bg_in.change, eca_px_in.change,
         ]
         gr.on(triggers=live_triggers, fn=generate,
@@ -390,6 +532,11 @@ def build_demo() -> gr.Blocks:
             fn=generate, inputs=gen_inputs, outputs=image_out
         )
 
+        # Export the current still lifes as a Golly .cells file on demand.
+        download_cells_btn.click(
+            fn=download_cells, inputs=gen_inputs, outputs=download_cells_btn
+        )
+
     return demo
 
 
@@ -399,4 +546,4 @@ demo = build_demo()
 demo.queue(default_concurrency_limit=2, max_size=20)
 
 if __name__ == "__main__":
-    demo.launch(theme=gr.themes.Soft())
+    demo.launch(theme=UGENT_THEME)

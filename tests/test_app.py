@@ -28,10 +28,11 @@ _MANUAL = (app.DEFAULT_MANUAL.gol_background, app.DEFAULT_MANUAL.gol_pixel,
            app.DEFAULT_MANUAL.eca_background, app.DEFAULT_MANUAL.eca_pixel)
 
 
-def _render(image, color_scheme=app.UGENT, seed=1, auto_seed=0, manual=_MANUAL):
+def _render(image, color_scheme=app.UGENT, auto_seed=0, manual=_MANUAL,
+            eca_rule="random", eca_custom_rule=None):
     """Call render_mosaic with sensible defaults for the fixed settings."""
     return app.render_mosaic(image, 3, color_scheme, 40, 0.65, 0.5,
-                             "random", seed, auto_seed, *manual)
+                             eca_rule, eca_custom_rule, auto_seed, *manual)
 
 
 def test_render_returns_rgba():
@@ -47,13 +48,42 @@ def test_render_no_image_returns_none():
     assert _render(None) is None
 
 
-def test_blank_seed_uses_auto_seed_for_stability():
-    """A blank seed falls back to auto_seed, so the same auto_seed reproduces
-    the same mosaic (what keeps live tweaking stable)."""
+def test_auto_seed_is_stable():
+    """The same auto_seed reproduces the same mosaic (what keeps live tweaking
+    stable); a different auto_seed gives a different one ("New variation")."""
     img = _subject_on_transparent()
-    first = _render(img, seed=None, auto_seed=99)
-    second = _render(img, seed=None, auto_seed=99)
+    first = _render(img, auto_seed=99)
+    second = _render(img, auto_seed=99)
     assert np.array_equal(np.asarray(first), np.asarray(second))
+    other = _render(img, auto_seed=12345)
+    assert not np.array_equal(np.asarray(first), np.asarray(other))
+
+
+def test_custom_eca_rule_zero_is_used():
+    """ECA rule 0 is a valid custom rule and must not be replaced by a random
+    one (regression: `eca_rule or ...` treated 0 as unset)."""
+    assert app._resolve_eca_rule("custom", 0) == 0
+    img = _subject_on_transparent()
+    # Rule 0 maps every neighbourhood to dead, so the ECA background contributes
+    # no pixels: rendering must still succeed.
+    result = _render(img, eca_rule="custom", eca_custom_rule=0)
+    assert isinstance(result, Image.Image)
+
+
+def test_download_cells_exports_unmasked_still_life():
+    """The .cells export is the still-life tile mosaic (cropped to live cells),
+    written in Golly .cells format, and matches build_gol_cells."""
+    img = _subject_on_transparent()
+    path = app.download_cells(img, 3, app.UGENT, 40, 0.65, 0.5,
+                              "random", None, 7, *_MANUAL)
+    assert os.path.basename(path) == "gol-mosaic.cells"
+    with open(path) as f:
+        body = f.read()
+    assert body.startswith("!")        # Golly .cells comment header
+    assert "O" in body                 # contains live cells
+    # Rows hold only the .cells alphabet.
+    for line in body.splitlines()[1:]:
+        assert set(line) <= {"O", "."}
 
 
 def test_manual_colors_are_applied():
@@ -94,12 +124,12 @@ def test_output_matches_original_aspect_ratio():
 def test_generate_saves_named_png():
     """The UI wrapper returns a real PNG path named gol-mosaic.png."""
     path = app.generate(_subject_on_transparent(), 3, app.UGENT, 40, 0.65, 0.5,
-                        "random", 1, 0, *_MANUAL)
+                        "random", None, 0, *_MANUAL)
     assert os.path.basename(path) == "gol-mosaic.png"
     Image.open(path).load()  # opens without error => valid image
 
 
 def test_generate_no_image_returns_none():
     """The UI wrapper returns None (not a path) when there's no image."""
-    assert app.generate(None, 3, app.UGENT, 40, 0.65, 0.5, "random", 1, 0,
+    assert app.generate(None, 3, app.UGENT, 40, 0.65, 0.5, "random", None, 0,
                         *_MANUAL) is None

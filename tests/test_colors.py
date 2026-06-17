@@ -45,6 +45,20 @@ def test_colorscheme_to_dict():
     assert 'eca_pixel' in d
 
 
+def test_colorscheme_warhol_seed_is_deterministic():
+    """Same seed reproduces the same Warhol palette."""
+    a = ColorScheme.warhol(seed=7)
+    b = ColorScheme.warhol(seed=7)
+    assert a == b
+
+
+def test_colorscheme_warhol_different_seeds_differ():
+    """Different seeds (very likely) give different Warhol palettes."""
+    palettes = {ColorScheme.warhol(seed=s) for s in range(8)}
+    # Not all eight seeds should collapse to a single palette.
+    assert len(palettes) > 1
+
+
 def test_colorscheme_immutable():
     """Test that ColorScheme is immutable."""
     colors = ColorScheme.ugent()
