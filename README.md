@@ -61,7 +61,7 @@ pip install -r requirements.txt
 - **gurobipy** (>=11.0.0) - Optimisation solver (only for generating new patterns)
 - **rembg** (>=2.0.0) - Automatic background removal (optional)
 
-> **Note on Gurobi**: Gurobi is only required for *generating* new patterns. Using pre-computed patterns (levels 1-5) works without a Gurobi license. For pattern generation, obtain a free academic license or trial from [gurobi.com](https://www.gurobi.com/). Note that (with the current algorithm) calculating all patterns for level > 5 is computationally highly demanding.
+> **Note on Gurobi**: Gurobi is only required for *generating* new patterns. Using pre-computed patterns (levels 1-5) works without a Gurobi licence. For pattern generation, obtain a free academic licence or trial from [gurobi.com](https://www.gurobi.com/). Note that (with the current algorithm) calculating all patterns for level > 5 is computationally highly demanding.
 
 > **Note on background removal**: `rembg` is only required when the algorithm removes an image's background for you (the `remove_background='auto'` default, or `remove_background=True`). Install it with `pip install gol-mosaics[bg-removal]`. If your images already have transparent backgrounds, you don't need it.
 >
@@ -179,14 +179,14 @@ import numpy as np
 # Load pre-computed patterns
 library = PatternLibrary.load(level=5)
 
-# Get a single pattern for a grayscale value
+# Get a single pattern for a greyscale value
 pattern = library.get_pattern_for_value(0.5, random=True)
 
 # Map array of values to patterns
 values = np.array([[0.2, 0.5], [0.7, 0.9]])
 patterns = library.get_patterns_for_values(values, random=True, invert=True)
 
-# Generate new patterns (requires Gurobi license). Stop searching after 500 Tiles have been found.
+# Generate new patterns (requires Gurobi licence). Stop searching after 500 Tiles have been found.
 library = PatternLibrary.generate(level=6, solution_limit=500)
 np.save('solutions_level_6.npy', library.solutions)
 ```
@@ -233,7 +233,7 @@ For level 4, there are **85 unique symmetric patterns** ranging from sparse to d
 
 ### Pattern Mapping
 
-1. **Image preprocessing**: Load image, make square with padding, convert to grayscale
+1. **Image preprocessing**: Load image, make square with padding, convert to greyscale
 2. **Rotation**: Rotate 45° to create diamond layout
 3. **Pixelation**: Downsample to grid of tiles
 4. **Diagonal extraction**: Extract two interlocking diagonal grids
@@ -287,7 +287,7 @@ Manages Game of Life patterns.
 
 ### ColorScheme
 
-Immutable color configuration (dataclass).
+Immutable colour configuration (dataclass).
 
 **Class Methods:**
 - `ColorScheme.ugent()` - UGent brand colours (default)
@@ -393,10 +393,10 @@ game-of-life-mosaics/
 │   └── gol_mosaics/           # Main package
 │       ├── mosaic.py          # MosaicGenerator (main API)
 │       ├── patterns.py        # PatternLibrary (GoL patterns)
-│       ├── colors.py          # ColorScheme (color management)
+│       ├── colors.py          # ColorScheme (colour management)
 │       ├── image_processing.py # ImageProcessor (preprocessing)
 │       ├── eca.py             # ECABackground (background generation)
-│       ├── renderer.py        # MosaicRenderer (color rendering)
+│       ├── renderer.py        # MosaicRenderer (colour rendering)
 │       └── export.py          # GollyExporter (format export)
 ├── data/                      # Pre-computed pattern solutions
 |   ├── solutions_pattern_level_1.npy

@@ -1,7 +1,7 @@
 """
-Color scheme management for Game of Life mosaics.
+Colour scheme management for Game of Life mosaics.
 
-This module provides the ColorScheme dataclass for managing color configurations
+This module provides the ColorScheme dataclass for managing colour configurations
 used in mosaic rendering.
 """
 
@@ -13,15 +13,15 @@ import numpy as np
 @dataclass(frozen=True)
 class ColorScheme:
     """
-    Immutable color configuration for mosaic rendering.
+    Immutable colour configuration for mosaic rendering.
 
-    All colors are specified as hex color strings (e.g., '#FFFFFF').
+    All colours are specified as hex colour strings (e.g., '#FFFFFF').
 
     Attributes:
-        gol_background: Background color for Game of Life mosaic
-        gol_pixel: Foreground/alive cell color for Game of Life mosaic
-        eca_background: Background color for Elementary Cellular Automaton overlay
-        eca_pixel: Foreground color for Elementary Cellular Automaton overlay
+        gol_background: Background colour for Game of Life mosaic
+        gol_pixel: Foreground/alive cell colour for Game of Life mosaic
+        eca_background: Background colour for Elementary Cellular Automaton overlay
+        eca_pixel: Foreground colour for Elementary Cellular Automaton overlay
 
     Example:
         >>> colors = ColorScheme(
@@ -42,16 +42,16 @@ class ColorScheme:
     @classmethod
     def ugent(cls) -> 'ColorScheme':
         """
-        UGent (Ghent University) brand colors.
+        UGent (Ghent University) brand colours.
 
-        Uses UGent's official color palette:
+        Uses UGent's official colour palette:
         - White/black for Game of Life patterns
         - Yellow/blue for ECA background
 
-        This is the default color scheme.
+        This is the default colour scheme.
 
         Returns:
-            ColorScheme with UGent brand colors
+            ColorScheme with UGent brand colours
 
         Example:
             >>> colors = ColorScheme.ugent()
@@ -103,16 +103,16 @@ class ColorScheme:
                eca_background: str = '#FFD200',
                eca_pixel: str = '#1E64C8') -> 'ColorScheme':
         """
-        Custom color scheme.
+        Custom colour scheme.
 
         Args:
-            gol_background: Background color for Game of Life mosaic (default: white)
-            gol_pixel: Foreground/alive cell color for Game of Life mosaic (default: black)
-            eca_background: Background color for Elementary Cellular Automaton overlay (default: yellow)
-            eca_pixel: Foreground color for Elementary Cellular Automaton overlay (default: blue)
+            gol_background: Background colour for Game of Life mosaic (default: white)
+            gol_pixel: Foreground/alive cell colour for Game of Life mosaic (default: black)
+            eca_background: Background colour for Elementary Cellular Automaton overlay (default: yellow)
+            eca_pixel: Foreground colour for Elementary Cellular Automaton overlay (default: blue)
 
         Returns:
-            ColorScheme with custom colors
+            ColorScheme with custom colours
 
         Example:
             >>> colors = ColorScheme.custom()
@@ -136,16 +136,16 @@ class ColorScheme:
     @classmethod
     def warhol(cls, force_white=False, dark_on_light=True) -> 'ColorScheme':
         """
-        Warhol-inspired color scheme.
+        Warhol-inspired colour scheme.
 
-        Uses bright, contrasting colors reminiscent of Andy Warhol's pop art style.
+        Uses bright, contrasting colours reminiscent of Andy Warhol's pop art style.
 
         Args:
             force_white: If True, forces the Game of Life background to be white (default: False)
-            dark_on_light: If True, uses dark colors on a light background; if False, just picks randomly from the palette (default: True)
+            dark_on_light: If True, uses dark colours on a light background; if False, just picks randomly from the palette (default: True)
 
         Returns:
-            ColorScheme with Warhol-inspired colors
+            ColorScheme with Warhol-inspired colours
         
         Example:
             >>> colors = ColorScheme.warhol()
@@ -217,7 +217,7 @@ class ColorScheme:
         # Prepare random generator
         rng = np.random.default_rng()
 
-        # Randomly select colors based on the dark_on_light flag
+        # Randomly select colours based on the dark_on_light flag
         if not dark_on_light:
             gol_colors = rng.choice(list(warhol_colors.values()), size=2, replace=False)
             gol_background = gol_colors[0]
@@ -227,7 +227,7 @@ class ColorScheme:
             gol_pixel = rng.choice(list(warhol_dark_colors.values()))
             gol_background = rng.choice(list(warhol_light_colors.values()))
 
-        # Select two distinct ECA colors
+        # Select two distinct ECA colours
         eca_colors = rng.choice(list(warhol_colors.values()), size=2, replace=False)
         eca_background = eca_colors[0]
         eca_pixel = eca_colors[1]
@@ -247,13 +247,13 @@ class ColorScheme:
     @classmethod
     def inverted(cls) -> 'ColorScheme':
         """
-        Inverted UGent colors (light on dark).
+        Inverted UGent colours (light on dark).
 
         Uses black background with white patterns and
         blue background with yellow ECA overlay.
 
         Returns:
-            ColorScheme with inverted UGent colors
+            ColorScheme with inverted UGent colours
 
         Example:
             >>> colors = ColorScheme.inverted()
@@ -269,12 +269,12 @@ class ColorScheme:
 
     def to_dict(self) -> Dict[str, str]:
         """
-        Convert color scheme to dictionary format.
+        Convert colour scheme to dictionary format.
 
-        Useful for compatibility or serialization.
+        Useful for compatibility or serialisation.
 
         Returns:
-            Dictionary with color configuration
+            Dictionary with colour configuration
 
         Example:
             >>> colors = ColorScheme.ugent()

@@ -22,9 +22,9 @@ class PatternLibrary:
     """
     Manages Game of Life still-life patterns.
 
-    Handles both generation (using Gurobi optimization) and loading
+    Handles both generation (using Gurobi optimisation) and loading
     of pre-computed symmetric patterns. Patterns are loaded lazily to
-    minimize memory usage.
+    minimise memory usage.
 
     Attributes:
         level: Pattern complexity level (1-5 pre-computed, others require generation)
@@ -42,7 +42,7 @@ class PatternLibrary:
 
     def __init__(self, level: int = 4):
         """
-        Initialize PatternLibrary.
+        Initialise PatternLibrary.
 
         Args:
             level: Pattern complexity level (1-5 supported, all pre-computed)
@@ -83,21 +83,21 @@ class PatternLibrary:
     @property
     def densities(self) -> np.ndarray:
         """
-        Get normalized density values for each pattern (lazy-computed).
+        Get normalised density values for each pattern (lazy-computed).
 
         Densities are cached after first computation.
 
         Returns:
-            Numpy array of shape (N,) with normalized densities in [0, 1]
+            Numpy array of shape (N,) with normalised densities in [0, 1]
         """
         if self._densities is None:
             self._densities = self._calculate_densities()
         return self._densities
 
     def _calculate_densities(self) -> np.ndarray:
-        """Calculate and normalize density values for all patterns."""
+        """Calculate and normalise density values for all patterns."""
         densities = np.mean(self.solutions, axis=(1, 2))
-        # Normalize to [0, 1]
+        # Normalise to [0, 1]
         dens_max = densities.max()
         dens_min = densities.min()
         if dens_max != dens_min:
@@ -158,15 +158,15 @@ class PatternLibrary:
     @classmethod
     def generate(cls, level: int, solution_limit: int = 1000) -> 'PatternLibrary':
         """
-        Generate new patterns using Gurobi optimization.
+        Generate new patterns using Gurobi optimisation.
 
         Uses integer linear programming to find all symmetric Game of Life
         still-life patterns that satisfy:
-        - Conway's Game of Life rules (2-3 neighbors for survival)
+        - Conway's Game of Life rules (2-3 neighbours for survival)
         - 8-fold symmetry (vertical, horizontal, diagonal)
         - Pond pattern edge constraints
 
-        Note: Requires Gurobi license. Can be time-consuming for high levels.
+        Note: Requires Gurobi licence. Can be time-consuming for high levels.
 
         Args:
             level: Pattern complexity level (2-6)
@@ -177,7 +177,7 @@ class PatternLibrary:
 
         Raises:
             ImportError: If gurobipy is not available
-            RuntimeError: If Gurobi optimization fails
+            RuntimeError: If Gurobi optimisation fails
 
         Example:
             >>> # Generate patterns for level 6 (not pre-computed)
@@ -189,7 +189,7 @@ class PatternLibrary:
             raise ImportError(
                 "Gurobi is required for pattern generation but is not installed. "
                 "Install with: pip install gurobipy\n"
-                "Note: Gurobi requires a license (free academic licenses available at gurobi.com).\n"
+                "Note: Gurobi requires a licence (free academic licences available at gurobi.com).\n"
                 "For pre-computed patterns (levels 1-5), use PatternLibrary.load() instead."
             )
 
@@ -201,7 +201,7 @@ class PatternLibrary:
         """
         Find all symmetric GoL still-life patterns using Gurobi ILP.
 
-        This is the core optimization routine that uses Gurobi's mixed-integer
+        This is the core optimisation routine that uses Gurobi's mixed-integer
         programming solver to exhaustively find patterns.
 
         This approach is inspired by Rob Bosch's 2019 book "Opt Art".
@@ -227,8 +227,8 @@ class PatternLibrary:
 
         # Decision variables
         alive = {}  # Alive cells
-        ldead = {}  # Low dead (< 2 neighbors)
-        hdead = {}  # High dead (> 3 neighbors)
+        ldead = {}  # Low dead (< 2 neighbours)
+        hdead = {}  # High dead (> 3 neighbours)
 
         for i in range(n):
             for j in range(n):
@@ -268,19 +268,19 @@ class PatternLibrary:
                 N = neighbors(i, j, n)
                 neighbor_sum = quicksum(alive[ii, jj] for (ii, jj) in N)
 
-                # Low-dead: cells with < 2 neighbors
+                # Low-dead: cells with < 2 neighbours
                 model.addConstr(
                     4 * ldead[i, j] + neighbor_sum <= 6,
                     name=f"low_dead_{i}_{j}"
                 )
 
-                # High-dead: cells with > 3 neighbors
+                # High-dead: cells with > 3 neighbours
                 model.addConstr(
                     4 * hdead[i, j] <= neighbor_sum,
                     name=f"high_dead_{i}_{j}"
                 )
 
-                # Stayin' alive: alive cells need 2-3 neighbors
+                # Stayin' alive: alive cells need 2-3 neighbours
                 model.addConstr(
                     2 * alive[i, j] <= neighbor_sum,
                     name=f"stay1_{i}_{j}"
@@ -324,7 +324,7 @@ class PatternLibrary:
                         name=f"force_dead_edge_{i}_{j}"
                     )
 
-        # Objective: maximize number of living cells
+        # Objective: maximise number of living cells
         model.setObjective(
             quicksum(alive[i, j] for i in range(n) for j in range(n)),
             GRB.MAXIMIZE
@@ -375,10 +375,10 @@ class PatternLibrary:
                               random: bool = True,
                               invert: bool = True) -> np.ndarray:
         """
-        Get a single pattern matching the given grayscale value.
+        Get a single pattern matching the given greyscale value.
 
         Args:
-            value: Grayscale value in [0, 1]
+            value: Greyscale value in [0, 1]
             random: If True, randomly select from patterns with matching density
             invert: If True, invert the density mapping (1.0 -> darkest)
 
@@ -421,10 +421,10 @@ class PatternLibrary:
                                 invert: bool = True,
                                 empty_tiles_cutoff: float = 1.0) -> np.ndarray:
         """
-        Map grayscale values to patterns by density matching.
+        Map greyscale values to patterns by density matching.
 
         Args:
-            greyscale_values: Array of grayscale values in [0, 1]
+            greyscale_values: Array of greyscale values in [0, 1]
             random: If True, randomly select from patterns with matching density
             invert: If True, invert the density mapping
             empty_tiles_cutoff: Values above this threshold become empty tiles
@@ -648,7 +648,7 @@ class PatternLibrary:
         # Create sub-diagonal through first quarter
         pp_diagonal = np.diag(np.ones(width - 1, dtype=int), k=1)[::-1]
 
-        # Create vertical line one cell to the left of center
+        # Create vertical line one cell to the left of centre
         pp_vertical = np.zeros_like(pp_edge)
         pp_vertical[:, half_width - 1] = 1
 

@@ -5,7 +5,7 @@ from src.gol_mosaics.colors import ColorScheme
 
 
 def test_colorscheme_ugent():
-    """Test UGent color preset."""
+    """Test UGent colour preset."""
     colors = ColorScheme.ugent()
     assert colors.gol_background == '#FFFFFF'
     assert colors.gol_pixel == '#000000'
@@ -21,7 +21,7 @@ def test_colorscheme_monochrome():
     assert colors.eca_background == '#FFFFFF'
     assert colors.eca_pixel == '#000000'
 
-    # Custom colors
+    # Custom colours
     colors = ColorScheme.monochrome(foreground='#FF0000', background='#00FF00')
     assert colors.gol_pixel == '#FF0000'
     assert colors.gol_background == '#00FF00'
