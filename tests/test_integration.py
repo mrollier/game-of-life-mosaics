@@ -151,6 +151,42 @@ def test_generate_from_pil_smoke(transparent_image_path):
     assert result.size[0] > 0 and result.size[1] > 0
 
 
+def test_auto_supersample_returns_target_regardless_of_divisibility():
+    """Auto-selection no longer needs a divisor: it returns the target itself."""
+    generator = MosaicGenerator(level=3, grid_size=40)
+    # 588 has no divisor equal to 15, but the relaxed pipeline can use 15 directly.
+    assert generator._auto_select_supersample(588, target=15) == 15
+
+
+def test_auto_supersample_on_non_square_image_does_not_raise():
+    """A non-square image must not raise when supersample is auto-selected.
+
+    Regression test for the width-vs-height bug: the auto-selected supersample
+    used to divide the mosaic width but not its (different) height, raising
+    deep inside ECABackground.generate.
+    """
+    # 14x20 produces a non-square mosaic after the aspect-ratio crop.
+    img = Image.new('RGBA', (140, 200), (0, 0, 0, 0))
+    img.paste(Image.new('RGBA', (80, 120), (30, 30, 30, 255)), (30, 40))
+
+    generator = MosaicGenerator(level=3, grid_size=40)
+    result = generator.generate_from_pil(
+        img, remove_background=False, supersample=None, seed=0)
+
+    assert isinstance(result, Image.Image)
+    assert result.mode == 'RGBA'
+
+
+def test_explicit_non_divisor_supersample_does_not_raise(test_image_path):
+    """An explicit supersample that divides neither dimension is accepted."""
+    generator = MosaicGenerator(level=3, grid_size=10)
+    result = generator.generate_from_image(
+        test_image_path, supersample=13, remove_background=False)
+
+    assert isinstance(result, Image.Image)
+    assert result.mode == 'RGBA'
+
+
 def test_seed_makes_generation_reproducible(test_image_path):
     """Same image + settings + seed reproduces a byte-identical mosaic."""
     kwargs = dict(supersample=12, remove_background=False, seed=123)

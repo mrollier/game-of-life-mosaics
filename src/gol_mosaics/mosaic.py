@@ -592,15 +592,9 @@ class MosaicGenerator:
             eca_pattern = np.zeros((height, width), dtype=np.uint8)
 
         else:
-            # Validate supersample
-            if not self.eca_generator.validate_supersample(width, supersample):
-                valid = self.eca_generator.list_valid_supersamples(width)
-                raise ValueError(
-                    f"supersample={supersample} is incompatible with "
-                    f"mosaic width={width}. Valid values: {valid}"
-                )
-
-            # Generate ECA pattern
+            # Generate ECA pattern. Any positive supersample works: generate()
+            # crops the upsampled pattern to the exact mosaic size, so it need
+            # not divide the width or height.
             eca_pattern = self.eca_generator.generate(
                 width=width,
                 height=height,
@@ -660,37 +654,25 @@ class MosaicGenerator:
 
     def _auto_select_supersample(self, mosaic_width: int, target: int = 15) -> int:
         """
-        Automatically select a valid supersample value close to target.
+        Automatically select a supersample value.
 
-        Finds the divisor of mosaic_width that's closest to the target value.
-        If there are two equally close values, randomly chooses between them
-        for variety.
+        ECABackground.generate accepts any positive supersample (it crops the
+        upsampled pattern to size), so this simply returns the target cell size.
+        It is only clamped so at least one full ECA cell spans the mosaic on
+        very small mosaics.
 
         Args:
             mosaic_width: Width of the mosaic in pixels
-            target: Target supersample value (default: 15)
+            target: Desired ECA cell size in pixels (default: 15)
 
         Returns:
-            Valid supersample value closest to target
+            Supersample value to use
 
         Example:
-            >>> # For width=144, valid values are [1,2,3,4,6,8,9,12,16,18,24,36,48,72,144]
-            >>> # Target 15 → returns 16 or 12 (randomly chosen, both distance 3)
+            >>> # width=588 (no divisor equals 15) still uses 15 directly
+            >>> # width=8 clamps the target down to 8
         """
-        valid_values = self.eca_generator.list_valid_supersamples(mosaic_width)
-
-        # Find closest value(s)
-        distances = [abs(v - target) for v in valid_values]
-        min_distance = min(distances)
-
-        # Get all values with minimum distance
-        closest_values = [v for v, d in zip(valid_values, distances) if d == min_distance]
-
-        # If multiple equally close values, pick randomly for variety
-        if len(closest_values) > 1:
-            return int(np.random.choice(closest_values))
-        else:
-            return closest_values[0]
+        return max(1, min(target, mosaic_width))
 
     def _auto_select_grid_size(self) -> int:
         """Randomly select a grid size from predefined options."""

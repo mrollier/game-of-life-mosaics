@@ -63,44 +63,45 @@ class ECABackground:
         """
         Generate ECA pattern at full resolution.
 
-        The pattern is generated at low resolution (width/supersample,
-        height/supersample) and then upsampled by repeating pixels.
+        The pattern is generated at low resolution (ceil(width/supersample),
+        ceil(height/supersample)), upsampled by repeating each cell into a
+        supersample x supersample block, and then cropped to exactly
+        (height, width). Because of the crop, supersample need not divide the
+        target dimensions: any positive value works without interpolation.
 
         Args:
-            width: Target width in pixels (must be divisible by supersample)
-            height: Target height in pixels (must be divisible by supersample)
-            supersample: Upsampling factor (default: 15)
+            width: Target width in pixels
+            height: Target height in pixels
+            supersample: Upsampling factor, i.e. the side of each ECA cell in
+                pixels (default: 15). Must be a positive integer.
 
         Returns:
             Binary numpy array of shape (height, width)
 
         Raises:
-            ValueError: If width or height not divisible by supersample
+            ValueError: If supersample is not a positive integer
 
         Example:
             >>> eca = ECABackground(rule=106)
             >>> pattern = eca.generate(width=1000, height=1000, supersample=10)
             >>> pattern.shape
             (1000, 1000)
+            >>> # Dimensions need not be divisible by supersample:
+            >>> eca.generate(width=588, height=522, supersample=14).shape
+            (522, 588)
             >>> np.unique(pattern)
             array([0, 1])
         """
         # Validate supersample
-        if width % supersample != 0:
+        if not isinstance(supersample, (int, np.integer)) or supersample < 1:
             raise ValueError(
-                f"Width {width} must be divisible by supersample {supersample}. "
-                f"Valid supersample values: {self.list_valid_supersamples(width)}"
+                f"supersample must be a positive integer, got {supersample!r}"
             )
 
-        if height % supersample != 0:
-            raise ValueError(
-                f"Height {height} must be divisible by supersample {supersample}. "
-                f"Valid supersample values: {self.list_valid_supersamples(height)}"
-            )
-
-        # Generate at low resolution
-        eca_width = width // supersample
-        eca_height = height // supersample
+        # Generate at low resolution, rounding up so the upsampled pattern is at
+        # least as large as the target; the surplus is cropped off below.
+        eca_width = -(-width // supersample)   # ceil division
+        eca_height = -(-height // supersample)
 
         # Initialize with random state
         eca = cpl.init_random(eca_width)
@@ -113,9 +114,10 @@ class ECABackground:
             apply_rule=lambda n, c, t: cpl.nks_rule(n, self.rule)
         )
 
-        # Upsample by repeating pixels
+        # Upsample by repeating pixels, then crop to the exact target size
         eca_upsized = np.repeat(eca, supersample, axis=0)
         eca_upsized = np.repeat(eca_upsized, supersample, axis=1)
+        eca_upsized = eca_upsized[:height, :width]
 
         return eca_upsized.astype(np.uint8)
 
