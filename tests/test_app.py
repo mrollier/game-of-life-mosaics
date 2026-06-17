@@ -73,7 +73,8 @@ def test_manual_colors_are_applied():
 def test_output_matches_original_aspect_ratio():
     """The output is fitted to (almost) the original upload's aspect ratio on a
     solid ECA-coloured backdrop: ratio matches, no transparent pixels remain,
-    and all four edges are the ECA background colour."""
+    and the padding bars are the ECA background colour. The opaque mosaic (whose
+    rotation rim is the GoL background colour) sits centred on that backdrop."""
     img = Image.new('RGBA', (60, 100), (0, 0, 0, 0))  # 0.6 portrait
     img.paste(Image.new('RGBA', (30, 50), (20, 20, 20, 255)), (15, 25))
     result = _render(img)  # UGENT -> ECA background #FFD200
@@ -83,8 +84,10 @@ def test_output_matches_original_aspect_ratio():
 
     arr = np.asarray(result)
     assert not (arr[:, :, 3] == 0).any()  # solid backdrop, nothing transparent
+    # A portrait is fitted by padding rows, so the top and bottom edges are the
+    # solid ECA-background backdrop.
     eca = app._hex_to_rgba(app.DEFAULT_MANUAL.eca_background)  # UGent yellow
-    for edge in (arr[0], arr[-1], arr[:, 0], arr[:, -1]):
+    for edge in (arr[0], arr[-1]):
         assert (edge == eca).all()
 
 

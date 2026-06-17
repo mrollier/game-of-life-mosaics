@@ -145,9 +145,9 @@ def _fit_to_aspect(img: Image.Image, target_ratio: float, fill_rgba: tuple
     """Place the mosaic on a solid `fill_rgba` backdrop sized to target_ratio.
 
     The shorter axis is padded (never cropped) so width/height matches the
-    original aspect ratio, and the SAME colour fills both that padding and the
-    mosaic's transparent rim. Result: one uniform backdrop, centred subject, no
-    detached bars or mismatched transparent edges.
+    original aspect ratio, and `fill_rgba` fills that padding. The mosaic itself
+    is an opaque square (its rotation rim is the GoL background colour), so it is
+    pasted centred on top of the backdrop.
     """
     width, height = img.size
     if width == 0 or height == 0:
@@ -161,8 +161,8 @@ def _fit_to_aspect(img: Image.Image, target_ratio: float, fill_rgba: tuple
 
     canvas = Image.new("RGBA", (new_width, new_height), fill_rgba)
     offset = ((new_width - width) // 2, (new_height - height) // 2)
-    # Use the mosaic's own alpha as the mask, so its transparent rim lets the
-    # solid backdrop show through (rim + padding become one uniform colour).
+    # The mosaic is opaque, so this simply centres it; the backdrop shows only
+    # in the aspect-ratio padding around it.
     canvas.paste(img, offset, mask=img)
     return canvas
 
@@ -220,7 +220,7 @@ def render_mosaic(image, level, color_scheme, grid_size,
             seed=effective_seed,
         )
         # Fit to the original aspect ratio on a solid ECA-background backdrop
-        # (fills both the aspect padding and the mosaic's transparent rim).
+        # (fills the aspect padding around the opaque mosaic).
         return _fit_to_aspect(
             mosaic, target_ratio, _hex_to_rgba(scheme.eca_background)
         )
