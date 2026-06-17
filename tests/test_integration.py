@@ -57,6 +57,33 @@ def test_auto_default_skips_removal_for_transparent_image(transparent_image_path
     assert result.mode == 'RGBA'
 
 
+def test_outer_rim_is_transparent(transparent_image_path):
+    """The rotation/padding rim outside the photo footprint is transparent,
+    while the subject near the centre stays opaque."""
+    generator = MosaicGenerator(level=3, grid_size=10)
+    result = generator.generate_from_image(transparent_image_path, supersample=12)
+    arr = np.asarray(result)
+
+    # The four corners are rotation-fill rim -> fully transparent
+    assert arr[0, 0, 3] == 0
+    assert arr[0, -1, 3] == 0
+    assert arr[-1, 0, 3] == 0
+    assert arr[-1, -1, 3] == 0
+
+    # The subject near the centre stays opaque
+    cy, cx = arr.shape[0] // 2, arr.shape[1] // 2
+    assert arr[cy, cx, 3] == 255
+
+
+def test_rim_color_fills_rim_when_given(transparent_image_path):
+    """A given rim_color fills the rim opaquely instead of making it transparent."""
+    generator = MosaicGenerator(level=3, grid_size=10)
+    result = generator.generate_from_image(
+        transparent_image_path, supersample=12, rim_color=(255, 255, 255))
+    arr = np.asarray(result)
+    assert tuple(int(v) for v in arr[0, 0]) == (255, 255, 255, 255)
+
+
 def test_full_pipeline(test_image_path):
     """Test complete mosaic generation pipeline."""
     generator = MosaicGenerator(level=3, grid_size=10)

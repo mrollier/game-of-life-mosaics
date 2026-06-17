@@ -166,6 +166,7 @@ mosaic.save('output.png')
 - **alpha_cutoff** (0-1): Transparency threshold. Transparent areas get filled with ECA pattern.
 - **supersample**: ECA upsampling factor. Must divide mosaic width evenly. Higher = finer ECA detail.
 - **contrast**: Sigmoid (S-curve) contrast boost on the greyscale before tiling. 0 disables; higher is punchier (default 5.0). High-contrast images give the most striking mosaics.
+- **rim_color**: Colour of the outer rim (the rotation/padding border). `None` (default) makes it transparent; pass an `(R, G, B)` tuple or hex string to fill it with a colour.
 
 ### Working with Pattern Library
 
@@ -268,7 +269,7 @@ MosaicGenerator(level=4, grid_size=30, color_scheme=None,
 ```
 
 **Methods:**
-- `generate_from_image(image_path, empty_tiles_cutoff=1.0, alpha_cutoff=0.5, supersample=15, remove_background='auto', contrast=5.0)` - Generate from image file
+- `generate_from_image(image_path, empty_tiles_cutoff=1.0, alpha_cutoff=0.5, supersample=15, remove_background='auto', contrast=5.0, rim_color=None)` - Generate from image file
 - `generate_from_gif(gif_path, ...)` - Process animated GIF
 
 ### PatternLibrary

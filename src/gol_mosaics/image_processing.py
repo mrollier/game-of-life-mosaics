@@ -291,7 +291,8 @@ class ImageProcessor:
     @staticmethod
     def rotate_and_pixelate(img: Image.Image,
                            grid_size: int,
-                           expand: bool = True) -> np.ndarray:
+                           expand: bool = True,
+                           fillcolor: int = 255) -> np.ndarray:
         """
         Rotate image 45 degrees and pixelate to low resolution.
 
@@ -307,6 +308,8 @@ class ImageProcessor:
             img: PIL Image to process
             grid_size: Target grid size (must be even)
             expand: If True, expand canvas during rotation to avoid cropping
+            fillcolor: Grey value used for the rotation/padding fill (default 255).
+                Pass 0 to mark the fill region for a footprint mask.
 
         Returns:
             Low-resolution numpy array (slightly smaller than rotated size)
@@ -329,7 +332,7 @@ class ImageProcessor:
         img = img.resize((grid_size, grid_size), resample=Image.LANCZOS)
 
         # Rotate 45 degrees
-        img = img.rotate(45, expand=expand, fillcolor=255)
+        img = img.rotate(45, expand=expand, fillcolor=fillcolor)
 
         # Convert to numpy and trim edges
         arr = np.array(img)[1:-1, 1:-1]
@@ -416,6 +419,8 @@ class ImageProcessor:
             - lowres_second: Second diagonal grayscale pattern
             - mask_first: First diagonal alpha mask
             - mask_second: Second diagonal alpha mask
+            - footprint_first: First diagonal footprint (real image vs rim)
+            - footprint_second: Second diagonal footprint (real image vs rim)
             - aspect_ratio: Original width/height ratio
 
         Example:
@@ -438,7 +443,16 @@ class ImageProcessor:
         lowres_mask = cls.rotate_and_pixelate(square_mask, grid_size, expand=True)
         mask_first, mask_second = cls.extract_diagonal_patterns(lowres_mask)
 
-        return lowres_first, lowres_second, mask_first, mask_second, aspect_ratio
+        # Process footprint: an all-white sentinel padded and rotation-filled with
+        # black, so it reads 255 over the real image and 0 in the rim (the squaring
+        # padding and 45-degree rotation corners).
+        sentinel = Image.new('L', img.size, 255)
+        square_sentinel = cls.square_image(sentinel, return_aspect=False, fill_color='black')
+        lowres_footprint = cls.rotate_and_pixelate(square_sentinel, grid_size, expand=True, fillcolor=0)
+        footprint_first, footprint_second = cls.extract_diagonal_patterns(lowres_footprint)
+
+        return (lowres_first, lowres_second, mask_first, mask_second,
+                footprint_first, footprint_second, aspect_ratio)
 
     @staticmethod
     def list_denominators(n: int) -> list:
