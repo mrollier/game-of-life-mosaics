@@ -8,7 +8,7 @@ sdk_version: 6.18.0
 app_file: app.py
 pinned: false
 license: mit
-short_description: Turn a portrait into a Conway's Game of Life still-life mosaic
+short_description: Turn a photo into a Conway's Game of Life mosaic
 ---
 
 # Game of Life Mosaics
