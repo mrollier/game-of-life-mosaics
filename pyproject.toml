@@ -44,6 +44,9 @@ dev = [
 gurobi = [
     "gurobipy>=11.0.0",
 ]
+bg-removal = [
+    "rembg[cpu]>=2.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/mrollier/game-of-life-mosaics"
@@ -58,7 +61,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-gol_mosaics = ["../../data/*.npy"]
+gol_mosaics = ["data/*.npy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

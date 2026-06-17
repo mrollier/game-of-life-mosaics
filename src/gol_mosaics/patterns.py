@@ -6,7 +6,7 @@ symmetric Game of Life still-life patterns using integer linear programming.
 """
 
 import numpy as np
-import os
+from importlib.resources import files
 from typing import Optional
 from scipy.ndimage import binary_fill_holes
 
@@ -138,21 +138,21 @@ class PatternLibrary:
 
         library = cls(level=level)
 
-        # Load solutions from data directory
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        data_path = os.path.join(
-            base_dir,
-            "../../data",
-            f"solutions_pattern_level_{level}.npy"
+        # Load solutions bundled inside the package (gol_mosaics/data/), located
+        # via importlib.resources so it works regardless of install location.
+        resource = files(__package__).joinpath(
+            "data", f"solutions_pattern_level_{level}.npy"
         )
 
-        if not os.path.exists(data_path):
+        if not resource.is_file():
             raise FileNotFoundError(
-                f"Pattern data file not found: {data_path}\n"
-                f"Expected location: data/solutions_pattern_level_{level}.npy"
+                f"Pattern data file not found: {resource}\n"
+                f"Expected packaged resource: "
+                f"gol_mosaics/data/solutions_pattern_level_{level}.npy"
             )
 
-        library._solutions = np.load(data_path)
+        with resource.open("rb") as f:
+            library._solutions = np.load(f)
         return library
 
     @classmethod

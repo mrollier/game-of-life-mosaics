@@ -1,25 +1,16 @@
-# Game of Life Mosaics - Dependencies
+# Runtime dependencies for the Gradio web app / Hugging Face Space.
+#
+# These are the ONLY packages the deployed app needs. The authoritative
+# dependency list for the gol_mosaics *library* lives in pyproject.toml
+# ([project].dependencies and [project.optional-dependencies]); install dev,
+# Gurobi (pattern generation) or rembg (background removal) extras from there,
+# e.g.  pip install -e ".[dev]"
+#
+# Deliberately excluded: gurobipy (only for generating new pattern libraries)
+# and rembg/onnxruntime (background removal is not run in the web app).
 
-# Core numerical computing
 numpy>=1.20.0
-
-# Scientific computing
 scipy>=1.7.0
-
-# Cellular automaton simulation
-cellpylib>=2.0.0
-
-# Optimization solver (requires license for pattern generation)
-# Pre-computed patterns (levels 3-5) work without Gurobi
-gurobipy>=11.0.0
-
-# Image processing
+cellpylib>=2.0.0        # pulls in matplotlib transitively
 Pillow>=9.0.0
-
-# Testing (development)
-pytest>=7.0.0
-pytest-cov>=3.0.0
-
-# Jupyter notebooks (for examples)
-jupyter>=1.0.0
-matplotlib>=3.5.0
+gradio>=6.0,<7.0

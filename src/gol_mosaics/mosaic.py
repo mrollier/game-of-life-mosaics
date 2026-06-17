@@ -8,7 +8,7 @@ for converting images to Game of Life mosaics.
 import numpy as np
 import math
 from PIL import Image
-from typing import Optional
+from typing import Optional, Union
 from scipy.ndimage import binary_fill_holes
 
 from .patterns import PatternLibrary
@@ -121,55 +121,114 @@ class MosaicGenerator:
 
     def generate_from_image(self,
                            image_path: str,
-                           empty_tiles_cutoff: float = 0.75,
+                           empty_tiles_cutoff: float = 0.65,
                            alpha_cutoff: float = 0.5,
                            supersample: Optional[int] = None,
-                           no_eca = False) -> Image.Image:
+                           no_eca = False,
+                           remove_background: Union[bool, str] = 'auto',
+                           contrast: float = 5.0,
+                           rim_color = None,
+                           seed: Optional[int] = None) -> Image.Image:
         """
-        Generate mosaic from image file.
+        Generate mosaic from an image file.
 
-        This is the main method for converting images to mosaics. It handles
-        the complete pipeline: loading, preprocessing, pattern mapping,
-        ECA background generation, and final rendering.
+        Thin path-based wrapper around generate_from_pil: it opens the file and
+        delegates the full pipeline. See generate_from_pil for the parameters.
 
         Args:
-            image_path: Path to input image (PNG, JPG, etc.)
-            empty_tiles_cutoff: Threshold for empty tiles (0-1).
-                Grayscale values above this become empty tiles.
-                Default: 0.9 (brightest 10% become white space)
-            alpha_cutoff: Threshold for transparency masking (0-1).
-                Alpha values below this get filled with ECA.
-                Default: 0.5
-            supersample: ECA upsampling factor (must divide mosaic width evenly).
-                Higher values create finer ECA patterns.
-                If None (default), automatically selects a valid value close to 15.
+            image_path: Path to input image (PNG, JPG, etc.). All other
+                arguments are forwarded to generate_from_pil.
 
         Returns:
             PIL Image in RGBA mode with mosaic and ECA background
 
         Raises:
-            ValueError: If supersample doesn't divide mosaic width evenly
             FileNotFoundError: If image_path doesn't exist
 
         Example:
             >>> generator = MosaicGenerator(level=5, grid_size=100)
             >>> mosaic = generator.generate_from_image('portrait.png')
             >>> mosaic.save('output.png')
-
-            >>> # With custom parameters
-            >>> mosaic = generator.generate_from_image(
-            ...     'portrait.png',
-            ...     empty_tiles_cutoff=0.6,
-            ...     alpha_cutoff=0.8,
-            ...     supersample=15
-            ... )
         """
+        return self.generate_from_pil(
+            Image.open(image_path),
+            empty_tiles_cutoff=empty_tiles_cutoff,
+            alpha_cutoff=alpha_cutoff,
+            supersample=supersample,
+            no_eca=no_eca,
+            remove_background=remove_background,
+            contrast=contrast,
+            rim_color=rim_color,
+            seed=seed,
+        )
+
+    def generate_from_pil(self,
+                          img: Image.Image,
+                          empty_tiles_cutoff: float = 0.65,
+                          alpha_cutoff: float = 0.5,
+                          supersample: Optional[int] = None,
+                          no_eca = False,
+                          remove_background: Union[bool, str] = 'auto',
+                          contrast: float = 5.0,
+                          rim_color = None,
+                          seed: Optional[int] = None) -> Image.Image:
+        """
+        Generate mosaic from an in-memory PIL image.
+
+        This is the main pipeline: preprocessing, pattern mapping, ECA background
+        generation, and final rendering. It accepts an already-loaded image so a
+        web backend can process an upload without writing a temp file.
+
+        Args:
+            img: Input PIL Image (any mode; converted internally).
+            empty_tiles_cutoff: Threshold for empty tiles (0-1).
+                Grayscale values above this become empty tiles. Default: 0.65.
+            alpha_cutoff: Threshold for transparency masking (0-1).
+                Alpha values below this get filled with ECA. Default: 0.5.
+            supersample: ECA upsampling factor (must divide mosaic width evenly).
+                Higher values create finer ECA patterns.
+                If None (default), automatically selects a valid value close to 15.
+            no_eca: If True, skip the ECA background.
+            remove_background: Background removal mode (default: 'auto').
+                'auto' removes the background only when it is still present;
+                True always removes it; False never does. Removal needs the
+                optional 'rembg' package.
+            contrast: Sigmoid contrast strength applied to the greyscale before
+                tiling (default 5.0; 0 disables). See ImageProcessor.enhance_contrast.
+            rim_color: Colour of the outer rim (the rotation/padding border).
+                None (default) makes it transparent; an (R, G, B) tuple or hex
+                string fills it with that colour.
+            seed: Optional integer to seed numpy's global RNG before generation,
+                so the same image and settings reproduce the same mosaic.
+                Note: ColorScheme.warhol() uses its own np.random.default_rng()
+                and is therefore NOT made reproducible by this seed.
+
+        Returns:
+            PIL Image in RGBA mode with mosaic and ECA background
+
+        Raises:
+            ValueError: If supersample doesn't divide mosaic width evenly
+
+        Example:
+            >>> from PIL import Image
+            >>> generator = MosaicGenerator(level=5, grid_size=100)
+            >>> mosaic = generator.generate_from_pil(Image.open('portrait.png'))
+            >>> mosaic.save('output.png')
+        """
+        # Seed numpy's global RNG for reproducibility when requested. Pattern,
+        # supersample and ECA selection all draw from np.random.
+        if seed is not None:
+            np.random.seed(seed)
+
         # Preprocess image
         results = ImageProcessor.preprocess_for_mosaic(
-            image_path,
-            self.grid_size
+            img,
+            self.grid_size,
+            remove_background=remove_background,
+            contrast=contrast
         )
-        lowres_first, lowres_second, mask_first, mask_second, aspect_ratio = results
+        (lowres_first, lowres_second, mask_first, mask_second,
+         footprint_first, footprint_second, aspect_ratio) = results
 
         # Build GoL mosaic
         gol_mosaic = self._build_mosaic(
@@ -185,10 +244,14 @@ class MosaicGenerator:
             alpha_cutoff
         )
 
+        # Build footprint (1 = real image, 0 = rotation/padding rim)
+        footprint = self._build_footprint(footprint_first, footprint_second)
+
         # Adjust for original aspect ratio
-        gol_mosaic, transparency_mask = self._adjust_aspect_ratio(
+        gol_mosaic, transparency_mask, footprint = self._adjust_aspect_ratio(
             gol_mosaic,
             transparency_mask,
+            footprint,
             aspect_ratio
         )
 
@@ -203,8 +266,10 @@ class MosaicGenerator:
         final_image = self._apply_eca_background(
             gol_mosaic,
             transparency_mask,
+            footprint,
             supersample,
-            no_eca = no_eca
+            no_eca = no_eca,
+            rim_color = rim_color
         )
 
         return final_image
@@ -213,7 +278,10 @@ class MosaicGenerator:
                          gif_path: str,
                          empty_tiles_cutoff: float = 0.75,
                          alpha_cutoff: float = 0.5,
-                         supersample: int = 15) -> Image.Image:
+                         supersample: int = 15,
+                         remove_background: Union[bool, str] = 'auto',
+                         contrast: float = 5.0,
+                         rim_color = None) -> Image.Image:
         """
         Convert animated GIF to mosaic GIF.
 
@@ -263,7 +331,10 @@ class MosaicGenerator:
                         temp_path,
                         empty_tiles_cutoff=empty_tiles_cutoff,
                         alpha_cutoff=alpha_cutoff,
-                        supersample=supersample
+                        supersample=supersample,
+                        remove_background=remove_background,
+                        contrast=contrast,
+                        rim_color=rim_color
                     )
                     frames.append(mosaic)
                     durations.append(gif.info.get('duration', 100))
@@ -347,6 +418,49 @@ class MosaicGenerator:
 
         return mosaic
 
+    def _build_footprint(self,
+                        footprint_first: np.ndarray,
+                        footprint_second: np.ndarray,
+                        coverage_cutoff: float = 0.5) -> np.ndarray:
+        """
+        Build the footprint mask: 1 over the real image, 0 over the rim.
+
+        Mirrors the block assembly and padding of _build_mosaic so the result
+        aligns pixel-for-pixel with the GoL mosaic. Each tile becomes a solid
+        filled or empty block depending on whether the sentinel covered it.
+
+        Args:
+            footprint_first: First diagonal footprint coverage (0-255)
+            footprint_second: Second diagonal footprint coverage (0-255)
+            coverage_cutoff: Fraction (0-1) above which a tile counts as covered
+
+        Returns:
+            Binary footprint array (1 = real image, 0 = rim)
+        """
+        tile_shape = self.pattern_library.solutions.shape[1:]
+        filled = np.ones(tile_shape, dtype=np.uint8)
+        empty = np.zeros(tile_shape, dtype=np.uint8)
+
+        def big_array(coverage):
+            covered = (coverage / 255) >= coverage_cutoff
+            return np.block([
+                [filled if covered[i, j] else empty for j in range(covered.shape[1])]
+                for i in range(covered.shape[0])
+            ])
+
+        big_array_first = big_array(footprint_first)
+        big_array_second = big_array(footprint_second)
+
+        # Padding identical to _build_mosaic / _build_mask
+        pond_width = 6
+        pad_size = ((pond_width - 3) * (2 * self.level - 1) + 1 + 2) // 2
+        pad_tuple = (pad_size, pad_size)
+
+        first_padded = np.pad(big_array_first, pad_width=((0, 0), pad_tuple), constant_values=0)
+        second_padded = np.pad(big_array_second, pad_width=(pad_tuple, (0, 0)), constant_values=0)
+
+        return ((first_padded + second_padded) > 0).astype(np.uint8)
+
     def _build_mask(self,
                    mask_first: np.ndarray,
                    mask_second: np.ndarray,
@@ -404,23 +518,25 @@ class MosaicGenerator:
     def _adjust_aspect_ratio(self,
                             mosaic: np.ndarray,
                             mask: np.ndarray,
+                            footprint: np.ndarray,
                             aspect_ratio: float,
                             offset: int = 0) -> tuple:
         """
-        Crop mosaic and mask to original aspect ratio.
+        Crop mosaic, mask and footprint to original aspect ratio.
 
         Args:
             mosaic: Square GoL mosaic
             mask: Square transparency mask
+            footprint: Square footprint mask (real image vs rim)
             aspect_ratio: Original width/height ratio
             offset: Optional offset for cropping
 
         Returns:
-            Tuple of (cropped_mosaic, cropped_mask)
+            Tuple of (cropped_mosaic, cropped_mask, cropped_footprint)
         """
         if aspect_ratio == 1.0:
             # Already square
-            return mosaic, mask
+            return mosaic, mask, footprint
 
         # Get tile dimensions
         tile_height = self.pattern_library.pond_pattern_edge().shape[0]
@@ -432,8 +548,8 @@ class MosaicGenerator:
             new_height = int(math.ceil(new_height / tile_height) * tile_height)
 
             start_idx = (mosaic.shape[1] - new_height) // 2
-            mosaic = mosaic[start_idx - offset:start_idx + new_height + offset, :]
-            mask = mask[start_idx - offset:start_idx + new_height + offset, :]
+            crop = slice(start_idx - offset, start_idx + new_height + offset)
+            mosaic, mask, footprint = mosaic[crop, :], mask[crop, :], footprint[crop, :]
 
         else:
             # Originally taller than wide: crop width
@@ -441,24 +557,29 @@ class MosaicGenerator:
             new_width = int(math.ceil(new_width / tile_width) * tile_width)
 
             start_idx = (mosaic.shape[0] - new_width) // 2
-            mosaic = mosaic[:, start_idx - offset:start_idx + new_width + offset]
-            mask = mask[:, start_idx - offset:start_idx + new_width + offset]
+            crop = slice(start_idx - offset, start_idx + new_width + offset)
+            mosaic, mask, footprint = mosaic[:, crop], mask[:, crop], footprint[:, crop]
 
-        return mosaic, mask
+        return mosaic, mask, footprint
 
     def _apply_eca_background(self,
                              gol_mosaic: np.ndarray,
                              transparency_mask: np.ndarray,
+                             footprint: np.ndarray,
                              supersample: int,
-                             no_eca = False) -> Image.Image:
+                             no_eca = False,
+                             rim_color = None) -> Image.Image:
         """
         Generate ECA background and composite with GoL mosaic.
 
         Args:
             gol_mosaic: Binary GoL mosaic
             transparency_mask: Binary transparency mask
+            footprint: Binary footprint (1 = real image, 0 = rim)
             supersample: ECA upsampling factor
             no_eca: Whether to skip ECA background generation
+            rim_color: Rim fill. None makes the rim transparent; an RGB tuple
+                or hex string fills it with that colour.
         Returns:
             Final composited RGBA image
 
@@ -494,7 +615,48 @@ class MosaicGenerator:
         overlay_image = self.renderer.render_eca_overlay(eca_mask)
         final_image = self.renderer.composite(base_image, overlay_image)
 
+        # Apply the rim outside the image footprint
+        final_image = self._apply_rim(final_image, footprint, rim_color)
+
         return final_image
+
+    @staticmethod
+    def _apply_rim(image: Image.Image,
+                  footprint: np.ndarray,
+                  rim_color = None) -> Image.Image:
+        """
+        Recolour the rim (footprint == 0) of an RGBA image.
+
+        Args:
+            image: RGBA image aligned with the footprint
+            footprint: Binary mask (1 = keep, 0 = rim)
+            rim_color: None makes the rim transparent; an RGB tuple or hex
+                string fills it with that colour (opaque).
+
+        Returns:
+            RGBA image with the rim recoloured
+        """
+        rim = (footprint == 0)
+        if not rim.any():
+            return image
+
+        arr = np.array(image)
+        if rim_color is None:
+            arr[rim, 3] = 0
+        else:
+            r, g, b = MosaicGenerator._parse_rgb(rim_color)
+            arr[rim, 0], arr[rim, 1], arr[rim, 2], arr[rim, 3] = r, g, b, 255
+
+        return Image.fromarray(arr, mode='RGBA')
+
+    @staticmethod
+    def _parse_rgb(color) -> tuple:
+        """Parse a hex string ('#RRGGBB') or an (R, G, B) sequence into ints."""
+        if isinstance(color, str):
+            hex_color = color.lstrip('#')
+            return tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+        r, g, b = color[:3]
+        return int(r), int(g), int(b)
 
     def _auto_select_supersample(self, mosaic_width: int, target: int = 15) -> int:
         """
