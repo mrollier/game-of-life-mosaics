@@ -26,10 +26,19 @@ pick a few settings, and download the result.
 ## Settings
 - **Remove background** — auto-detected on upload; toggle to keep the original.
 - **Detail level** (3–5) — higher is finer; level 5 is slower.
-- **Colour scheme** — UGent, monochrome, or random Warhol pop colours.
-- **Grid size** — number of tiles across (even).
-- **Advanced** — empty-tiles cutoff, alpha cutoff, ECA background rule, and an
-  optional seed for reproducible output (the Warhol scheme stays random).
+- **Colour scheme** — UGent, monochrome, random Warhol pop colours, or manual.
+- **Grid size** — number of tiles across (10–200, even). Level 5 at 200 is slow.
+- **Advanced** — empty-tiles cutoff, alpha cutoff, ECA background rule (curated,
+  random, or a custom Wolfram rule 0–255), and the background pattern size (ECA
+  cell size). Use **🎲 New variation** to reroll the look.
+- **Download .cells** — export the still-life pattern for the
+  [Golly](https://golly.sourceforge.io) simulator (the ECA backdrop is not
+  exported, since it isn't made of stable Life patterns).
+
+## Credits
+Source: [github.com/mrollier/game-of-life-mosaics](https://github.com/mrollier/game-of-life-mosaics).
+The idea of Game of Life still-life mosaics is from Robert Bosch, *Opt Art: From
+Mathematical Optimization to Visual Design* (Princeton University Press, 2019).
 
 ## Run locally
 ```bash

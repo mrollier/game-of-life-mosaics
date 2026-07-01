@@ -169,3 +169,20 @@ def test_seed_makes_generation_reproducible(test_image_path):
         Image.open(test_image_path), **kwargs)
 
     assert np.array_equal(np.asarray(first), np.asarray(second))
+
+
+def test_eca_rule_zero_is_respected():
+    """Rule 0 is a valid Wolfram rule but falsy, so it must not be replaced by a
+    randomly chosen rule (regression for the `eca_rule or ...` bug)."""
+    assert MosaicGenerator(level=3, grid_size=10, eca_rule=0).eca_rule == 0
+
+
+def test_generate_from_pil_return_arrays(transparent_image_path):
+    """return_arrays adds the binary GoL mosaic and mask alongside the image."""
+    generator = MosaicGenerator(level=3, grid_size=10)
+    image, gol_mosaic, mask = generator.generate_from_pil(
+        Image.open(transparent_image_path), supersample=12, return_arrays=True)
+
+    assert isinstance(image, Image.Image)
+    assert gol_mosaic.ndim == 2 and mask.ndim == 2
+    assert set(np.unique(mask)) <= {0, 1}

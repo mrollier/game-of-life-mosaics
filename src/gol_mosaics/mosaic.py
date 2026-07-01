@@ -82,8 +82,11 @@ class MosaicGenerator:
             )
         self.level = level or self._auto_select_level()
 
-        # Pick random ECA rule from some interesting ones if not provided
-        self.eca_rule = eca_rule or self._auto_select_eca_rule()
+        # Pick random ECA rule from some interesting ones if not provided.
+        # Use an explicit None check (not `or`): rule 0 is a valid Wolfram rule
+        # but falsy, so `eca_rule or ...` would silently replace it with a random
+        # rule.
+        self.eca_rule = self._auto_select_eca_rule() if eca_rule is None else eca_rule
 
         # Select default UGent colour scheme if not provided
         self.color_scheme = color_scheme or ColorScheme.ugent()
@@ -168,7 +171,8 @@ class MosaicGenerator:
                           no_eca = False,
                           remove_background: Union[bool, str] = 'auto',
                           contrast: float = 5.0,
-                          seed: Optional[int] = None) -> Image.Image:
+                          seed: Optional[int] = None,
+                          return_arrays: bool = False):
         """
         Generate mosaic from an in-memory PIL image.
 
@@ -196,9 +200,14 @@ class MosaicGenerator:
                 so the same image and settings reproduce the same mosaic.
                 Note: ColorScheme.warhol() uses its own np.random.default_rng()
                 and is therefore NOT made reproducible by this seed.
+            return_arrays: If True, also return the binary GoL mosaic and the
+                transparency mask (both aspect-adjusted) alongside the image, as
+                ``(image, gol_mosaic, transparency_mask)``. The GoL mosaic is the
+                still-life pattern (0/1-valued), suitable for exporting to Golly.
 
         Returns:
-            PIL Image in RGBA mode with mosaic and ECA background
+            PIL Image in RGBA mode with mosaic and ECA background. If
+            return_arrays is True, a tuple (image, gol_mosaic, transparency_mask).
 
         Raises:
             ValueError: If supersample doesn't divide mosaic width evenly
@@ -259,6 +268,8 @@ class MosaicGenerator:
             no_eca = no_eca
         )
 
+        if return_arrays:
+            return final_image, gol_mosaic, transparency_mask
         return final_image
 
     def generate_from_gif(self,

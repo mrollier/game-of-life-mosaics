@@ -21,6 +21,8 @@ import os
 import re
 import random
 import tempfile
+import threading
+import time
 from functools import lru_cache
 from typing import Optional
 
@@ -31,6 +33,7 @@ import gradio as gr
 from gol_mosaics import MosaicGenerator, PatternLibrary, ColorScheme
 from gol_mosaics.eca import ECABackground
 from gol_mosaics.image_processing import ImageProcessor
+from gol_mosaics.export import GollyExporter
 
 # --- Safety / resource limits -------------------------------------------------
 
@@ -50,7 +53,16 @@ MAX_INPUT_DIM = 1600
 # Compute caps exposed in the UI.
 LEVELS = [3, 4, 5]
 DEFAULT_LEVEL = 4
-MIN_GRID, MAX_GRID, DEFAULT_GRID = 40, 120, 60
+MIN_GRID, MAX_GRID, DEFAULT_GRID = 10, 200, 60
+
+# Background-removal takes a while (especially the first time, when the u2net
+# model downloads); warn the user with a toast if it runs longer than this.
+SLOW_REMOVAL_WARN_SECONDS = 30
+
+# Background (ECA) pattern size = ECA cell side in pixels. Passed straight through
+# as `supersample`; ECABackground.generate upsamples-then-crops, so any positive
+# value is safe regardless of the mosaic's dimensions.
+MIN_BG_SIZE, MAX_BG_SIZE, DEFAULT_BG_SIZE = 1, 40, 15
 
 # --- One-time startup work ----------------------------------------------------
 
@@ -123,12 +135,15 @@ def _scheme_for(label: str, seed: int, manual_colors=None) -> ColorScheme:
         return ColorScheme.monochrome()
     return ColorScheme.ugent()
 
-# ECA rule dropdown: a curated set of interesting rules, plus a random option.
-# Values are ints, or the sentinel "random" which lets the generator choose.
+# ECA rule dropdown: a curated set of interesting rules, plus a random option and
+# a "Custom…" entry that reveals a 0-255 slider. Values are ints, the sentinel
+# "random" (let the generator choose), or CUSTOM (use the slider value).
+CUSTOM_RULE = "custom"
 ECA_CHOICES = (
     [("Random (recommended)", "random")]
     + [(f"Rule {r} — complex", r) for r in ECABackground.COMPLEX_RULES]
     + [(f"Rule {r} — chaotic", r) for r in ECABackground.CHAOTIC_RULES]
+    + [("Custom rule (0–255)…", CUSTOM_RULE)]
 )
 
 
@@ -175,8 +190,57 @@ def _fit_to_aspect(img: Image.Image, target_ratio: float, fill_rgba: tuple
     return canvas
 
 
+def _resolve_eca_rule(eca_choice, eca_custom_rule):
+    """Map the ECA dropdown selection to a rule for MosaicGenerator.
+
+    "random" -> None (the generator picks one); the "Custom…" sentinel -> the
+    0-255 slider value; otherwise the curated integer rule. Rule 0 is a valid
+    Wolfram rule and is now respected by MosaicGenerator.
+    """
+    if eca_choice == "random":
+        return None
+    if eca_choice == CUSTOM_RULE:
+        return int(eca_custom_rule)
+    return int(eca_choice)
+
+
+def _prepare_generation(image, level, color_scheme, grid_size, eca_choice,
+                        eca_custom_rule, auto_seed, manual_colors):
+    """Shared setup for the PNG and .cells paths.
+
+    Normalises the settings, seeds numpy for a stable per-session look, and
+    builds a MosaicGenerator with the preloaded pattern library injected.
+    Returns (generator, bounded_image, scheme, effective_seed).
+    """
+    level = int(level)
+    grid_size = int(grid_size)
+    if grid_size % 2:  # the diamond layout requires an even grid
+        grid_size += 1
+    grid_size = max(MIN_GRID, min(MAX_GRID, grid_size))
+
+    rule = _resolve_eca_rule(eca_choice, eca_custom_rule)
+    effective_seed = int(auto_seed)
+
+    image = _bound_input(image)
+    scheme = _scheme_for(color_scheme, effective_seed, manual_colors)
+    # Seed before constructing the generator: with a "random" ECA rule the rule is
+    # drawn in __init__ (before generate_from_pil reseeds), so this keeps the
+    # background stable across live tweaks.
+    np.random.seed(effective_seed)
+    generator = MosaicGenerator(
+        level=level,
+        grid_size=grid_size,
+        color_scheme=scheme,
+        eca_rule=rule,
+    )
+    # Inject the preloaded library instead of reloading it from disk.
+    generator._pattern_library = PATTERN_LIBRARIES[level]
+    return generator, image, scheme, effective_seed
+
+
 def render_mosaic(image, level, color_scheme, grid_size,
-                  empty_tiles_cutoff, alpha_cutoff, eca_rule, seed, auto_seed,
+                  empty_tiles_cutoff, alpha_cutoff, eca_choice, eca_custom_rule,
+                  bg_pattern_size, auto_seed,
                   gol_background, gol_pixel, eca_background, eca_pixel
                   ) -> Optional[Image.Image]:
     """Core generation: returns the RGBA mosaic (or None if there's no image).
@@ -185,45 +249,24 @@ def render_mosaic(image, level, color_scheme, grid_size,
     silently rather than erroring, so adjusting controls is smooth. Genuine
     failures raise gr.Error.
 
-    The effective seed keeps live tweaking stable: an explicit seed (if given)
-    wins, otherwise the session's auto_seed is used, so changing one control
-    only changes that aspect. The "New variation" button rerolls auto_seed.
+    Variation is driven solely by the session's auto_seed (rerolled by the "New
+    variation" button), so tweaking one control changes only that aspect.
     """
     if image is None:
         return None
 
-    # Normalise and bound the settings.
-    level = int(level)
-    grid_size = int(grid_size)
-    if grid_size % 2:  # the diamond layout requires an even grid
-        grid_size += 1
-    grid_size = max(MIN_GRID, min(MAX_GRID, grid_size))
-
-    rule = None if eca_rule == "random" else int(eca_rule)
-    effective_seed = int(seed) if seed not in (None, "") else int(auto_seed)
     manual_colors = (gol_background, gol_pixel, eca_background, eca_pixel)
-
     try:
-        image = _bound_input(image)
-        target_ratio = image.width / image.height  # original upload's aspect
-        scheme = _scheme_for(color_scheme, effective_seed, manual_colors)
-        # Seed before constructing the generator: with a "random" ECA rule the
-        # rule is drawn in __init__ (before generate_from_pil reseeds), so this
-        # is what keeps the background stable across live tweaks.
-        np.random.seed(effective_seed)
-        generator = MosaicGenerator(
-            level=level,
-            grid_size=grid_size,
-            color_scheme=scheme,
-            eca_rule=rule,
+        generator, image, scheme, effective_seed = _prepare_generation(
+            image, level, color_scheme, grid_size, eca_choice, eca_custom_rule,
+            auto_seed, manual_colors,
         )
-        # Inject the preloaded library instead of reloading it from disk.
-        generator._pattern_library = PATTERN_LIBRARIES[level]
-
+        target_ratio = image.width / image.height  # bounded upload's aspect
         mosaic = generator.generate_from_pil(
             image,
             empty_tiles_cutoff=float(empty_tiles_cutoff),
             alpha_cutoff=float(alpha_cutoff),
+            supersample=int(bg_pattern_size),
             remove_background=False,  # the app never runs rembg
             seed=effective_seed,
         )
@@ -256,20 +299,25 @@ def generate(*args) -> Optional[str]:
 def on_upload(img: Optional[Image.Image]):
     """Handle a new upload: remove the background once and cache both copies.
 
-    Fired on image change. Returns a 3-tuple wired to (inputs_state, bg_toggle,
-    input_preview):
+    A GENERATOR wired to (inputs_state, bg_toggle, input_preview). Removal runs at
+    most once, only when has_background() is true, and in a worker thread so a long
+    run (e.g. the first-ever removal, which downloads the model) can push a toast
+    at SLOW_REMOVAL_WARN_SECONDS while it finishes. While removing, the preview
+    shows the original and the toggle stays disabled.
+
+    Yields (inputs_state, bg_toggle, input_preview):
       - inputs_state: {"with_bg", "without_bg", "has_bg"} PIL copies kept in the
         session so later toggling / live tweaks never re-run the heavy removal.
-      - bg_toggle: a gr.update controlling the "Remove background" checkbox — only
-        interactive when there is a background-removed copy to switch to.
+      - bg_toggle: a gr.update for the "Remove background" checkbox — interactive
+        only when there is a background-removed copy to switch to.
       - input_preview: the image currently feeding the pipeline.
 
-    Removal runs at most once here, and only when has_background() says the
-    background is still present. The upload is bounded first so both cached copies
-    share the same dimensions (identical aspect ratio) and rembg does less work.
+    The upload is bounded first so both cached copies share the same dimensions
+    (identical aspect ratio) and rembg does less work.
     """
     if img is None:
-        return None, gr.update(value=False, interactive=False), None
+        yield None, gr.update(value=False, interactive=False), None
+        return
 
     img = _bound_input(img)
 
@@ -278,21 +326,49 @@ def on_upload(img: Optional[Image.Image]):
         state = {"with_bg": img, "without_bg": None, "has_bg": False}
         toggle = gr.update(value=False, interactive=False,
                            info="No background detected — using image as uploaded.")
-        return state, toggle, img
+        yield state, toggle, img
+        return
 
-    try:
-        without_bg = ImageProcessor.remove_background(img)
-        state = {"with_bg": img, "without_bg": without_bg, "has_bg": True}
-        # Default to the background-removed image (the intended artistic result).
-        toggle = gr.update(value=True, interactive=True,
-                           info="On: subject only. Off: keep the original background.")
-        return state, toggle, without_bg
-    except Exception:
-        # rembg missing or removal failed: keep the original, disable the toggle.
+    # Background present: remove it in a worker thread so a slow run can warn.
+    box = {}
+
+    def _work():
+        try:
+            box["img"] = ImageProcessor.remove_background(img)
+        except Exception as exc:  # rembg missing / removal failed
+            box["err"] = exc
+
+    worker = threading.Thread(target=_work, daemon=True)
+    worker.start()
+
+    start = time.monotonic()
+    warned = False
+    while worker.is_alive():
+        worker.join(timeout=1.0)
+        if (not warned and worker.is_alive()
+                and time.monotonic() - start >= SLOW_REMOVAL_WARN_SECONDS):
+            gr.Warning("Removing the background is taking a while. Tip: for faster "
+                       "results, upload an image whose background is already removed.")
+            warned = True
+            # Yielding flushes the toast and keeps the "processing" preview shown.
+            yield None, gr.update(value=False, interactive=False,
+                                  info="Removing background…"), img
+    worker.join()
+
+    if "err" in box:
+        # Removal unavailable: keep the original, disable the toggle.
         state = {"with_bg": img, "without_bg": None, "has_bg": True}
         toggle = gr.update(value=False, interactive=False,
                            info="Background removal unavailable — using original.")
-        return state, toggle, img
+        yield state, toggle, img
+        return
+
+    without_bg = box["img"]
+    state = {"with_bg": img, "without_bg": without_bg, "has_bg": True}
+    # Default to the background-removed image (the intended artistic result).
+    toggle = gr.update(value=True, interactive=True,
+                       info="On: subject only. Off: keep the original background.")
+    yield state, toggle, without_bg
 
 
 def _selected_input(state: Optional[dict], remove_bg: bool) -> Optional[Image.Image]:
@@ -317,6 +393,64 @@ def generate_ui(state, remove_bg, *rest) -> Optional[str]:
     return generate(_selected_input(state, remove_bg), *rest)
 
 
+def _binary_bbox(mosaic: np.ndarray) -> np.ndarray:
+    """Binarise a GoL mosaic (0/1) and trim to the bounding box of live cells.
+
+    Overlapping diagonal tiles can sum to 2, so we threshold with `> 0`; trimming
+    the empty margin keeps the Golly pattern compact.
+    """
+    binary = (np.asarray(mosaic) > 0).astype(np.uint8)
+    rows = np.any(binary, axis=1)
+    cols = np.any(binary, axis=0)
+    if not rows.any():
+        return binary[:0, :0]
+    r0, r1 = np.where(rows)[0][[0, -1]]
+    c0, c1 = np.where(cols)[0][[0, -1]]
+    return binary[r0:r1 + 1, c0:c1 + 1]
+
+
+def export_cells_ui(state, remove_bg, level, color_scheme, grid_size,
+                    empty_tiles_cutoff, alpha_cutoff, eca_choice, eca_custom_rule,
+                    bg_pattern_size, auto_seed,
+                    gol_background, gol_pixel, eca_background, eca_pixel
+                    ) -> Optional[str]:
+    """Build a Golly .cells file of the still-life mosaic for the current settings.
+
+    Re-runs the pipeline (deterministic via auto_seed, so it matches the displayed
+    mosaic) to recover the binary GoL array, then exports just the still-life
+    portrait — the ECA background is decorative and not stable in Golly.
+    """
+    image = _selected_input(state, remove_bg)
+    if image is None:
+        raise gr.Error("Upload an image first, then download its .cells file.")
+
+    manual_colors = (gol_background, gol_pixel, eca_background, eca_pixel)
+    try:
+        generator, image, _, effective_seed = _prepare_generation(
+            image, level, color_scheme, grid_size, eca_choice, eca_custom_rule,
+            auto_seed, manual_colors,
+        )
+        _, gol_mosaic, _ = generator.generate_from_pil(
+            image,
+            empty_tiles_cutoff=float(empty_tiles_cutoff),
+            alpha_cutoff=float(alpha_cutoff),
+            supersample=int(bg_pattern_size),
+            remove_background=False,
+            seed=effective_seed,
+            return_arrays=True,
+        )
+    except Exception as exc:
+        raise gr.Error(f"Could not build the .cells file: {exc}")
+
+    cells = _binary_bbox(gol_mosaic)
+    if cells.size == 0:
+        raise gr.Error("The mosaic has no live cells to export.")
+
+    out_path = os.path.join(tempfile.mkdtemp(prefix="gol_"), "gol-mosaic.cells")
+    GollyExporter.export_to_cells(cells, out_path)
+    return out_path
+
+
 ABOUT = """
 ### About these mosaics
 
@@ -335,6 +469,17 @@ automatically so the subject stands out. Use the **Remove background** toggle to
 switch between the subject-only and original versions — the *Input preview* shows
 which one is feeding the mosaic. The first removal after the app starts is slow
 (the segmentation model downloads once), then it's cached.
+
+**Download for Golly:** use *Download .cells* to get the still-life pattern as a
+[Golly](https://golly.sourceforge.io) `.cells` file (the ECA backdrop is
+decorative and not exported, since it isn't made of stable Life patterns).
+
+### Credits
+Source code: [github.com/mrollier/game-of-life-mosaics](https://github.com/mrollier/game-of-life-mosaics).
+
+The idea of rendering images as mosaics of Game of Life still lifes comes from
+**Robert Bosch**, *Opt Art: From Mathematical Optimization to Visual Design*
+(Princeton University Press, 2019).
 """
 
 
@@ -351,11 +496,15 @@ def build_demo() -> gr.Blocks:
             "Turn a portrait into a mosaic of Conway's Game of Life still lifes. "
             "Upload any photo — if it still has a background it's **removed "
             "automatically**, and the *Remove background* toggle lets you keep the "
-            "original if you prefer."
+            "original if you prefer. **Tip:** for the fastest results, upload an "
+            "image whose background is already removed (e.g. via "
+            "[remove.bg](https://www.remove.bg)) — automatic removal can take a "
+            "while."
         )
 
-        # Session seed used when the seed field is blank, so live tweaks stay
-        # stable. Randomised per session and rerolled by "New variation".
+        # Per-session seed that keeps live tweaks stable; rerolled by "New
+        # variation". (There is no manual seed field: New variation is the only
+        # source of variation, so it can never be overridden.)
         auto_seed = gr.State(random.randrange(2**31))
 
         # Cached upload copies for this session: {"with_bg", "without_bg",
@@ -414,7 +563,8 @@ def build_demo() -> gr.Blocks:
                 grid_in = gr.Slider(
                     label="Grid size (tiles across)",
                     minimum=MIN_GRID, maximum=MAX_GRID, value=DEFAULT_GRID, step=2,
-                    info="Must be even; larger = more, smaller tiles.",
+                    info="Even number; larger = more, smaller tiles. "
+                         "Level 5 at 200 is slow.",
                 )
 
                 # Above the accordion so it doesn't shift when Advanced opens.
@@ -436,11 +586,18 @@ def build_demo() -> gr.Blocks:
                         choices=ECA_CHOICES,
                         value="random",
                     )
-                    seed_in = gr.Number(
-                        label="Seed (optional)",
-                        value=None, precision=0,
-                        info="Set for a fully reproducible result. Blank = a stable "
-                             "per-session look; use 'New variation' to reroll.",
+                    # 0-255 slider, shown only when "Custom rule…" is selected.
+                    eca_custom_in = gr.Slider(
+                        label="Custom ECA rule (0–255)",
+                        minimum=0, maximum=255, value=110, step=1,
+                        visible=False,
+                        info="Wolfram rule number. 0 gives an almost-empty backdrop.",
+                    )
+                    bg_size_in = gr.Slider(
+                        label="Background pattern size",
+                        minimum=MIN_BG_SIZE, maximum=MAX_BG_SIZE,
+                        value=DEFAULT_BG_SIZE, step=1,
+                        info="ECA cell size in pixels; larger = chunkier backdrop.",
                     )
 
             # --- Result (prominent, right) -----------------------------------
@@ -453,6 +610,9 @@ def build_demo() -> gr.Blocks:
                     # so the preview shows exactly the saved file (no letterbox
                     # bars on the sides of a portrait mosaic).
                 )
+                cells_btn = gr.DownloadButton(
+                    "⬇ Download .cells (for Golly)",
+                )
                 with gr.Accordion("About", open=False):
                     gr.Markdown(ABOUT)
 
@@ -460,13 +620,19 @@ def build_demo() -> gr.Blocks:
         # state + toggle) are resolved to a PIL image by generate_ui; the rest
         # match render_mosaic's remaining arguments in order.
         gen_inputs = [inputs_state, bg_toggle, level_in, color_in, grid_in,
-                      empty_in, alpha_in, eca_in, seed_in, auto_seed,
-                      gol_bg_in, gol_px_in, eca_bg_in, eca_px_in]
+                      empty_in, alpha_in, eca_in, eca_custom_in, bg_size_in,
+                      auto_seed, gol_bg_in, gol_px_in, eca_bg_in, eca_px_in]
 
         # Show the manual colour pickers only for the "Manual" scheme.
         color_in.change(
             fn=lambda label: gr.update(visible=(label == MANUAL)),
             inputs=color_in, outputs=manual_group,
+        )
+
+        # Show the custom-rule slider only when "Custom rule…" is selected.
+        eca_in.change(
+            fn=lambda choice: gr.update(visible=(choice == CUSTOM_RULE)),
+            inputs=eca_in, outputs=eca_custom_in,
         )
 
         # Upload: remove the background once, cache both copies, update the toggle
@@ -483,12 +649,12 @@ def build_demo() -> gr.Blocks:
         ).then(fn=generate_ui, inputs=gen_inputs, outputs=image_out)
 
         # Live regeneration: sliders fire on release (not every pixel of drag),
-        # dropdowns / number / colour pickers fire on change. (Upload and toggle
-        # have their own chains above.)
+        # dropdowns / colour pickers fire on change. (Upload and toggle have their
+        # own chains above.)
         live_triggers = [
             level_in.change, color_in.change,
             grid_in.release, empty_in.release, alpha_in.release,
-            eca_in.change, seed_in.change,
+            eca_in.change, eca_custom_in.release, bg_size_in.release,
             gol_bg_in.change, gol_px_in.change, eca_bg_in.change, eca_px_in.change,
         ]
         gr.on(triggers=live_triggers, fn=generate_ui,
@@ -500,6 +666,9 @@ def build_demo() -> gr.Blocks:
         ).then(
             fn=generate_ui, inputs=gen_inputs, outputs=image_out
         )
+
+        # Build the .cells file for the current settings on demand.
+        cells_btn.click(fn=export_cells_ui, inputs=gen_inputs, outputs=cells_btn)
 
     return demo
 
