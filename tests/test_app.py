@@ -103,3 +103,81 @@ def test_generate_no_image_returns_none():
     """The UI wrapper returns None (not a path) when there's no image."""
     assert app.generate(None, 3, app.UGENT, 40, 0.65, 0.5, "random", 1, 0,
                         *_MANUAL) is None
+
+
+# --- Background-removal caching / selection -----------------------------------
+
+def _with_bg(size=80):
+    """An opaque image (no alpha channel removed yet) — has_background() is True."""
+    return Image.new('RGBA', (size, size), (30, 60, 90, 255))
+
+
+def test_selected_input_prefers_removed_when_toggled_on():
+    """With a removed copy cached and the toggle on, that copy is selected."""
+    with_bg, without_bg = _with_bg(), _subject_on_transparent()
+    state = {"with_bg": with_bg, "without_bg": without_bg, "has_bg": True}
+    assert app._selected_input(state, True) is without_bg
+    assert app._selected_input(state, False) is with_bg
+
+
+def test_selected_input_falls_back_to_with_bg():
+    """No removed copy (bg-free upload or failed removal) -> the with_bg copy,
+    even if the toggle reads True. No state -> None."""
+    state = {"with_bg": _with_bg(), "without_bg": None, "has_bg": False}
+    assert app._selected_input(state, True) is state["with_bg"]
+    assert app._selected_input(None, True) is None
+
+
+def test_on_upload_none_disables_toggle():
+    """No upload clears the state, greys out the toggle, and clears the preview."""
+    state, toggle, preview = app.on_upload(None)
+    assert state is None and preview is None
+    assert toggle["interactive"] is False
+
+
+def test_on_upload_removes_background_once(monkeypatch):
+    """An image with a background is removed once, both copies cached, toggle on.
+
+    remove_background is monkeypatched so the test never needs rembg/onnxruntime;
+    a counter proves it runs exactly once per upload."""
+    calls = {"n": 0}
+
+    def fake_remove(cls, img, *a, **k):
+        calls["n"] += 1
+        return _subject_on_transparent()
+
+    monkeypatch.setattr(app.ImageProcessor, "has_background",
+                        staticmethod(lambda *a, **k: True))
+    monkeypatch.setattr(app.ImageProcessor, "remove_background",
+                        classmethod(fake_remove))
+
+    state, toggle, preview = app.on_upload(_with_bg())
+    assert calls["n"] == 1
+    assert state["without_bg"] is not None and state["has_bg"] is True
+    assert toggle["interactive"] is True and toggle["value"] is True
+    assert preview is state["without_bg"]
+
+
+def test_on_upload_transparent_disables_toggle(monkeypatch):
+    """A background-free upload caches only the original and greys the toggle."""
+    monkeypatch.setattr(app.ImageProcessor, "has_background",
+                        staticmethod(lambda *a, **k: False))
+    state, toggle, preview = app.on_upload(_subject_on_transparent())
+    assert state["without_bg"] is None and state["has_bg"] is False
+    assert toggle["interactive"] is False
+    assert preview is state["with_bg"]
+
+
+def test_on_upload_removal_failure_falls_back(monkeypatch):
+    """If removal raises (e.g. rembg missing), keep the original, disable toggle."""
+    monkeypatch.setattr(app.ImageProcessor, "has_background",
+                        staticmethod(lambda *a, **k: True))
+
+    def boom(cls, img, *a, **k):
+        raise ImportError("rembg not installed")
+
+    monkeypatch.setattr(app.ImageProcessor, "remove_background", classmethod(boom))
+    state, toggle, preview = app.on_upload(_with_bg())
+    assert state["without_bg"] is None and state["has_bg"] is True
+    assert toggle["interactive"] is False
+    assert preview is state["with_bg"]

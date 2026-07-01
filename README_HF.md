@@ -17,12 +17,14 @@ Turn a portrait into a mosaic built entirely from **Conway's Game of Life still
 lifes**, on an **Elementary Cellular Automaton** background. Upload an image,
 pick a few settings, and download the result.
 
-> **Tip:** for the best result, upload an image whose **background has already
-> been removed** (e.g. with [remove.bg](https://www.remove.bg)) — the subject
-> should sit on a transparent background. Automatic background removal may be
-> added in a future version.
+> **Background removal:** if your upload still has its background, it is removed
+> automatically (via `rembg`/u2net) so the subject stands out. The **Remove
+> background** toggle switches between the subject-only and original versions,
+> and the *Input preview* shows which one feeds the mosaic. The first removal
+> after the Space starts is slow (the ~176 MB model downloads once), then cached.
 
 ## Settings
+- **Remove background** — auto-detected on upload; toggle to keep the original.
 - **Detail level** (3–5) — higher is finer; level 5 is slower.
 - **Colour scheme** — UGent, monochrome, or random Warhol pop colours.
 - **Grid size** — number of tiles across (even).
@@ -37,9 +39,11 @@ python app.py
 Then open the printed local URL (default http://127.0.0.1:7860).
 
 ## Notes for deploying this Space
-- This app uses only the runtime dependencies in `requirements.txt`
-  (numpy, scipy, cellpylib, Pillow, gradio). It does **not** install
-  `gurobipy` (pattern generation only) or `rembg` (background removal).
+- This app uses the runtime dependencies in `requirements.txt`
+  (numpy, scipy, cellpylib, Pillow, gradio, and `rembg[cpu]` for background
+  removal). It does **not** install `gurobipy` (pattern generation only).
+- `rembg` pulls in `onnxruntime`, which enlarges the build, and the u2net model
+  (~176 MB) downloads on the first background removal after a (re)start.
 - The pattern libraries ship inside the package at
   `src/gol_mosaics/data/*.npy`. The level-5 file is ~19 MB; Hugging Face Spaces
   require files over 10 MB to be tracked with **Git LFS**:

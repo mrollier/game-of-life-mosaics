@@ -2,15 +2,18 @@
 #
 # These are the ONLY packages the deployed app needs. The authoritative
 # dependency list for the gol_mosaics *library* lives in pyproject.toml
-# ([project].dependencies and [project.optional-dependencies]); install dev,
-# Gurobi (pattern generation) or rembg (background removal) extras from there,
-# e.g.  pip install -e ".[dev]"
+# ([project].dependencies and [project.optional-dependencies]); install dev
+# or Gurobi (pattern generation) extras from there, e.g.  pip install -e ".[dev]"
 #
-# Deliberately excluded: gurobipy (only for generating new pattern libraries)
-# and rembg/onnxruntime (background removal is not run in the web app).
+# Deliberately excluded: gurobipy (only for generating new pattern libraries).
+#
+# rembg[cpu] powers automatic background removal. It pulls in onnxruntime, which
+# noticeably enlarges the build, and the u2net model (~176 MB) downloads on the
+# FIRST removal after a Space (re)start, so that first request is slow.
 
 numpy>=1.20.0
 scipy>=1.7.0
 cellpylib>=2.0.0        # pulls in matplotlib transitively
 Pillow>=9.0.0
 gradio>=6.0,<7.0
+rembg[cpu]>=2.0.0       # background removal; pulls in onnxruntime (CPU)
