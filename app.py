@@ -471,11 +471,12 @@ def build_demo() -> gr.Blocks:
     """
     with gr.Blocks(title="Game of Life Mosaics") as demo:
         gr.Markdown(
-            "# 🔬 Game of Life Mosaics\n"
+            "# Game of Life Mosaics\n"
             "Turn a portrait into a mosaic of Conway's Game of Life still lifes. "
-            "Upload any photo — if it still has a background it's **removed "
-            "automatically**, and the *Remove background* toggle lets you keep the "
-            "original if you prefer. **Note:** the *first* upload takes a while as "
+            "Upload any photo. If it still has a background it's **removed "
+            "automatically**, but a toggle lets you keep the "
+            "original if you prefer.\n"
+            "**Note:** the *first* upload takes a while as "
             "the background-removal model loads in the background; later uploads "
             "are quick. You can skip this by uploading an image whose background is "
             "already removed (e.g. via [remove.bg](https://www.remove.bg))."
