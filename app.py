@@ -21,8 +21,6 @@ import os
 import re
 import random
 import tempfile
-import threading
-import time
 from functools import lru_cache
 from typing import Optional
 
@@ -54,10 +52,6 @@ MAX_INPUT_DIM = 1600
 LEVELS = [3, 4, 5]
 DEFAULT_LEVEL = 4
 MIN_GRID, MAX_GRID, DEFAULT_GRID = 10, 200, 60
-
-# Background-removal takes a while (especially the first time, when the u2net
-# model downloads); warn the user with a toast if it runs longer than this.
-SLOW_REMOVAL_WARN_SECONDS = 30
 
 # Background (ECA) pattern size = ECA cell side in pixels. Passed straight through
 # as `supersample`; ECABackground.generate upsamples-then-crops, so any positive
@@ -299,25 +293,19 @@ def generate(*args) -> Optional[str]:
 def on_upload(img: Optional[Image.Image]):
     """Handle a new upload: remove the background once and cache both copies.
 
-    A GENERATOR wired to (inputs_state, bg_toggle, input_preview). Removal runs at
-    most once, only when has_background() is true, and in a worker thread so a long
-    run (e.g. the first-ever removal, which downloads the model) can push a toast
-    at SLOW_REMOVAL_WARN_SECONDS while it finishes. While removing, the preview
-    shows the original and the toggle stays disabled.
-
-    Yields (inputs_state, bg_toggle, input_preview):
+    Returns (inputs_state, bg_toggle, input_preview):
       - inputs_state: {"with_bg", "without_bg", "has_bg"} PIL copies kept in the
         session so later toggling / live tweaks never re-run the heavy removal.
       - bg_toggle: a gr.update for the "Remove background" checkbox — interactive
         only when there is a background-removed copy to switch to.
       - input_preview: the image currently feeding the pipeline.
 
-    The upload is bounded first so both cached copies share the same dimensions
-    (identical aspect ratio) and rembg does less work.
+    Removal runs at most once, and only when has_background() is true. The upload
+    is bounded first so both cached copies share the same dimensions (identical
+    aspect ratio) and rembg does less work.
     """
     if img is None:
-        yield None, gr.update(value=False, interactive=False), None
-        return
+        return None, gr.update(value=False, interactive=False), None
 
     img = _bound_input(img)
 
@@ -326,49 +314,22 @@ def on_upload(img: Optional[Image.Image]):
         state = {"with_bg": img, "without_bg": None, "has_bg": False}
         toggle = gr.update(value=False, interactive=False,
                            info="No background detected — using image as uploaded.")
-        yield state, toggle, img
-        return
+        return state, toggle, img
 
-    # Background present: remove it in a worker thread so a slow run can warn.
-    box = {}
-
-    def _work():
-        try:
-            box["img"] = ImageProcessor.remove_background(img)
-        except Exception as exc:  # rembg missing / removal failed
-            box["err"] = exc
-
-    worker = threading.Thread(target=_work, daemon=True)
-    worker.start()
-
-    start = time.monotonic()
-    warned = False
-    while worker.is_alive():
-        worker.join(timeout=1.0)
-        if (not warned and worker.is_alive()
-                and time.monotonic() - start >= SLOW_REMOVAL_WARN_SECONDS):
-            gr.Warning("Removing the background is taking a while. Tip: for faster "
-                       "results, upload an image whose background is already removed.")
-            warned = True
-            # Yielding flushes the toast and keeps the "processing" preview shown.
-            yield None, gr.update(value=False, interactive=False,
-                                  info="Removing background…"), img
-    worker.join()
-
-    if "err" in box:
-        # Removal unavailable: keep the original, disable the toggle.
+    try:
+        without_bg = ImageProcessor.remove_background(img)
+    except Exception:
+        # rembg missing or removal failed: keep the original, disable the toggle.
         state = {"with_bg": img, "without_bg": None, "has_bg": True}
         toggle = gr.update(value=False, interactive=False,
                            info="Background removal unavailable — using original.")
-        yield state, toggle, img
-        return
+        return state, toggle, img
 
-    without_bg = box["img"]
     state = {"with_bg": img, "without_bg": without_bg, "has_bg": True}
     # Default to the background-removed image (the intended artistic result).
     toggle = gr.update(value=True, interactive=True,
                        info="On: subject only. Off: keep the original background.")
-    yield state, toggle, without_bg
+    return state, toggle, without_bg
 
 
 def _selected_input(state: Optional[dict], remove_bg: bool) -> Optional[Image.Image]:
@@ -483,6 +444,24 @@ The idea of rendering images as mosaics of Game of Life still lifes comes from
 """
 
 
+# Force light mode regardless of the visitor's OS/browser dark-mode preference.
+# Gradio reads the theme from the `__theme` query param at load, so a small head
+# script sets it to "light" and reloads once (the guard prevents a redirect loop).
+# Injected via gr.Blocks(head=...) rather than js=... because Gradio 6 dropped the
+# Blocks `js` param, and this runs no matter how the Space launches the app.
+FORCE_LIGHT_THEME_HEAD = """
+<script>
+  (function () {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('__theme') !== 'light') {
+      url.searchParams.set('__theme', 'light');
+      window.location.replace(url.href);
+    }
+  })();
+</script>
+"""
+
+
 def build_demo() -> gr.Blocks:
     """Build the Gradio interface.
 
@@ -496,10 +475,10 @@ def build_demo() -> gr.Blocks:
             "Turn a portrait into a mosaic of Conway's Game of Life still lifes. "
             "Upload any photo — if it still has a background it's **removed "
             "automatically**, and the *Remove background* toggle lets you keep the "
-            "original if you prefer. **Tip:** for the fastest results, upload an "
-            "image whose background is already removed (e.g. via "
-            "[remove.bg](https://www.remove.bg)) — automatic removal can take a "
-            "while."
+            "original if you prefer. **Note:** the *first* upload takes a while as "
+            "the background-removal model loads in the background; later uploads "
+            "are quick. You can skip this by uploading an image whose background is "
+            "already removed (e.g. via [remove.bg](https://www.remove.bg))."
         )
 
         # Per-session seed that keeps live tweaks stable; rerolled by "New
@@ -679,4 +658,6 @@ demo = build_demo()
 demo.queue(default_concurrency_limit=2, max_size=20)
 
 if __name__ == "__main__":
-    demo.launch(theme=gr.themes.Soft())
+    # head=... injects the force-light-mode script (Gradio 6 takes head/js/theme
+    # on launch(), not on the Blocks constructor).
+    demo.launch(theme=gr.themes.Soft(), head=FORCE_LIGHT_THEME_HEAD)

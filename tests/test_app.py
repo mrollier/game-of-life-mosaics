@@ -5,7 +5,6 @@ since gradio is an app-only dependency, not a dependency of gol_mosaics.
 """
 
 import os
-import time
 
 import numpy as np
 import pytest
@@ -22,14 +21,6 @@ def _subject_on_transparent(size=80):
     img.paste(Image.new('RGBA', (size // 2, size // 2), (20, 20, 20, 255)),
               (size // 4, size // 4))
     return img
-
-
-def _last(gen):
-    """Consume a generator handler and return its final yielded value."""
-    result = None
-    for result in gen:
-        pass
-    return result
 
 
 # Default manual colours (UGent palette) for the four colour-picker args.
@@ -149,10 +140,8 @@ def test_selected_input_falls_back_to_with_bg():
 
 
 def test_on_upload_none_disables_toggle():
-    """No upload clears the state, greys out the toggle, and clears the preview.
-
-    on_upload is a generator; _last() takes its final yielded value."""
-    state, toggle, preview = _last(app.on_upload(None))
+    """No upload clears the state, greys out the toggle, and clears the preview."""
+    state, toggle, preview = app.on_upload(None)
     assert state is None and preview is None
     assert toggle["interactive"] is False
 
@@ -173,7 +162,7 @@ def test_on_upload_removes_background_once(monkeypatch):
     monkeypatch.setattr(app.ImageProcessor, "remove_background",
                         classmethod(fake_remove))
 
-    state, toggle, preview = _last(app.on_upload(_with_bg()))
+    state, toggle, preview = app.on_upload(_with_bg())
     assert calls["n"] == 1
     assert state["without_bg"] is not None and state["has_bg"] is True
     assert toggle["interactive"] is True and toggle["value"] is True
@@ -184,7 +173,7 @@ def test_on_upload_transparent_disables_toggle(monkeypatch):
     """A background-free upload caches only the original and greys the toggle."""
     monkeypatch.setattr(app.ImageProcessor, "has_background",
                         staticmethod(lambda *a, **k: False))
-    state, toggle, preview = _last(app.on_upload(_subject_on_transparent()))
+    state, toggle, preview = app.on_upload(_subject_on_transparent())
     assert state["without_bg"] is None and state["has_bg"] is False
     assert toggle["interactive"] is False
     assert preview is state["with_bg"]
@@ -199,31 +188,10 @@ def test_on_upload_removal_failure_falls_back(monkeypatch):
         raise ImportError("rembg not installed")
 
     monkeypatch.setattr(app.ImageProcessor, "remove_background", classmethod(boom))
-    state, toggle, preview = _last(app.on_upload(_with_bg()))
+    state, toggle, preview = app.on_upload(_with_bg())
     assert state["without_bg"] is None and state["has_bg"] is True
     assert toggle["interactive"] is False
     assert preview is state["with_bg"]
-
-
-def test_on_upload_warns_when_removal_is_slow(monkeypatch):
-    """A slow removal (past the threshold) emits a toast but still succeeds."""
-    warnings = []
-    monkeypatch.setattr(app.gr, "Warning", lambda msg, *a, **k: warnings.append(msg))
-    monkeypatch.setattr(app, "SLOW_REMOVAL_WARN_SECONDS", 0)
-    monkeypatch.setattr(app.ImageProcessor, "has_background",
-                        staticmethod(lambda *a, **k: True))
-
-    def slow_remove(cls, img, *a, **k):
-        time.sleep(1.2)  # long enough for one poll past the (0 s) threshold
-        return _subject_on_transparent()
-
-    monkeypatch.setattr(app.ImageProcessor, "remove_background",
-                        classmethod(slow_remove))
-
-    state, toggle, preview = _last(app.on_upload(_with_bg()))
-    assert warnings  # the slow-removal toast fired
-    assert state["without_bg"] is not None
-    assert toggle["interactive"] is True
 
 
 # --- Golly .cells export ------------------------------------------------------
