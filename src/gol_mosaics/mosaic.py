@@ -9,13 +9,38 @@ import numpy as np
 import math
 from PIL import Image
 from typing import Optional, Union
-from scipy.ndimage import binary_fill_holes
+from scipy.ndimage import binary_fill_holes, label
 
 from .patterns import PatternLibrary
 from .colors import ColorScheme
 from .image_processing import ImageProcessor
 from .eca import ECABackground
 from .renderer import MosaicRenderer
+
+
+def _fill_small_holes(binary: np.ndarray, max_hole_size: int) -> np.ndarray:
+    """
+    Fill enclosed holes strictly smaller than max_hole_size pixels.
+
+    Unlike binary_fill_holes alone, this preserves large enclosed
+    zero-regions such as a foreground subject that touches no image edge.
+
+    Args:
+        binary: Boolean array to fill
+        max_hole_size: Holes with at least this many pixels stay open
+
+    Returns:
+        Boolean array with only the small holes filled
+    """
+    filled = binary_fill_holes(binary)
+    holes = filled & ~binary
+    labels, num_holes = label(holes)
+    if num_holes == 0:
+        return filled
+    sizes = np.bincount(labels.ravel())
+    big = sizes >= max_hole_size
+    big[0] = False  # label 0 is the non-hole region
+    return filled & ~big[labels]
 
 
 class MosaicGenerator:
@@ -462,9 +487,18 @@ class MosaicGenerator:
         pad_width_second = (pad_tuple, (0, 0))
         mask_padded_second = np.pad(big_array_second, pad_width=pad_width_second, constant_values=0)
 
-        # Combine and fill holes
-        mask = mask_padded_first + mask_padded_second
-        mask = binary_fill_holes(mask).astype(np.uint8)
+        # Combine the two diagonal grids. Where their tiles' dead borders
+        # cross, the background is left with tiny enclosed gaps (a few pixels
+        # each) that must be filled so the ECA field renders solid. A subject
+        # that touches no image edge is *also* an enclosed zero-region, but a
+        # vastly larger one (at least about half a tile), so only fill holes
+        # smaller than a quarter tile to keep the foreground intact.
+        mask = (mask_padded_first + mask_padded_second) > 0
+        tile_h, tile_w = self.pattern_library.pond_pattern_edge().shape
+        mask = _fill_small_holes(
+            mask,
+            max_hole_size=tile_h * tile_w // 4
+        ).astype(np.uint8)
 
         return mask
 

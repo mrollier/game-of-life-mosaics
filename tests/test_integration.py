@@ -186,3 +186,53 @@ def test_generate_from_pil_return_arrays(transparent_image_path):
     assert isinstance(image, Image.Image)
     assert gol_mosaic.ndim == 2 and mask.ndim == 2
     assert set(np.unique(mask)) <= {0, 1}
+
+
+def test_enclosed_foreground_survives_mask_building(transparent_image_path):
+    """A subject surrounded by transparent background on all four edges must
+    stay foreground (mask 0) instead of being swallowed by hole filling.
+
+    Regression: binary_fill_holes on the background mask treated the whole
+    enclosed subject as a hole, so the ECA overlay covered the GoL mosaic."""
+    generator = MosaicGenerator(level=3, grid_size=20)
+    _, _, mask = generator.generate_from_pil(
+        Image.open(transparent_image_path),
+        supersample=12,
+        remove_background=False,
+        seed=42,
+        return_arrays=True,
+    )
+
+    # The 50x50 subject centred in the 100x100 image covers ~25% of the area.
+    foreground_fraction = (mask == 0).mean()
+    assert foreground_fraction > 0.1
+
+    # The centre of the mask sits inside the subject.
+    h, w = mask.shape
+    assert mask[h // 2, w // 2] == 0
+
+
+def test_edge_touching_foreground_keeps_gaps_filled():
+    """A subject touching an image edge still yields a solid background mask:
+    the tiny inter-tile gaps are filled, and both mask classes are present."""
+    img = Image.new('RGBA', (100, 100), (0, 0, 0, 0))
+    subject = Image.new('RGBA', (100, 50), (30, 30, 30, 255))
+    img.paste(subject, (0, 50))  # touches left, right and bottom edges
+
+    generator = MosaicGenerator(level=3, grid_size=20)
+    _, _, mask = generator.generate_from_pil(
+        img,
+        supersample=12,
+        remove_background=False,
+        seed=42,
+        return_arrays=True,
+    )
+
+    assert set(np.unique(mask)) == {0, 1}
+
+    # The background half must be solid: no leftover speck holes from the
+    # interlocking tile grids. Check an interior background window well away
+    # from the subject boundary and the image border.
+    h, w = mask.shape
+    window = mask[h // 8: h // 4, w // 4: 3 * w // 4]
+    assert window.all(), "background region contains unfilled speck holes"
