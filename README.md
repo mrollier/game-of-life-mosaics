@@ -48,9 +48,12 @@ The result is a unique mosaic where:
 git clone https://github.com/mrollier/game-of-life-mosaics.git
 cd game-of-life-mosaics
 
-# Install dependencies
-pip install -r requirements.txt
+# Install the library (editable)
+pip install -e .
 ```
+
+> `requirements.txt` is the dependency set for the web app (it additionally
+> pins gradio and rembg); library users only need the install above.
 
 ### Dependencies
 
@@ -164,9 +167,8 @@ mosaic.save('output.png')
   - Any rule between 0-255 is fine
 - **empty_tiles_cutoff** (0-1): Brightness threshold above which tiles are empty. Lower = more empty tiles.
 - **alpha_cutoff** (0-1): Transparency threshold. Transparent areas get filled with ECA pattern.
-- **supersample**: ECA upsampling factor. Must divide mosaic width evenly. Higher = finer ECA detail.
+- **supersample**: ECA cell size in pixels (any positive value; the pattern is cropped to the mosaic size). Higher = chunkier ECA cells. `None` (default) auto-selects ~15.
 - **contrast**: Sigmoid (S-curve) contrast boost on the greyscale before tiling. 0 disables; higher is punchier (default 5.0). High-contrast images give the most striking mosaics.
-- **rim_color**: Colour of the outer rim (the rotation/padding border). `None` (default) makes it transparent; pass an `(R, G, B)` tuple or hex string to fill it with a colour.
 
 ### Working with Pattern Library
 
@@ -269,8 +271,9 @@ MosaicGenerator(level=4, grid_size=30, color_scheme=None,
 ```
 
 **Methods:**
-- `generate_from_image(image_path, empty_tiles_cutoff=1.0, alpha_cutoff=0.5, supersample=15, remove_background='auto', contrast=5.0, rim_color=None)` - Generate from image file
-- `generate_from_gif(gif_path, ...)` - Process animated GIF
+- `generate_from_image(image_path, empty_tiles_cutoff=0.65, alpha_cutoff=0.5, supersample=None, no_eca=False, remove_background='auto', contrast=5.0, seed=None)` - Generate from image file
+- `generate_from_pil(img, ..., return_arrays=False)` - Same pipeline for an in-memory PIL image; `return_arrays=True` also returns the binary GoL mosaic and transparency mask
+- `generate_from_gif(gif_path, ...)` - Process animated GIF (same defaults as the image path)
 
 ### PatternLibrary
 
@@ -318,8 +321,7 @@ ECABackground(rule=106)
 ```
 
 **Methods:**
-- `generate(width, height, supersample)` - Generate ECA pattern
-- `list_valid_supersamples(width)` - Get valid supersample values
+- `generate(width, height, supersample)` - Generate ECA pattern (any positive supersample; the result is cropped to size)
 
 **Class Methods:**
 - `from_category(category)` - Create with 'complex' or 'chaotic' rule

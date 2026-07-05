@@ -25,34 +25,34 @@ Notation used throughout:
 
 | Call | File | Notes |
 |------|------|-------|
-| `generate_from_image(path, …)` | [mosaic.py:122](src/gol_mosaics/mosaic.py#L122) | Opens the file, forwards to `generate_from_pil`. |
-| `generate_from_pil(img, …)` | [mosaic.py:163](src/gol_mosaics/mosaic.py#L163) | **The actual pipeline.** Everything below happens here. |
-| `generate_from_gif(path, …)` | [mosaic.py:264](src/gol_mosaics/mosaic.py#L264) | Runs `generate_from_image` per frame. |
-| Web app `render_mosaic(…)` | [app.py:170](app.py#L170) | Calls `generate_from_pil`, then post-fits to aspect ratio (stage 9). |
+| `generate_from_image(path, …)` | [mosaic.py:149](src/gol_mosaics/mosaic.py#L149) | Opens the file, forwards to `generate_from_pil`. |
+| `generate_from_pil(img, …)` | [mosaic.py:190](src/gol_mosaics/mosaic.py#L190) | **The actual pipeline.** Everything below happens here. |
+| `generate_from_gif(path, …)` | [mosaic.py:301](src/gol_mosaics/mosaic.py#L301) | Runs `generate_from_pil` per frame. |
+| Web app `render_mosaic(…)` | [app.py:266](app.py#L266) | Calls `generate_from_pil`, then post-fits to aspect ratio (stage 9). |
 
 The orchestration for one image is the body of `generate_from_pil`
-([mosaic.py:163](src/gol_mosaics/mosaic.py#L163) onward). The stages below are
+([mosaic.py:190](src/gol_mosaics/mosaic.py#L190) onward). The stages below are
 that body in order.
 
 ---
 
 ## 1. Seed the RNG (optional)
 
-[mosaic.py:214-215](src/gol_mosaics/mosaic.py#L214-L215)
+[mosaic.py:250-251](src/gol_mosaics/mosaic.py#L250-L251)
 
 If `seed` is given, `np.random.seed(seed)` is set. This makes pattern selection,
 supersample selection and ECA initial state reproducible.
 
 > ⚠️ **Caveat:** the ECA *rule* is chosen in `__init__`
-> ([mosaic.py:86](src/gol_mosaics/mosaic.py#L86)) **before** this reseed, so a
+> ([mosaic.py:112](src/gol_mosaics/mosaic.py#L112)) **before** this reseed, so a
 > "random" rule is not controlled by this seed. The web app works around this by
-> seeding again before constructing the generator ([app.py:205](app.py#L205)).
+> seeding again before constructing the generator ([app.py:230](app.py#L230)).
 
 ---
 
 ## 2. Preprocess the image → diagonal grids
 
-Called at [mosaic.py:218](src/gol_mosaics/mosaic.py#L218);
+Called at [mosaic.py:254](src/gol_mosaics/mosaic.py#L254);
 implemented in `ImageProcessor.preprocess_for_mosaic`
 ([image_processing.py:393](src/gol_mosaics/image_processing.py#L393)).
 
@@ -114,11 +114,11 @@ Because `R ≈ √2·G`, each grid is ≈`0.7·G` tiles across — **not** `0.5�
 
 ---
 
-## 3. Build the GoL mosaic — `_build_mosaic` ([mosaic.py:347](src/gol_mosaics/mosaic.py#L347))
+## 3. Build the GoL mosaic — `_build_mosaic` ([mosaic.py:370](src/gol_mosaics/mosaic.py#L370))
 
 For each diagonal grid:
 1. **Map greyscale → still-life tiles** via
-   `get_patterns_for_values` ([patterns.py:418](src/gol_mosaics/patterns.py#L418)):
+   `get_patterns_for_values` ([patterns.py:416](src/gol_mosaics/patterns.py#L416)):
    - values **above `empty_tiles_cutoff`** (default 0.65) become an **empty
      tile** (all zeros);
    - otherwise the value is matched to the still-life whose density is closest
@@ -127,55 +127,57 @@ For each diagonal grid:
 
    Each grid cell becomes a `t × t` binary tile → grid shape becomes `(rows, cols, t, t)`.
 2. **Assemble** the tiles into one big array with `np.block`
-   ([mosaic.py:378-386](src/gol_mosaics/mosaic.py#L378-L386)).
+   (`_assemble_tiles`, [mosaic.py:409](src/gol_mosaics/mosaic.py#L409)).
 3. **Pad and overlay** the two diagonals so they interlock
-   ([mosaic.py:389-402](src/gol_mosaics/mosaic.py#L389-L402)):
-   - `pad_size = ((6-3)·(2L-1) + 1 + 2) // 2 = 3L = t/2`,
+   (`_pad_diagonals`, [mosaic.py:416](src/gol_mosaics/mosaic.py#L416)):
+   - the pad size is `PatternLibrary.tile_pad_size`
+     `= ((6-3)·(2L-1) + 1 + 2) // 2 = 3L = t/2`,
    - `first` is padded left/right, `second` is padded top/bottom,
    - the two are **added** → final square mosaic of side `(R/2 + 1) · t` pixels
      (e.g. G=40, L=3 → `29 · 18 = 522`; **not** `(G/2 + 1) · t = 378`).
 
-> 📐 **Why `pad_size` works:** padding each diagonal by exactly `t/2` makes the
-> two complementary grids land on the same shape and interlock. If you ever
-> change tiling, this formula must stay equal to `t/2` or the diagonals
-> de-align. This is **Fragile spot #2**.
+> 📐 **Why `tile_pad_size` works:** padding each diagonal by exactly `t/2` makes
+> the two complementary grids land on the same shape and interlock. If you ever
+> change tiling, this property (defined on `PatternLibrary`) must stay equal to
+> `t/2` or the diagonals de-align. This is **Fragile spot #2**.
 
 The mosaic is **binary**: `0 = GoL background`, `1 = GoL pixel`.
 
 ---
 
-## 4. Build the transparency mask — `_build_mask` ([mosaic.py:406](src/gol_mosaics/mosaic.py#L406))
+## 4. Build the transparency mask — `_build_mask` ([mosaic.py:433](src/gol_mosaics/mosaic.py#L433))
 
 Same block/pad geometry as stage 3, but driven by the **alpha** grids via
-`get_patterns_for_mask` ([patterns.py:490](src/gol_mosaics/patterns.py#L490)):
+`get_patterns_for_mask` ([patterns.py:478](src/gol_mosaics/patterns.py#L478)):
 
 - alpha value **≥ `alpha_cutoff`** (default 0.5, i.e. opaque subject) → **empty
   tile (0)**;
 - alpha value **< `alpha_cutoff`** (transparent background) → **filled tile (1)**.
 
 The "filled tile" is `binary_fill_holes(solutions[-1])`
-([patterns.py:534](src/gol_mosaics/patterns.py#L534)) — a filled *diamond*
+([patterns.py:512](src/gol_mosaics/patterns.py#L512)) — a filled *diamond*
 (~44% ones for L=4), **not** a solid `t × t` square. Because the two diagonal
 mask grids interlock with the same geometry as the GoL tiles, those diamonds
-still tile to cover the whole background region; the final `binary_fill_holes`
-below closes any residue.
+still tile to cover the whole background region; the small-hole fill below
+closes any residue.
 
 So in the resulting `mask`: **`1` = background region (gets ECA), `0` = subject
 region (shows the GoL mosaic).**
 
-Finally: `mask = binary_fill_holes(mask)`
-([mosaic.py:456](src/gol_mosaics/mosaic.py#L456)).
+Finally: `mask = _fill_small_holes(mask, max_hole_size=t·t/4)`
+([mosaic.py:472](src/gol_mosaics/mosaic.py#L472)) — only holes smaller than a
+quarter tile are filled.
 
-> ⚠️ **Fragile spot #3 — `binary_fill_holes`.** This fills any region of `0`s
-> fully enclosed by `1`s. If the subject (the `0` region) touches the array
-> border — e.g. a removed background that wrapped around the whole image, or a
-> subject that runs off the edge — the "hole" is not enclosed and the fill
-> behaves unexpectedly, sometimes swallowing the whole subject. This is the
-> known "image input validation" issue.
+> ⚠️ **Fragile spot #3 — hole filling.** A plain `binary_fill_holes` here used
+> to swallow a subject that touched no image edge (the whole enclosed subject
+> counted as one big "hole"). `_fill_small_holes`
+> ([mosaic.py:21](src/gol_mosaics/mosaic.py#L21)) fixes this by filling only
+> the tiny inter-tile gaps and leaving large enclosed zero-regions (the
+> subject) open. The quarter-tile threshold is the invariant to preserve.
 
 ---
 
-## 5. Fit to the original aspect ratio — `_adjust_aspect_ratio` ([mosaic.py:460](src/gol_mosaics/mosaic.py#L460))
+## 5. Fit to the original aspect ratio — `_adjust_aspect_ratio` ([mosaic.py:479](src/gol_mosaics/mosaic.py#L479))
 
 The mosaic and mask are currently a **square**. This crops them back to the
 original `aspect_ratio`:
@@ -192,18 +194,19 @@ original `aspect_ratio`:
 
 ---
 
-## 6. Choose the ECA supersample — `_auto_select_supersample` ([mosaic.py:549](src/gol_mosaics/mosaic.py#L549))
+## 6. Choose the ECA supersample ([mosaic.py:287](src/gol_mosaics/mosaic.py#L287))
 
-If `supersample` was not supplied, it returns `max(1, min(15, mosaic_width))`
-— i.e. ~15-pixel ECA cells, clamped only on tiny mosaics. (Historically this had
-to divide the width evenly; it no longer does — see stage 7.)
+If `supersample` was not supplied, `generate_from_pil` uses
+`max(1, min(15, mosaic_width))` — i.e. ~15-pixel ECA cells, clamped only on
+tiny mosaics. (Historically this had to divide the width evenly; it no longer
+does — see stage 7.)
 
 ---
 
-## 7. Generate + composite the ECA background — `_apply_eca_background` ([mosaic.py:505](src/gol_mosaics/mosaic.py#L505))
+## 7. Generate + composite the ECA background — `_apply_eca_background` ([mosaic.py:523](src/gol_mosaics/mosaic.py#L523))
 
 1. **Generate the ECA pattern** (`ECABackground.generate`,
-   [eca.py:59](src/gol_mosaics/eca.py#L59)) unless `no_eca`:
+   [eca.py:58](src/gol_mosaics/eca.py#L58)) unless `no_eca`:
    - build a 1-D elementary cellular automaton at low resolution
      `ceil(width/supersample) × ceil(height/supersample)`,
    - evolve it with the chosen Wolfram `rule`,
@@ -211,15 +214,15 @@ to divide the width evenly; it no longer does — see stage 7.)
      block, then **crop** to the exact mosaic `(height, width)`.
 
    Result is binary: `0 = ECA background`, `1 = ECA pixel`.
-2. **Combine mask + ECA** ([mosaic.py:540](src/gol_mosaics/mosaic.py#L540)):
+2. **Combine mask + ECA** ([mosaic.py:558](src/gol_mosaics/mosaic.py#L558)):
    ```
    eca_mask = transparency_mask * (eca_pattern + transparency_mask)
    ```
    With `transparency_mask ∈ {0,1}` and `eca_pattern ∈ {0,1}` this yields
    three values: `0` where there is no background (subject), `1 = ECA
    background`, `2 = ECA pixel`.
-3. **Render two layers and composite** (renderer,
-   [renderer.py:48-168](src/gol_mosaics/renderer.py#L48-L168)):
+3. **Render two layers and composite** (`render_full_mosaic`,
+   [renderer.py:214](src/gol_mosaics/renderer.py#L214)):
    - `render_gol_mosaic` → base RGBA, **fully opaque**: `0→gol_background`,
      `1→gol_pixel`.
    - `render_eca_overlay` → overlay RGBA: `eca_mask 0 → transparent`,
@@ -240,23 +243,23 @@ The final image returned by `generate_from_pil` is this composited RGBA, sized
 
 ---
 
-## 8. (GIF only) repeat per frame — `generate_from_gif` ([mosaic.py:264](src/gol_mosaics/mosaic.py#L264))
+## 8. (GIF only) repeat per frame — `generate_from_gif` ([mosaic.py:301](src/gol_mosaics/mosaic.py#L301))
 
-Each frame is run through stages 1-7 independently (via `generate_from_image`).
+Each frame is run through stages 1-7 independently, in memory (via
+`generate_from_pil`). Defaults match the still pipeline.
 
 > ⚠️ **Caveat — the result is currently a single still, not an animation.**
 > Every frame is processed and appended to `frames`, but the function only
-> returns `frames[0]` ([mosaic.py:341-345](src/gol_mosaics/mosaic.py#L341-L345));
+> returns `frames[0]` ([mosaic.py:365-368](src/gol_mosaics/mosaic.py#L365-L368));
 > `frames[1:]` are computed and then discarded (never attached via
 > `append_images=`), so the caller cannot reassemble the animation even with
-> `save_all=True`. Note also that this path uses different defaults from the
-> still pipeline (`empty_tiles_cutoff=0.75`, fixed `supersample=15`) and passes
-> no `seed`, so with `random_patterns=True` the tiles would flicker frame to
-> frame if the animation were reassembled.
+> `save_all=True`. This path also passes no `seed`, so with
+> `random_patterns=True` the tiles would flicker frame to frame if the
+> animation were reassembled.
 
 ---
 
-## 9. (Web app only) post-fit to the upload's aspect ratio — `_fit_to_aspect` ([app.py:143](app.py#L143))
+## 9. (Web app only) post-fit to the upload's aspect ratio — `_fit_to_aspect` ([app.py:166](app.py#L166))
 
 The library output is already cropped to roughly the right ratio (stage 5), but
 the app pads it to **exactly** the upload's ratio on a solid backdrop:
@@ -291,16 +294,16 @@ stage 2c on is sized off `R`, **not** `G`.
 
 | Symptom | Most likely stage | Where to look |
 |---------|-------------------|---------------|
-| Edge shows **half-tiles** or **too few tiles**; ragged border | Stage 2c geometry (and stage 5 crop) | `extract_diagonal_patterns` + the `[1:-1,1:-1]` trim ([image_processing.py:338](src/gol_mosaics/image_processing.py#L338), [:342](src/gol_mosaics/image_processing.py#L342)); `_adjust_aspect_ratio` ([mosaic.py:460](src/gol_mosaics/mosaic.py#L460)) |
-| Diagonals **don't interlock** / doubled or gapped tiles | Stage 3 padding | `pad_size` formula must equal `t/2` ([mosaic.py:389-402](src/gol_mosaics/mosaic.py#L389-L402)) |
-| **Whole subject disappears** or background floods in | Stage 4 | `binary_fill_holes` + subject touching the border ([mosaic.py:456](src/gol_mosaics/mosaic.py#L456)) |
-| Subject/background **swapped** (ECA where subject should be) | Stage 4 mask polarity | `get_patterns_for_mask` cutoff direction ([patterns.py:490](src/gol_mosaics/patterns.py#L490)); `alpha_cutoff` |
-| Mosaic **too dense / too sparse / inverted tones** | Stage 3 mapping | `empty_tiles_cutoff`, `invert`, `contrast` ([patterns.py:418](src/gol_mosaics/patterns.py#L418)) |
+| Edge shows **half-tiles** or **too few tiles**; ragged border | Stage 2c geometry (and stage 5 crop) | `extract_diagonal_patterns` + the `[1:-1,1:-1]` trim ([image_processing.py:338](src/gol_mosaics/image_processing.py#L338), [:342](src/gol_mosaics/image_processing.py#L342)); `_adjust_aspect_ratio` ([mosaic.py:479](src/gol_mosaics/mosaic.py#L479)) |
+| Diagonals **don't interlock** / doubled or gapped tiles | Stage 3 padding | `PatternLibrary.tile_pad_size` must equal `t/2` (`_pad_diagonals`, [mosaic.py:416](src/gol_mosaics/mosaic.py#L416)) |
+| **Whole subject disappears** or background floods in | Stage 4 | `_fill_small_holes` threshold + subject touching the border ([mosaic.py:472](src/gol_mosaics/mosaic.py#L472)) |
+| Subject/background **swapped** (ECA where subject should be) | Stage 4 mask polarity | `get_patterns_for_mask` cutoff direction ([patterns.py:478](src/gol_mosaics/patterns.py#L478)); `alpha_cutoff` |
+| Mosaic **too dense / too sparse / inverted tones** | Stage 3 mapping | `empty_tiles_cutoff`, `invert`, `contrast` ([patterns.py:416](src/gol_mosaics/patterns.py#L416)) |
 | **Corner colour** unexpected (GoL bg instead of ECA bg) | Stage 7 rim interaction | corners are "empty subject" → opaque `gol_background` (see rim note above) |
-| ECA cells **wrong size** or **misaligned** at the edge | Stages 6-7 | supersample choice + the upsample-then-crop in `generate` ([eca.py:103-120](src/gol_mosaics/eca.py#L103-L120)) |
+| ECA cells **wrong size** or **misaligned** at the edge | Stages 6-7 | supersample choice + the upsample-then-crop in `generate` ([eca.py:103-121](src/gol_mosaics/eca.py#L103-L121)) |
 | Output **ratio slightly off** the original | Stage 5 (lib) and/or stage 9 (app) | tile-rounded centred crop; `_fit_to_aspect` |
-| **Random** result for "same" settings | Stage 1 seed scope | ECA rule chosen pre-reseed ([mosaic.py:86](src/gol_mosaics/mosaic.py#L86)) |
-| Odd `grid_size` raises / surprising cut-off | `__init__` even-check + stage 2c | [mosaic.py:77](src/gol_mosaics/mosaic.py#L77) |
+| **Random** result for "same" settings | Stage 1 seed scope | ECA rule chosen pre-reseed ([mosaic.py:112](src/gol_mosaics/mosaic.py#L112)) |
+| Odd `grid_size` raises / surprising cut-off | `__init__` even-check + stage 2c | [mosaic.py:105](src/gol_mosaics/mosaic.py#L105) |
 
 ---
 

@@ -2,6 +2,12 @@
 
 Date: 2026-06-17
 
+> **Superseded in part (2026-07):** the app now DOES ship automatic background
+> removal (rembg runs once in the upload handler, with a keep/remove toggle);
+> the "No background removal in the app" decision below no longer holds. Line
+> anchors and tuple shapes cited under "Verified facts" have also drifted.
+> Treat this document as the point-in-time design record, not current truth.
+
 ## Goal
 A single-file Gradio app (`app.py`, repo root) that wraps the existing
 `gol_mosaics` pipeline: upload an image, choose settings, get a Game of Life
