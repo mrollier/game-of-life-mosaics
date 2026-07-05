@@ -8,7 +8,7 @@ for converting images to Game of Life mosaics.
 import numpy as np
 import math
 from PIL import Image
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 from scipy.ndimage import binary_fill_holes, label
 
 from .patterns import PatternLibrary
@@ -97,21 +97,20 @@ class MosaicGenerator:
             ...     eca_rule=54
             ... )
         """
-        # Pick random grid size and level if not provided
-        self.grid_size = grid_size or self._auto_select_grid_size()
+        # Pick random grid size, level, and ECA rule if not provided. Use
+        # explicit None checks (not `or`): falsy values like eca_rule=0 (a
+        # valid Wolfram rule) must not be silently replaced by a random pick.
+        self.grid_size = (self._auto_select_grid_size() if grid_size is None
+                          else grid_size)
         if self.grid_size % 2 != 0:
             raise ValueError(
                 f"grid_size must be even, got {self.grid_size}. "
                 "The diamond layout interlocks two diagonal grids and "
                 "requires an even number of tiles."
             )
-        self.level = level or self._auto_select_level()
-
-        # Pick random ECA rule from some interesting ones if not provided.
-        # Use an explicit None check (not `or`): rule 0 is a valid Wolfram rule
-        # but falsy, so `eca_rule or ...` would silently replace it with a random
-        # rule.
-        self.eca_rule = self._auto_select_eca_rule() if eca_rule is None else eca_rule
+        self.level = self._auto_select_level() if level is None else level
+        self.eca_rule = (self._auto_select_eca_rule() if eca_rule is None
+                         else eca_rule)
 
         # Select default UGent colour scheme if not provided
         self.color_scheme = color_scheme or ColorScheme.ugent()
@@ -152,7 +151,7 @@ class MosaicGenerator:
                            empty_tiles_cutoff: float = 0.65,
                            alpha_cutoff: float = 0.5,
                            supersample: Optional[int] = None,
-                           no_eca = False,
+                           no_eca: bool = False,
                            remove_background: Union[bool, str] = 'auto',
                            contrast: float = 5.0,
                            seed: Optional[int] = None) -> Image.Image:
@@ -193,11 +192,13 @@ class MosaicGenerator:
                           empty_tiles_cutoff: float = 0.65,
                           alpha_cutoff: float = 0.5,
                           supersample: Optional[int] = None,
-                          no_eca = False,
+                          no_eca: bool = False,
                           remove_background: Union[bool, str] = 'auto',
                           contrast: float = 5.0,
                           seed: Optional[int] = None,
-                          return_arrays: bool = False):
+                          return_arrays: bool = False
+                          ) -> Union[Image.Image,
+                                     Tuple[Image.Image, np.ndarray, np.ndarray]]:
         """
         Generate mosaic from an in-memory PIL image.
 
@@ -211,9 +212,10 @@ class MosaicGenerator:
                 Greyscale values above this become empty tiles. Default: 0.65.
             alpha_cutoff: Threshold for transparency masking (0-1).
                 Alpha values below this get filled with ECA. Default: 0.5.
-            supersample: ECA upsampling factor (must divide mosaic width evenly).
-                Higher values create finer ECA patterns.
-                If None (default), automatically selects a valid value close to 15.
+            supersample: ECA upsampling factor (any positive value; the ECA
+                pattern is cropped to the mosaic size). Higher values create
+                finer ECA patterns. If None (default), a ~15-pixel cell size
+                is used, clamped to the mosaic width.
             no_eca: If True, skip the ECA background.
             remove_background: Background removal mode (default: 'auto').
                 'auto' removes the background only when it is still present;
@@ -278,12 +280,11 @@ class MosaicGenerator:
             aspect_ratio
         )
 
-        # Auto-select supersample if not provided
+        # Auto-select supersample if not provided: any positive value works
+        # (the ECA is cropped to size), so use a 15-pixel cell target clamped
+        # so at least one full cell spans very small mosaics.
         if supersample is None:
-            supersample = self._auto_select_supersample(
-                gol_mosaic.shape[1],
-                target=15
-            )
+            supersample = max(1, min(15, gol_mosaic.shape[1]))
 
         # Apply ECA background and render
         final_image = self._apply_eca_background(
@@ -299,34 +300,37 @@ class MosaicGenerator:
 
     def generate_from_gif(self,
                          gif_path: str,
-                         empty_tiles_cutoff: float = 0.75,
+                         empty_tiles_cutoff: float = 0.65,
                          alpha_cutoff: float = 0.5,
-                         supersample: int = 15,
+                         supersample: Optional[int] = None,
                          remove_background: Union[bool, str] = 'auto',
                          contrast: float = 5.0) -> Image.Image:
         """
         Convert animated GIF to mosaic GIF.
 
-        Processes each frame independently and returns an animated GIF.
+        Processes each frame independently, in memory, via generate_from_pil.
+        Defaults match the single-image path.
+
+        Known limitation: only the first processed frame is returned (carrying
+        the source's duration/loop metadata), so saving it with save_all=True
+        does not yet write a multi-frame animation.
 
         Args:
             gif_path: Path to input GIF
             empty_tiles_cutoff: Threshold for empty tiles (0-1)
             alpha_cutoff: Threshold for transparency masking (0-1)
-            supersample: ECA upsampling factor
+            supersample: ECA upsampling factor (None = auto, as for images)
+            remove_background: Forwarded to generate_from_pil
+            contrast: Forwarded to generate_from_pil
 
         Returns:
-            Animated PIL Image
+            PIL Image (first processed frame with animation metadata)
 
         Example:
             >>> generator = MosaicGenerator(level=4, grid_size=50)
             >>> mosaic_gif = generator.generate_from_gif('animation.gif')
             >>> mosaic_gif.save('output.gif', save_all=True)
         """
-        import os
-        import tempfile
-
-        # Open GIF
         gif = Image.open(gif_path)
         frames = []
         durations = []
@@ -335,33 +339,16 @@ class MosaicGenerator:
         frame_num = 0
         try:
             while True:
-                # Convert frame to RGBA
-                frame = gif.convert('RGBA')
-
-                # Save to temporary file
-                with tempfile.NamedTemporaryFile(
-                    mode='wb',
-                    suffix='.png',
-                    delete=False
-                ) as tmp:
-                    temp_path = tmp.name
-                    frame.save(temp_path)
-
-                # Process frame
-                try:
-                    mosaic = self.generate_from_image(
-                        temp_path,
-                        empty_tiles_cutoff=empty_tiles_cutoff,
-                        alpha_cutoff=alpha_cutoff,
-                        supersample=supersample,
-                        remove_background=remove_background,
-                        contrast=contrast
-                    )
-                    frames.append(mosaic)
-                    durations.append(gif.info.get('duration', 100))
-                finally:
-                    # Clean up temp file
-                    os.remove(temp_path)
+                mosaic = self.generate_from_pil(
+                    gif.convert('RGBA'),
+                    empty_tiles_cutoff=empty_tiles_cutoff,
+                    alpha_cutoff=alpha_cutoff,
+                    supersample=supersample,
+                    remove_background=remove_background,
+                    contrast=contrast
+                )
+                frames.append(mosaic)
+                durations.append(gif.info.get('duration', 100))
 
                 # Move to next frame
                 frame_num += 1
@@ -410,34 +397,38 @@ class MosaicGenerator:
             empty_tiles_cutoff=empty_tiles_cutoff
         )
 
-        # Combine into big arrays
-        big_array_first = np.block([
-            [patterns_first[i, j] for j in range(patterns_first.shape[1])]
-            for i in range(patterns_first.shape[0])
+        mosaic_first, mosaic_second = self._pad_diagonals(
+            self._assemble_tiles(patterns_first),
+            self._assemble_tiles(patterns_second)
+        )
+
+        # The offset grids interlock without overlap (each grid's live cells
+        # fall inside the other grid's dead padding), so the sum stays binary.
+        return mosaic_first + mosaic_second
+
+    def _assemble_tiles(self, patterns: np.ndarray) -> np.ndarray:
+        """Assemble a (rows, cols, H, W) array of tiles into one 2D grid."""
+        return np.block([
+            [patterns[i, j] for j in range(patterns.shape[1])]
+            for i in range(patterns.shape[0])
         ])
 
-        big_array_second = np.block([
-            [patterns_second[i, j] for j in range(patterns_second.shape[1])]
-            for i in range(patterns_second.shape[0])
-        ])
+    def _pad_diagonals(self,
+                       first: np.ndarray,
+                       second: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Offset the two diagonal grids so their tiles interlock.
 
-        # Add padding
-        pond_width = 6
-        pad_size = ((pond_width - 3) * (2 * self.level - 1) + 1 + 2) // 2
-
-        # Pad first diagonal (top rows)
-        pad_tuple = (pad_size, pad_size)
-        pad_width_first = ((0, 0), pad_tuple)
-        mosaic_first = np.pad(big_array_first, pad_width=pad_width_first, constant_values=0)
-
-        # Pad second diagonal (side columns)
-        pad_width_second = (pad_tuple, (0, 0))
-        mosaic_second = np.pad(big_array_second, pad_width=pad_width_second, constant_values=0)
-
-        # Combine
-        mosaic = mosaic_first + mosaic_second
-
-        return mosaic
+        The first grid is padded horizontally and the second vertically by
+        the library's tile_pad_size, shifting them half a tile relative to
+        each other.
+        """
+        pad_tuple = (self.pattern_library.tile_pad_size,) * 2
+        first_padded = np.pad(first, pad_width=((0, 0), pad_tuple),
+                              constant_values=0)
+        second_padded = np.pad(second, pad_width=(pad_tuple, (0, 0)),
+                               constant_values=0)
+        return first_padded, second_padded
 
     def _build_mask(self,
                    mask_first: np.ndarray,
@@ -465,27 +456,10 @@ class MosaicGenerator:
             alpha_cutoff=alpha_cutoff
         )
 
-        # Combine into big arrays
-        big_array_first = np.block([
-            [patterns_first[i, j] for j in range(patterns_first.shape[1])]
-            for i in range(patterns_first.shape[0])
-        ])
-
-        big_array_second = np.block([
-            [patterns_second[i, j] for j in range(patterns_second.shape[1])]
-            for i in range(patterns_second.shape[0])
-        ])
-
-        # Add padding
-        pond_width = 6
-        pad_size = ((pond_width - 3) * (2 * self.level - 1) + 1 + 2) // 2
-        pad_tuple = (pad_size, pad_size)
-
-        pad_width_first = ((0, 0), pad_tuple)
-        mask_padded_first = np.pad(big_array_first, pad_width=pad_width_first, constant_values=0)
-
-        pad_width_second = (pad_tuple, (0, 0))
-        mask_padded_second = np.pad(big_array_second, pad_width=pad_width_second, constant_values=0)
+        mask_padded_first, mask_padded_second = self._pad_diagonals(
+            self._assemble_tiles(patterns_first),
+            self._assemble_tiles(patterns_second)
+        )
 
         # Combine the two diagonal grids. Where their tiles' dead borders
         # cross, the background is left with tiny enclosed gaps (a few pixels
@@ -494,7 +468,7 @@ class MosaicGenerator:
         # vastly larger one (at least about half a tile), so only fill holes
         # smaller than a quarter tile to keep the foreground intact.
         mask = (mask_padded_first + mask_padded_second) > 0
-        tile_h, tile_w = self.pattern_library.pond_pattern_edge().shape
+        tile_h, tile_w = self.pattern_library.tile_shape
         mask = _fill_small_holes(
             mask,
             max_hole_size=tile_h * tile_w // 4
@@ -524,8 +498,7 @@ class MosaicGenerator:
             return mosaic, mask
 
         # Get tile dimensions
-        tile_height = self.pattern_library.pond_pattern_edge().shape[0]
-        tile_width = self.pattern_library.pond_pattern_edge().shape[1]
+        tile_height, tile_width = self.pattern_library.tile_shape
 
         if aspect_ratio > 1:
             # Originally wider than tall: crop height
@@ -551,7 +524,7 @@ class MosaicGenerator:
                              gol_mosaic: np.ndarray,
                              transparency_mask: np.ndarray,
                              supersample: int,
-                             no_eca = False) -> Image.Image:
+                             no_eca: bool = False) -> Image.Image:
         """
         Generate ECA background and composite with GoL mosaic.
 
@@ -584,34 +557,7 @@ class MosaicGenerator:
         # Create ECA mask: 0=transparent, 1=eca_background, 2=eca_pixel
         eca_mask = transparency_mask * (eca_pattern + transparency_mask)
 
-        # Render and composite
-        base_image = self.renderer.render_gol_mosaic(gol_mosaic)
-        overlay_image = self.renderer.render_eca_overlay(eca_mask)
-        final_image = self.renderer.composite(base_image, overlay_image)
-
-        return final_image
-
-    def _auto_select_supersample(self, mosaic_width: int, target: int = 15) -> int:
-        """
-        Automatically select a supersample value.
-
-        ECABackground.generate accepts any positive supersample (it crops the
-        upsampled pattern to size), so this simply returns the target cell size.
-        It is only clamped so at least one full ECA cell spans the mosaic on
-        very small mosaics.
-
-        Args:
-            mosaic_width: Width of the mosaic in pixels
-            target: Desired ECA cell size in pixels (default: 15)
-
-        Returns:
-            Supersample value to use
-
-        Example:
-            >>> # width=588 (no divisor equals 15) still uses 15 directly
-            >>> # width=8 clamps the target down to 8
-        """
-        return max(1, min(target, mosaic_width))
+        return self.renderer.render_full_mosaic(gol_mosaic, eca_mask)
 
     def _auto_select_grid_size(self) -> int:
         """Randomly select a grid size from predefined options."""

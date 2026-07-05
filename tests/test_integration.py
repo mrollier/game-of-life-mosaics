@@ -124,13 +124,6 @@ def test_generate_from_pil_smoke(transparent_image_path):
     assert result.size[0] > 0 and result.size[1] > 0
 
 
-def test_auto_supersample_returns_target_regardless_of_divisibility():
-    """Auto-selection no longer needs a divisor: it returns the target itself."""
-    generator = MosaicGenerator(level=3, grid_size=40)
-    # 588 has no divisor equal to 15, but the relaxed pipeline can use 15 directly.
-    assert generator._auto_select_supersample(588, target=15) == 15
-
-
 def test_auto_supersample_on_non_square_image_does_not_raise():
     """A non-square image must not raise when supersample is auto-selected.
 
