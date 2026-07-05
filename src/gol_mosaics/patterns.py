@@ -5,7 +5,9 @@ This module provides the PatternLibrary class for generating and managing
 symmetric Game of Life still-life patterns using integer linear programming.
 """
 
+import logging
 import numpy as np
+from functools import lru_cache
 from importlib.resources import files
 from typing import Optional
 from scipy.ndimage import binary_fill_holes
@@ -16,6 +18,8 @@ try:
     GUROBI_AVAILABLE = True
 except ImportError:
     GUROBI_AVAILABLE = False
+
+logger = logging.getLogger(__name__)
 
 
 class PatternLibrary:
@@ -100,12 +104,11 @@ class PatternLibrary:
         # Normalise to [0, 1]
         dens_max = densities.max()
         dens_min = densities.min()
-        if dens_max != dens_min:
-            densities = (densities - densities.min()) / (densities.max() - densities.min())
-            return densities
-        # trivial solution for level 1
-        else:
-            return np.array([1])
+        if dens_max == dens_min:
+            # Degenerate case (e.g. the trivial level-1 library): every
+            # pattern shares one density, so give each the same value.
+            return np.ones(len(densities))
+        return (densities - dens_min) / (dens_max - dens_min)
 
     @classmethod
     def load(cls, level: int) -> 'PatternLibrary':
@@ -215,7 +218,8 @@ class PatternLibrary:
         # Create empty mosaic and print initial information
         pp_edge = self.pond_pattern_edge()
         n = pp_edge.shape[0]
-        print(f"Looking for pattern level {self.level} with grid size {n}x{n}")
+        logger.info("Looking for pattern level %d with grid size %dx%d",
+                    self.level, n, n)
 
         # Make mask for cells outside the tile pattern
         pp_edge_binary = (pp_edge > 0).astype(np.uint8)
@@ -337,7 +341,7 @@ class PatternLibrary:
             model.optimize()
 
             if model.status != GRB.OPTIMAL:
-                print(f"Found {len(solutions)} optimal solutions.")
+                logger.info("Found %d optimal solutions.", len(solutions))
                 break
 
             # Extract current solution
@@ -365,7 +369,7 @@ class PatternLibrary:
             )
 
             if len(solutions) >= solution_limit:
-                print(f"Reached solution limit ({solution_limit}).")
+                logger.info("Reached solution limit (%d).", solution_limit)
                 break
 
         return np.array(solutions)
