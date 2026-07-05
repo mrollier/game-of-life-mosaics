@@ -232,22 +232,6 @@ class MosaicRenderer:
         overlay = self.render_eca_overlay(eca_mask)
         return self.composite(base, overlay)
 
-    def change_colors(self, new_color_scheme: ColorScheme) -> 'MosaicRenderer':
-        """
-        Create new renderer with different colours.
-
-        Args:
-            new_color_scheme: New ColorScheme to use
-
-        Returns:
-            New MosaicRenderer instance
-
-        Example:
-            >>> renderer1 = MosaicRenderer(ColorScheme.ugent())
-            >>> renderer2 = renderer1.change_colors(ColorScheme.monochrome())
-        """
-        return MosaicRenderer(new_color_scheme)
-
     def __repr__(self) -> str:
         """String representation of renderer."""
         return (

@@ -117,7 +117,7 @@ def _scheme_for(label: str, seed: int, manual_colors=None) -> ColorScheme:
     """
     if label == MANUAL:
         gol_bg, gol_px, eca_bg, eca_px = manual_colors
-        return ColorScheme.custom(
+        return ColorScheme(
             gol_background=_to_hex(gol_bg),
             gol_pixel=_to_hex(gol_px),
             eca_background=_to_hex(eca_bg),
