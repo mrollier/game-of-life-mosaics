@@ -402,22 +402,24 @@ class PatternLibrary:
             raise ValueError(f"Value must be in [0, 1], got {value}")
 
         # Invert mapping: black (0) -> dense (1), white (1) -> sparse (0)
-        adjusted_value = value
-        if invert:
-            adjusted_value = 1.0 - value
+        adjusted_value = 1.0 - value if invert else value
 
-        # Find closest density
-        densities = self.densities
-        diffs = np.abs(densities - adjusted_value)
-        min_diff = diffs.min()
-        indices = np.where(diffs == min_diff)[0]
+        return self.solutions[self._nearest_density_index(adjusted_value,
+                                                          random)]
 
+    def _nearest_density_index(self, adjusted_value: float,
+                               random: bool) -> int:
+        """
+        Index of the pattern whose density is closest to adjusted_value.
+
+        Ties are broken randomly when random=True; otherwise the first
+        (lowest-index) match wins.
+        """
+        diffs = np.abs(self.densities - adjusted_value)
+        indices = np.where(diffs == diffs.min())[0]
         if random:
-            index = np.random.choice(indices)
-        else:
-            index = indices[0]
-
-        return self.solutions[index]
+            return int(np.random.choice(indices))
+        return int(indices[0])
 
     def get_patterns_for_values(self,
                                 greyscale_values: np.ndarray,
@@ -446,50 +448,40 @@ class PatternLibrary:
             >>> patterns.shape
             (2, 2, 24, 24)
         """
-        greyscale_values = np.asarray(greyscale_values)
-
-        # Calculate densities
-        densities = self.densities.copy()
+        greyscale_values = np.asarray(greyscale_values, dtype=float)
         solutions = self.solutions
 
-        # Prepare output array
+        flat = greyscale_values.ravel()
+        if flat.size and (flat.min() < 0 or flat.max() > 1):
+            bad = flat[(flat < 0) | (flat > 1)][0]
+            raise ValueError(f"Greyscale value must be in [0, 1], got {bad}")
+
         output_shape = greyscale_values.shape + solutions.shape[1:]
-        mosaics = np.empty(output_shape, dtype=solutions.dtype)
 
-        # Map each value
-        flat_grey = greyscale_values.ravel()
+        if empty_tiles_cutoff <= 0:
+            # Every value sits above the cutoff: all tiles are empty.
+            return np.zeros(output_shape, dtype=solutions.dtype)
 
-        for idx, val in enumerate(flat_grey):
-            if val < 0 or val > 1:
-                raise ValueError(
-                    f"Greyscale value must be in [0, 1], got {val}"
-                )
+        empty = flat > empty_tiles_cutoff
+        adjusted = flat / empty_tiles_cutoff
+        # Invert mapping: black (0) -> dense (1), white (1) -> sparse (0)
+        if invert:
+            adjusted = 1.0 - adjusted
 
-            if val > empty_tiles_cutoff:
-                # Use empty pattern
-                solution = np.zeros_like(solutions[0])
-            else:
-                # Adjust value and find matching pattern
-                adjusted_val = val / empty_tiles_cutoff
+        # Nearest-density pattern per tile, vectorised over all tiles.
+        diffs = np.abs(self.densities[None, :] - adjusted[:, None])
+        if random:
+            # Uniform pick among each row's ties: random scores on the tie
+            # positions, -1 elsewhere, then argmax.
+            ties = diffs == diffs.min(axis=1, keepdims=True)
+            scores = np.where(ties, np.random.random(diffs.shape), -1.0)
+            indices = scores.argmax(axis=1)
+        else:
+            indices = diffs.argmin(axis=1)  # first tie wins
 
-                # Invert mapping: black (0) -> dense (1), white (1) -> sparse (0)
-                if invert:
-                    adjusted_val = 1.0 - adjusted_val
-
-                diffs = np.abs(densities - adjusted_val)
-                min_diff = diffs.min()
-                indices = np.where(diffs == min_diff)[0]
-
-                if random:
-                    index = np.random.choice(indices)
-                else:
-                    index = indices[0]
-
-                solution = solutions[index]
-
-            mosaics.reshape(-1, *solutions.shape[1:])[idx, ...] = solution
-
-        return mosaics
+        mosaics = solutions[indices]
+        mosaics[empty] = 0
+        return mosaics.reshape(output_shape)
 
     def get_patterns_for_mask(self,
                              mask: np.ndarray,
@@ -514,32 +506,23 @@ class PatternLibrary:
             >>> mask = np.array([[0.0, 0.3], [0.6, 1.0]])  # Transparency values
             >>> patterns = library.get_patterns_for_mask(mask, alpha_cutoff=0.5)
         """
-        mask = np.asarray(mask)
+        mask = np.asarray(mask, dtype=float)
         solutions = self.solutions
 
-        # Prepare output array
-        output_shape = mask.shape + solutions.shape[1:]
-        mosaics = np.empty(output_shape, dtype=solutions.dtype)
+        flat = mask.ravel()
+        if flat.size and (flat.min() < 0 or flat.max() > 1):
+            bad = flat[(flat < 0) | (flat > 1)][0]
+            raise ValueError(f"Mask value must be in [0, 1], got {bad}")
 
-        # Map each value
-        flat_mask = mask.ravel()
+        # Two invariant tiles: transparent -> empty, opaque -> the densest
+        # pattern with its interior holes filled.
+        empty_tile = np.zeros_like(solutions[0])
+        filled_tile = binary_fill_holes(solutions[-1]).astype(int)
 
-        for idx, val in enumerate(flat_mask):
-            if val < 0 or val > 1:
-                raise ValueError(
-                    f"Mask value must be in [0, 1], got {val}"
-                )
-
-            if val >= alpha_cutoff:
-                # Transparent -> empty pattern
-                solution = np.zeros_like(solutions[0])
-            else:
-                # Opaque -> filled pattern
-                solution = binary_fill_holes(solutions[-1]).astype(int)
-
-            mosaics.reshape(-1, *solutions.shape[1:])[idx, ...] = solution
-
-        return mosaics
+        transparent = (flat >= alpha_cutoff)[:, None, None]
+        mosaics = np.where(transparent, empty_tile, filled_tile)
+        return mosaics.reshape(mask.shape + solutions.shape[1:]).astype(
+            solutions.dtype, copy=False)
 
     @staticmethod
     def pond_pattern() -> np.ndarray:
