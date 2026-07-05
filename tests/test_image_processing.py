@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from src.gol_mosaics import ImageProcessor
+from gol_mosaics import ImageProcessor
 
 
 try:

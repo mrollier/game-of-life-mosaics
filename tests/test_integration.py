@@ -5,7 +5,7 @@ import numpy as np
 from PIL import Image
 import tempfile
 import os
-from src.gol_mosaics import MosaicGenerator, ColorScheme
+from gol_mosaics import MosaicGenerator, ColorScheme
 
 
 @pytest.fixture

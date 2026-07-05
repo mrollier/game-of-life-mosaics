@@ -1,7 +1,7 @@
 """Tests for ColorScheme class."""
 
 import pytest
-from src.gol_mosaics.colors import ColorScheme
+from gol_mosaics.colors import ColorScheme
 
 
 def test_colorscheme_ugent():

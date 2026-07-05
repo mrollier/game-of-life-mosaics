@@ -2,7 +2,7 @@
 
 import pytest
 import numpy as np
-from src.gol_mosaics.eca import ECABackground
+from gol_mosaics.eca import ECABackground
 
 
 def test_eca_initialization():

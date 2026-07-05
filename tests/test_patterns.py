@@ -2,7 +2,7 @@
 
 import pytest
 import numpy as np
-from src.gol_mosaics.patterns import PatternLibrary
+from gol_mosaics.patterns import PatternLibrary
 
 
 def test_pattern_library_load():

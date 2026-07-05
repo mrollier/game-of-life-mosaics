@@ -64,6 +64,7 @@ where = ["src"]
 gol_mosaics = ["data/*.npy"]
 
 [tool.pytest.ini_options]
+pythonpath = ["src"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
