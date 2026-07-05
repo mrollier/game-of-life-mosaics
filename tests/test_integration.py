@@ -186,6 +186,36 @@ def test_generate_from_pil_return_arrays(transparent_image_path):
     assert isinstance(image, Image.Image)
     assert gol_mosaic.ndim == 2 and mask.ndim == 2
     assert set(np.unique(mask)) <= {0, 1}
+    # The two interlocking diagonal grids never overlap, so the summed GoL
+    # mosaic must stay strictly binary.
+    assert set(np.unique(gol_mosaic)) <= {0, 1}
+
+
+def test_generate_from_gif(tmp_path):
+    """A 2-frame GIF is processed into a mosaic image carrying the animation
+    metadata (duration/loop) of the source.
+
+    Uses explicit kwargs rather than the gif-path defaults so the test pins
+    behaviour, not default values."""
+    frames = [Image.new('RGBA', (60, 60), (0, 0, 0, 0)) for _ in range(2)]
+    frames[0].paste(Image.new('RGBA', (30, 30), (20, 20, 20, 255)), (15, 15))
+    frames[1].paste(Image.new('RGBA', (30, 30), (60, 60, 60, 255)), (10, 10))
+    gif_path = tmp_path / "anim.gif"
+    frames[0].save(gif_path, save_all=True, append_images=frames[1:],
+                   duration=200, loop=0)
+
+    generator = MosaicGenerator(level=3, grid_size=10)
+    result = generator.generate_from_gif(
+        str(gif_path),
+        empty_tiles_cutoff=0.65,
+        supersample=12,
+        remove_background=False,
+    )
+
+    assert isinstance(result, Image.Image)
+    assert result.size[0] > 0 and result.size[1] > 0
+    assert result.info['duration'] == 200
+    assert result.info['loop'] == 0
 
 
 def test_enclosed_foreground_survives_mask_building(transparent_image_path):
