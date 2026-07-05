@@ -48,23 +48,28 @@ class PatternLibrary:
         """
         Initialise PatternLibrary.
 
+        Levels 1-5 are pre-computed and can be loaded with load(); higher
+        levels can be constructed here but must be filled via generate().
+
         Args:
-            level: Pattern complexity level (1-5 supported, all pre-computed)
+            level: Pattern complexity level (positive integer)
 
         Raises:
-            ValueError: If level is not between 1 and 5
+            ValueError: If level is smaller than 1
         """
-        if level < 1 or level > 5:
+        if level < 1:
             raise ValueError(
-                f"Level must be between 1 and 5, got {level}. \
-                Patterns for levels 1 and 2 are trivial. \
-                Patterns for level 6 and higher are very demanding to compute."
+                f"Level must be a positive integer, got {level}. "
+                "Pre-computed patterns exist for levels 1-5 (use load()); "
+                "higher levels must be created with generate()."
             )
 
         self.level = level
         self.pond_width = 6
         self._solutions: Optional[np.ndarray] = None
         self._densities: Optional[np.ndarray] = None
+        self._pond_pattern_multiple: Optional[np.ndarray] = None
+        self._pond_pattern_edge: Optional[np.ndarray] = None
 
     @property
     def solutions(self) -> np.ndarray:
@@ -122,7 +127,9 @@ class PatternLibrary:
             level: Pattern complexity level (must be 1, 2, 3, 4, or 5)
 
         Returns:
-            PatternLibrary instance with loaded patterns
+            PatternLibrary instance with loaded patterns. Instances are
+            cached and shared per level (the data files are large), so
+            treat the returned library and its arrays as read-only.
 
         Raises:
             ValueError: If level is not 1, 2, 3, 4, or 5
@@ -139,24 +146,7 @@ class PatternLibrary:
                 f"to create patterns for this level."
             )
 
-        library = cls(level=level)
-
-        # Load solutions bundled inside the package (gol_mosaics/data/), located
-        # via importlib.resources so it works regardless of install location.
-        resource = files(__package__).joinpath(
-            "data", f"solutions_pattern_level_{level}.npy"
-        )
-
-        if not resource.is_file():
-            raise FileNotFoundError(
-                f"Pattern data file not found: {resource}\n"
-                f"Expected packaged resource: "
-                f"gol_mosaics/data/solutions_pattern_level_{level}.npy"
-            )
-
-        with resource.open("rb") as f:
-            library._solutions = np.load(f)
-        return library
+        return _load_pattern_library(level)
 
     @classmethod
     def generate(cls, level: int, solution_limit: int = 1000) -> 'PatternLibrary':
@@ -170,6 +160,8 @@ class PatternLibrary:
         - Pond pattern edge constraints
 
         Note: Requires Gurobi licence. Can be time-consuming for high levels.
+        Dead-edge tiling data is defined through level 6; levels above that
+        would run without forced dead edges.
 
         Args:
             level: Pattern complexity level (2-6)
@@ -546,13 +538,35 @@ class PatternLibrary:
             [0, 1, 1, 0]
         ])
 
+    @property
+    def tile_shape(self) -> tuple:
+        """Shape (height, width) of one tile (the pond edge pattern)."""
+        return self.pond_pattern_edge().shape
+
+    @property
+    def tile_pad_size(self) -> int:
+        """
+        Grid offset (in cells) between the two interlocking diagonal grids.
+
+        Each diagonal grid is shifted by this amount (one horizontally, one
+        vertically) so that the tiles of one grid sit in the gaps of the
+        other without overlapping.
+        """
+        return ((self.pond_width - 3) * (2 * self.level - 1) + 1 + 2) // 2
+
     def pond_pattern_multiple(self) -> np.ndarray:
         """
         Generate multiple pond patterns with symmetry.
 
+        The result is cached on the instance (level and pond_width are
+        immutable); treat it as read-only.
+
         Returns:
             Pattern array sized according to level
         """
+        if self._pond_pattern_multiple is not None:
+            return self._pond_pattern_multiple
+
         width = self.pond_width * self.level
         pp = self.pond_pattern()
 
@@ -592,15 +606,21 @@ class PatternLibrary:
         mask = mask_even + mask_odd
         pp_multiple = np.where(1 - mask, pp_multiple, 0)
 
+        self._pond_pattern_multiple = pp_multiple
         return pp_multiple
 
     def pond_pattern_edge(self) -> np.ndarray:
         """
         Generate edge pond pattern (only the border).
 
+        The result is cached on the instance; treat it as read-only.
+
         Returns:
             Pattern array with only edge tiles
         """
+        if self._pond_pattern_edge is not None:
+            return self._pond_pattern_edge
+
         width = self.pond_width * self.level
         pp_multiple = self.pond_pattern_multiple()
 
@@ -613,6 +633,7 @@ class PatternLibrary:
                 mask_corner[::-1] + mask_corner[:, ::-1])
 
         pp_edge = np.where(mask, pp_multiple, 0)
+        self._pond_pattern_edge = pp_edge
         return pp_edge
     
     def pond_pattern_eighth(self) -> np.ndarray:
@@ -668,3 +689,32 @@ class PatternLibrary:
             6: [(2, 18), (3, 18), (5, 20), (5, 21), (6, 21), (8, 23), (8, 24), (9, 24)]
         }
         return dead_edges_map.get(level, [])
+
+
+@lru_cache(maxsize=None)
+def _load_pattern_library(level: int) -> PatternLibrary:
+    """
+    Load and cache one shared PatternLibrary per level.
+
+    The solution files are large (up to ~19 MB), so each level is read from
+    disk once per process. Cached instances are shared between callers and
+    must be treated as read-only.
+    """
+    library = PatternLibrary(level=level)
+
+    # Load solutions bundled inside the package (gol_mosaics/data/), located
+    # via importlib.resources so it works regardless of install location.
+    resource = files(__package__).joinpath(
+        "data", f"solutions_pattern_level_{level}.npy"
+    )
+
+    if not resource.is_file():
+        raise FileNotFoundError(
+            f"Pattern data file not found: {resource}\n"
+            f"Expected packaged resource: "
+            f"gol_mosaics/data/solutions_pattern_level_{level}.npy"
+        )
+
+    with resource.open("rb") as f:
+        library._solutions = np.load(f)
+    return library

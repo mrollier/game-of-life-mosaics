@@ -25,6 +25,31 @@ def test_pattern_library_invalid_level():
         PatternLibrary.load(level=6)  # Not pre-computed
 
 
+def test_pattern_library_construction_allows_generation_levels():
+    """Constructing beyond level 5 is allowed (generate() supports level 6);
+    only loading is restricted to the pre-computed range."""
+    assert PatternLibrary(level=6).level == 6
+    with pytest.raises(ValueError):
+        PatternLibrary(level=0)
+
+
+def test_pattern_library_load_is_cached():
+    """load() returns one shared, read-only instance per level."""
+    assert PatternLibrary.load(3) is PatternLibrary.load(3)
+    assert PatternLibrary.load(3) is not PatternLibrary.load(4)
+
+
+def test_tile_geometry_properties():
+    """tile_shape matches the edge pattern; tile_pad_size matches the
+    interlock formula previously inlined in the mosaic builder."""
+    for level in [2, 3, 4, 5]:
+        library = PatternLibrary(level=level)
+        assert library.tile_shape == library.pond_pattern_edge().shape
+        pond_width = library.pond_width
+        expected = ((pond_width - 3) * (2 * level - 1) + 1 + 2) // 2
+        assert library.tile_pad_size == expected
+
+
 def test_pond_pattern():
     """Test basic pond pattern generation."""
     pattern = PatternLibrary.pond_pattern()
