@@ -51,7 +51,10 @@ ImageProcessor.background_removal_providers = ["CPUExecutionProvider"]
 MAX_INPUT_DIM = 1600
 
 # Compute caps exposed in the UI.
-LEVELS = [3, 4, 5]
+LEVELS = [3, 4, 5, 6]
+# Levels warmed at startup; level 6 (332k patterns, ~450 MB expanded from the
+# 2.7 MB packed file) is loaded lazily on first request to keep cold start fast.
+WARM_LEVELS = [3, 4, 5]
 DEFAULT_LEVEL = 4
 MIN_GRID, MAX_GRID, DEFAULT_GRID = 10, 200, 60
 
@@ -65,10 +68,10 @@ SEED_MAX = 2**31
 
 # --- One-time startup work ----------------------------------------------------
 
-# Warm the pattern-library cache for the levels the UI exposes. load() keeps
-# one shared read-only instance per level, so requests hit the cache instead
+# Warm the pattern-library cache for the cheap levels. load() keeps one
+# shared read-only instance per level, so requests hit the cache instead
 # of re-reading the 19 MB level-5 file.
-for _level in LEVELS:
+for _level in WARM_LEVELS:
     PatternLibrary.load(_level)
 
 # Colour scheme UI labels. UGent and monochrome are deterministic; Warhol picks
@@ -536,7 +539,8 @@ def build_demo() -> gr.Blocks:
                     label="Detail level",
                     choices=LEVELS,
                     value=DEFAULT_LEVEL,
-                    info="Higher = finer tiles. Level 5 is noticeably slower.",
+                    info="Higher = finer tiles. Levels 5-6 are noticeably "
+                         "slower; level 6 (332k tiles) loads on first use.",
                 )
                 color_in = gr.Dropdown(
                     label="Colour scheme",
@@ -560,7 +564,7 @@ def build_demo() -> gr.Blocks:
                     label="Grid size (tiles across)",
                     minimum=MIN_GRID, maximum=MAX_GRID, value=DEFAULT_GRID, step=2,
                     info="Even number; larger = more, smaller tiles. "
-                         "Level 5 at 200 is slow.",
+                         "Levels 5-6 at 200 are slow.",
                 )
 
                 # Above the accordion so it doesn't shift when Advanced opens.

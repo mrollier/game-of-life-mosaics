@@ -32,7 +32,7 @@ The result is a unique mosaic where:
 ## Features
 
 - **Automatic mosaic generation** from any image (PNG, JPG, GIF)
-- **Five pre-computed complexity levels** (1–5; levels 1–2 are trivial, 3–5 give the best results)
+- **Six pre-computed complexity levels** (1–6; levels 1–2 are trivial, 3–6 give the best results — level 6 alone holds 332,321 exhaustively enumerated tiles)
 - **Customisable colour schemes** (UGent colours, monochrome, Warhol palette, or custom)
 - **ECA background overlays** with multiple rule options
 - **Export to Golly format** for Game of Life simulation (collapsing the Still Life)
@@ -61,10 +61,11 @@ pip install -e .
 - **scipy** (>=1.7.0) - Scientific computing (binary_fill_holes)
 - **cellpylib** (>=2.0.0) - Cellular automaton simulation
 - **Pillow** (>=9.0.0) - Image processing
-- **gurobipy** (>=11.0.0) - Optimisation solver (only for generating new patterns)
+- **python-sat** (>=1.8) - SAT solver (optional; only for generating new patterns/levels/rules)
+- **gurobipy** (>=11.0.0) - Optimisation solver (optional; historical generation path)
 - **rembg** (>=2.0.0) - Automatic background removal (optional)
 
-> **Note on Gurobi**: Gurobi is only required for *generating* new patterns. Using pre-computed patterns (levels 1-5) works without a Gurobi licence. For pattern generation, obtain a free academic licence or trial from [gurobi.com](https://www.gurobi.com/). Note that (with the current algorithm) calculating all patterns for level > 5 is computationally highly demanding.
+> **Note on pattern generation**: using the pre-computed patterns (levels 1–6) needs no extra dependencies. New levels or Life-like rule variants are generated with the open-source SAT pipeline (`pip install gol-mosaics[sat]`; see `gol_mosaics.sat_search` and `notebooks/tile_generation_sat.ipynb` for the method and its validation). The historical Gurobi ILP (`PatternLibrary.generate`, licence from [gurobi.com](https://www.gurobi.com/)) is retained for reference but is dramatically slower — days versus seconds for level 6.
 
 > **Note on background removal**: `rembg` is only required when the algorithm removes an image's background for you (the `remove_background='auto'` default, or `remove_background=True`). Install it with `pip install gol-mosaics[bg-removal]`. If your images already have transparent backgrounds, you don't need it.
 >
@@ -141,7 +142,7 @@ mosaic.save('output.png')
 from gol_mosaics import MosaicGenerator, ColorScheme
 
 generator = MosaicGenerator(
-    level=5,                    # Pattern complexity (1-5; 3-5 recommended)
+    level=5,                    # Pattern complexity (1-6; 3-6 recommended)
     grid_size=100,              # Number of tiles (must be even)
     color_scheme=ColorScheme.ugent(),
     eca_rule=106                # ECA rule (30, 45, 54, 106, 110, etc.)
@@ -159,7 +160,7 @@ mosaic.save('output.png')
 
 ### Parameter Guide
 
-- **level** (1-5): Pattern complexity. Higher = more detailed but larger files. Pre-computed levels: 1, 2, 3, 4, 5 (levels 1-2 are trivial; 3-5 recommended).
+- **level** (1-6): Pattern complexity. Higher = more detailed but larger files. Pre-computed levels: 1-6 (levels 1-2 are trivial; 3-6 recommended; level 6 ships as 2.7 MB of packed symmetry-orbit bits and expands to ~450 MB of tiles on first load).
 - **grid_size** (must be even): Number of tiles. Higher = more detail but slower. Typical: 30-150.
 - **eca_rule**: Wolfram rule for background pattern.
   - Complex: 54, 147, 110, 124, 137, 193
@@ -188,9 +189,11 @@ pattern = library.get_pattern_for_value(0.5, random=True)
 values = np.array([[0.2, 0.5], [0.7, 0.9]])
 patterns = library.get_patterns_for_values(values, random=True, invert=True)
 
-# Generate new patterns (requires Gurobi licence). Stop searching after 500 Tiles have been found.
-library = PatternLibrary.generate(level=6, solution_limit=500)
-np.save('solutions_level_6.npy', library.solutions)
+# Enumerate Tiles yourself with the open-source SAT pipeline
+# (pip install gol-mosaics[sat]) - exhaustive, and fast:
+from gol_mosaics.sat_search import enumerate_tiles
+tiles = enumerate_tiles(level=5)                    # all 2632 level-5 Tiles
+highlife = enumerate_tiles(level=5, birth=(3, 6))   # ...or for HighLife B36/S23
 ```
 
 ### Export to Golly
@@ -229,9 +232,9 @@ Conway's Game of Life is a cellular automaton where cells live or die based on t
 - A dead cell with exactly 3 neighbours becomes alive
 - All other cells die
 
-**Still Lives** are stable patterns that never change. This project uses **8-fold symmetric Still Lives** computed via integer linear programming (Gurobi) to find all valid patterns at each complexity level.
+**Still Lives** are stable patterns that never change. This project uses **8-fold symmetric Still Lives**, exhaustively enumerated at each complexity level with a SAT solver over the free symmetry orbits (originally via a Gurobi ILP; see `notebooks/tile_generation_sat.ipynb` for the method, its five-tier validation, and the generalisation to other Life-like rules).
 
-For level 4, there are **85 unique symmetric patterns** ranging from sparse to dense.
+The complete counts per level: 1, 2, 7, 85, 2632, and **332,321** unique symmetric patterns for levels 1–6, ranging from sparse to dense.
 
 ### Pattern Mapping
 
@@ -280,7 +283,7 @@ MosaicGenerator(level=4, grid_size=30, color_scheme=None,
 Manages Game of Life patterns.
 
 **Class Methods:**
-- `PatternLibrary.load(level)` - Load pre-computed patterns (levels 1-5)
+- `PatternLibrary.load(level)` - Load pre-computed patterns (levels 1-6)
 - `PatternLibrary.generate(level, solution_limit)` - Generate new patterns
 
 **Methods:**
@@ -405,7 +408,8 @@ game-of-life-mosaics/
 |   ├── solutions_pattern_level_2.npy
 │   ├── solutions_pattern_level_3.npy
 │   ├── solutions_pattern_level_4.npy
-│   └── solutions_pattern_level_5.npy
+│   ├── solutions_pattern_level_5.npy
+│   └── solutions_pattern_level_6_orbits.npy  # 332,321 tiles as packed orbit bits
 ├── tests/                     # Unit and integration tests
 ├── notebooks/                 # Example Jupyter notebooks
 ├── input/                     # Example input images
