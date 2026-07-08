@@ -22,7 +22,7 @@ def test_pattern_library_invalid_level():
         PatternLibrary.load(level=0)  # Below supported range
 
     with pytest.raises(ValueError):
-        PatternLibrary.load(level=6)  # Not pre-computed
+        PatternLibrary.load(level=7)  # Not pre-computed
 
 
 def test_pattern_library_construction_allows_generation_levels():
@@ -206,3 +206,51 @@ def test_pond_pattern_edge():
     pattern = library.pond_pattern_edge()
     assert pattern.ndim == 2
     assert np.all(np.isin(pattern, [0, 1]))
+
+
+# --- Dead-edge derivation, level-6 data, packed format --------------------
+
+HISTORICAL_DEAD_EDGES = {
+    2: [(2, 6), (3, 6)],
+    3: [(2, 9), (3, 9), (5, 11), (5, 12)],
+    4: [(2, 11), (3, 11), (5, 14), (5, 15), (6, 15)],
+    5: [(2, 15), (3, 15), (5, 17), (5, 18), (6, 18), (8, 20), (8, 21)],
+    6: [(2, 18), (3, 18), (5, 20), (5, 21), (6, 21), (8, 23), (8, 24), (9, 24)],
+}
+
+
+def test_derived_dead_edges_match_historical_lists():
+    """The geometric derivation reproduces the historically hard-coded
+    dead-edge lists exactly, up to D4 orbit closure (the solver propagates
+    forcings orbit-wide, so orbit equality is the semantic contract)."""
+    from gol_mosaics.tile_domain import derive_dead_edges_full, symmetric_coords
+
+    for level, literals in HISTORICAL_DEAD_EDGES.items():
+        n = 6 * level
+        closure = {img for cell in literals
+                   for img in symmetric_coords(*cell, n)}
+        assert derive_dead_edges_full(level) == closure, level
+        assert len(closure) == 12 * level - 8
+
+
+def test_dead_edges_empty_for_level_1():
+    assert PatternLibrary._get_dead_edges(1) == []
+
+
+def test_load_level_6():
+    """Level 6 loads from the packed orbit-bit file and expands correctly."""
+    library = PatternLibrary.load(level=6)
+    assert library.solutions.shape == (332321, 36, 36)
+    assert library.solutions.dtype == np.uint8
+    assert 0.0 <= library.densities.min() <= library.densities.max() <= 1.0
+
+
+def test_packed_roundtrip():
+    """pack_solutions/unpack_solutions are inverse on shipped data."""
+    from gol_mosaics.tile_domain import pack_solutions, unpack_solutions
+
+    for level in (3, 4):
+        reference = PatternLibrary.load(level).solutions
+        packed = pack_solutions(reference, level)
+        assert np.array_equal(unpack_solutions(packed, level),
+                              reference.astype(np.uint8))

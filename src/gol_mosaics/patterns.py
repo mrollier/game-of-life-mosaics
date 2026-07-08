@@ -12,6 +12,8 @@ from importlib.resources import files
 from typing import Optional
 from scipy.ndimage import binary_fill_holes
 
+from .tile_domain import derive_dead_edges, unpack_solutions
+
 # Gurobi is optional - only needed for generating new patterns
 try:
     from gurobipy import Model, GRB, quicksum
@@ -120,11 +122,13 @@ class PatternLibrary:
         """
         Load pre-computed patterns from disk.
 
-        Pre-computed patterns are available for levels 1, 2, 3, 4, and 5.
+        Pre-computed patterns are available for levels 1-6. Levels 1-5 are
+        stored as full grids; level 6 (332,321 patterns) ships as packed
+        symmetry-orbit bits and is expanded on load (~0.5 s, ~450 MB).
         For other levels, use PatternLibrary.generate() instead.
 
         Args:
-            level: Pattern complexity level (must be 1, 2, 3, 4, or 5)
+            level: Pattern complexity level (must be 1-6)
 
         Returns:
             PatternLibrary instance with loaded patterns. Instances are
@@ -132,16 +136,16 @@ class PatternLibrary:
             treat the returned library and its arrays as read-only.
 
         Raises:
-            ValueError: If level is not 1, 2, 3, 4, or 5
+            ValueError: If level is not 1-6
             FileNotFoundError: If data file is missing
 
         Example:
             >>> library = PatternLibrary.load(level=5)
             >>> print(f"Loaded {len(library.solutions)} patterns")
         """
-        if level not in [1, 2, 3, 4, 5]:
+        if level not in [1, 2, 3, 4, 5, 6]:
             raise ValueError(
-                f"Pre-computed patterns only available for levels 1, 2, 3, 4, 5. "
+                f"Pre-computed patterns only available for levels 1-6. "
                 f"Got level={level}. Use PatternLibrary.generate(level={level}) "
                 f"to create patterns for this level."
             )
@@ -672,23 +676,20 @@ class PatternLibrary:
         """
         Get dead edge coordinates for a given level.
 
-        These are specific cells that must be forced dead to ensure
-        proper tiling.
+        These are specific cells that must be forced dead so that adjacent
+        tiles in a mosaic cannot interact. Derived from the interlocking
+        geometry for any level (see tile_domain.derive_dead_edges); the
+        derivation reproduces the historically hard-coded lists for levels
+        2-6 exactly (a regression test guards this).
 
         Args:
             level: Pattern level
 
         Returns:
-            List of (i, j) tuples for dead edges
+            List of (i, j) tuples for dead edges (octant representatives;
+            the solver's symmetry constraints propagate them orbit-wide)
         """
-        dead_edges_map = {
-            2: [(2, 6), (3, 6)],
-            3: [(2, 9), (3, 9), (5, 11), (5, 12)],
-            4: [(2, 11), (3, 11), (5, 14), (5, 15), (6, 15)],
-            5: [(2, 15), (3, 15), (5, 17), (5, 18), (6, 18), (8, 20), (8, 21)],
-            6: [(2, 18), (3, 18), (5, 20), (5, 21), (6, 21), (8, 23), (8, 24), (9, 24)]
-        }
-        return dead_edges_map.get(level, [])
+        return derive_dead_edges(level)
 
 
 @lru_cache(maxsize=None)
@@ -704,17 +705,24 @@ def _load_pattern_library(level: int) -> PatternLibrary:
 
     # Load solutions bundled inside the package (gol_mosaics/data/), located
     # via importlib.resources so it works regardless of install location.
-    resource = files(__package__).joinpath(
-        "data", f"solutions_pattern_level_{level}.npy"
-    )
+    # Large levels ship as packed free-orbit bits (one bit per free symmetry
+    # orbit per pattern) and are expanded to full grids here.
+    data = files(__package__).joinpath("data")
+    resource = data.joinpath(f"solutions_pattern_level_{level}.npy")
+    packed_resource = data.joinpath(f"solutions_pattern_level_{level}_orbits.npy")
 
-    if not resource.is_file():
+    if resource.is_file():
+        with resource.open("rb") as f:
+            library._solutions = np.load(f)
+    elif packed_resource.is_file():
+        with packed_resource.open("rb") as f:
+            packed = np.load(f)
+        library._solutions = unpack_solutions(packed, level)
+    else:
         raise FileNotFoundError(
             f"Pattern data file not found: {resource}\n"
             f"Expected packaged resource: "
-            f"gol_mosaics/data/solutions_pattern_level_{level}.npy"
+            f"gol_mosaics/data/solutions_pattern_level_{level}.npy "
+            f"(or its packed _orbits variant)"
         )
-
-    with resource.open("rb") as f:
-        library._solutions = np.load(f)
     return library
