@@ -23,7 +23,9 @@ from gol_mosaics.tile_scheme import (
     derive_interlock,
     diamond_scheme,
     enumerate_scheme_tiles,
+    pack_scheme_solutions,
     pond_square_scheme,
+    unpack_scheme_solutions,
 )
 
 # Known censuses of the pond-frame square scheme (established in the
@@ -133,6 +135,55 @@ def test_dead_moat_scheme_baseline():
     rng = np.random.default_rng(0)
     mosaic = assemble(scheme, rng.integers(0, len(tiles), (4, 4)), tiles)
     assert is_still_life(mosaic)
+
+
+@pytest.mark.parametrize("level", [3, 4, 5])
+def test_pack_unpack_scheme_solutions_roundtrip(level):
+    """Packed free-orbit bits must reconstruct the tile set byte-identically
+    (this is the storage format shipped in the package data)."""
+    pytest.importorskip("pysat")
+    scheme = pond_square_scheme(level)
+    tiles = enumerate_scheme_tiles(scheme)
+    packed = pack_scheme_solutions(scheme, tiles)
+    n_free = len(build_scheme_domain(scheme).free_reps)
+    assert packed.shape == (len(tiles), (n_free + 7) // 8)
+    assert np.array_equal(unpack_scheme_solutions(scheme, packed), tiles)
+
+
+def test_pack_scheme_solutions_rejects_foreign_grids():
+    """Grids that are not free-orbit assignments of the scheme (here: a
+    forced frame cell flipped dead) must be rejected, not silently mangled."""
+    scheme = pond_square_scheme(3)
+    bad = scheme.frame.astype(np.uint8)[None].copy()
+    i, j = np.argwhere(scheme.frame)[0]
+    bad[0, i, j] = 0
+    with pytest.raises(AssertionError):
+        pack_scheme_solutions(scheme, bad)
+
+
+@pytest.mark.parametrize("level", [3, 4])
+def test_assemble_with_holes_is_still_life(level):
+    """Index -1 omits the tile (an empty region, used for empty_tiles_cutoff).
+    Because every subset of the separated-pond frame lattice is a still life
+    and absent tiles only remove live cells outside the remaining tiles'
+    influence, hole-punched mosaics must stay globally stable."""
+    pytest.importorskip("pysat")
+    scheme = pond_square_scheme(level)
+    tiles = enumerate_scheme_tiles(scheme)
+    rng = np.random.default_rng(0)
+    for _ in range(5):
+        index_grid = rng.integers(0, len(tiles), size=(5, 5))
+        holes = rng.random((5, 5)) < 0.4
+        index_grid[holes] = -1
+        mosaic = assemble(scheme, index_grid, tiles)
+        n = scheme.n
+        pitch = scheme.u[0]
+        for (a, b) in np.argwhere(holes):
+            # the hole's private band (not shared with neighbours) is empty
+            i0, j0 = 2 + a * pitch + (n - pitch), 2 + b * pitch + (n - pitch)
+            assert not mosaic[i0:i0 + 2 * pitch - n,
+                              j0:j0 + 2 * pitch - n].any()
+        assert is_still_life(mosaic), "hole-punched mosaic destabilised"
 
 
 def test_assemble_rejects_inconsistent_overlap():

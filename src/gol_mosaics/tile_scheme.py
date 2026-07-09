@@ -289,6 +289,28 @@ def enumerate_scheme_tiles(scheme: TileScheme,
     return grids[order]
 
 
+def pack_scheme_solutions(scheme: TileScheme, grids: np.ndarray) -> np.ndarray:
+    """
+    Compress (m, n, n) tile grids of a scheme to packed free-orbit bits:
+    (m, ceil(n_free/8)) uint8 — the scheme analogue of
+    :func:`gol_mosaics.tile_domain.pack_solutions`.
+    """
+    domain = build_scheme_domain(scheme)
+    bits = domain.extract_bits(np.asarray(grids))
+    assert np.array_equal(domain.expand_many(bits),
+                          np.asarray(grids, dtype=np.uint8)), (
+        "grids are not expressible as free-orbit assignments of this scheme"
+    )
+    return np.packbits(bits, axis=1)
+
+
+def unpack_scheme_solutions(scheme: TileScheme, packed: np.ndarray) -> np.ndarray:
+    """Inverse of pack_scheme_solutions: packed bits -> (m, n, n) uint8 grids."""
+    domain = build_scheme_domain(scheme)
+    bits = np.unpackbits(packed, axis=1, count=len(domain.free_reps))
+    return domain.expand_many(bits)
+
+
 # ------------------------------------------------------------- assembly
 
 def assemble(scheme: TileScheme,
@@ -297,6 +319,10 @@ def assemble(scheme: TileScheme,
              pad: int = 2) -> np.ndarray:
     """Paste tiles onto the scheme lattice: tile (a, b) of the index grid
     goes to a*u + b*v. Works for any basis (square or diamond).
+
+    A negative index leaves a hole (no tile at that site) — stable because
+    every subset of the frame lattice is a still life and absent tiles only
+    remove live cells outside the remaining tiles' influence.
 
     Overlapping supports are checked for consistency (they only ever
     contain forced cells, so any disagreement means the tiles are not all
@@ -317,6 +343,8 @@ def assemble(scheme: TileScheme,
     written = np.zeros_like(G, dtype=bool)
     for (a, b), (ci, cj) in zip(
             ((a, b) for a in range(H) for b in range(W)), corners):
+        if index_grid[a, b] < 0:
+            continue
         tile = np.asarray(tile_grids[index_grid[a, b]], dtype=np.uint8)
         i0 = ci - min_i + pad
         j0 = cj - min_j + pad

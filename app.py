@@ -50,8 +50,19 @@ ImageProcessor.background_removal_providers = ["CPUExecutionProvider"]
 # pipeline resizes to the grid anyway, so this only saves memory/time.
 MAX_INPUT_DIM = 1600
 
+# Tile shapes exposed in the UI: the historical 45-degree diamond layout and
+# the axis-aligned pond-frame squares. Labels map to MosaicGenerator's
+# tile_shape argument; each shape ships a different pre-computed level range
+# (the square level-6 census, 19.3M tiles, is too large to ship).
+DIAMONDS = "Diamonds"
+SQUARES = "Squares"
+TILE_SHAPE_LABELS = [DIAMONDS, SQUARES]
+SHAPE_ARGS = {DIAMONDS: "diamond", SQUARES: "square"}
+
 # Compute caps exposed in the UI.
 LEVELS = [3, 4, 5, 6]
+SQUARE_LEVELS = [3, 4, 5]
+LEVELS_BY_SHAPE = {DIAMONDS: LEVELS, SQUARES: SQUARE_LEVELS}
 # Levels warmed at startup; level 6 (332k patterns, ~450 MB expanded from the
 # 2.7 MB packed file) is loaded lazily on first request to keep cold start fast.
 WARM_LEVELS = [3, 4, 5]
@@ -69,10 +80,13 @@ SEED_MAX = 2**31
 # --- One-time startup work ----------------------------------------------------
 
 # Warm the pattern-library cache for the cheap levels. load() keeps one
-# shared read-only instance per level, so requests hit the cache instead
-# of re-reading the 19 MB level-5 file.
+# shared read-only instance per (level, shape), so requests hit the cache
+# instead of re-reading the 19 MB level-5 file. The square libraries are tiny
+# (packed orbit bits, ~60 KB total) and are all warmed.
 for _level in WARM_LEVELS:
     PatternLibrary.load(_level)
+for _level in SQUARE_LEVELS:
+    PatternLibrary.load(_level, shape="square")
 
 # Colour scheme UI labels. UGent and monochrome are deterministic; Warhol picks
 # random pop colours every call.
@@ -207,19 +221,23 @@ def _resolve_eca_rule(eca_choice, eca_custom_rule):
     return int(eca_choice)
 
 
-def _prepare_generation(image, level, color_scheme, grid_size, eca_choice,
-                        eca_custom_rule, auto_seed, manual_colors):
+def _prepare_generation(image, tile_shape, level, color_scheme, grid_size,
+                        eca_choice, eca_custom_rule, auto_seed, manual_colors):
     """Shared setup for the PNG and .cells paths.
 
     Normalises the settings, seeds numpy for a stable per-session look, and
     builds a MosaicGenerator (its lazy pattern-library load hits the shared
-    per-level cache warmed at startup).
+    per-(level, shape) cache warmed at startup).
     Returns (generator, bounded_image, scheme, effective_seed).
     """
+    shape_arg = SHAPE_ARGS.get(tile_shape, "diamond")
     level = int(level)
+    if level not in LEVELS_BY_SHAPE.get(tile_shape, LEVELS):
+        # e.g. level 6 arriving in the same tick as a switch to Squares
+        level = DEFAULT_LEVEL
     grid_size = int(grid_size)
-    if grid_size % 2:  # the diamond layout requires an even grid
-        grid_size += 1
+    if shape_arg == "diamond" and grid_size % 2:
+        grid_size += 1  # only the diamond layout requires an even grid
     grid_size = max(MIN_GRID, min(MAX_GRID, grid_size))
 
     rule = _resolve_eca_rule(eca_choice, eca_custom_rule)
@@ -236,13 +254,15 @@ def _prepare_generation(image, level, color_scheme, grid_size, eca_choice,
         grid_size=grid_size,
         color_scheme=scheme,
         eca_rule=rule,
+        tile_shape=shape_arg,
     )
     return generator, image, scheme, effective_seed
 
 
-def _generate_mosaic(image, level, color_scheme, grid_size, empty_tiles_cutoff,
-                     alpha_cutoff, eca_choice, eca_custom_rule, bg_pattern_size,
-                     auto_seed, manual_colors, return_arrays=False):
+def _generate_mosaic(image, tile_shape, level, color_scheme, grid_size,
+                     empty_tiles_cutoff, alpha_cutoff, eca_choice,
+                     eca_custom_rule, bg_pattern_size, auto_seed,
+                     manual_colors, return_arrays=False):
     """Prepare the generator and run the pipeline once (shared by the PNG and
     .cells paths).
 
@@ -251,8 +271,8 @@ def _generate_mosaic(image, level, color_scheme, grid_size, empty_tiles_cutoff,
     return_arrays is True.
     """
     generator, image, scheme, effective_seed = _prepare_generation(
-        image, level, color_scheme, grid_size, eca_choice, eca_custom_rule,
-        auto_seed, manual_colors,
+        image, tile_shape, level, color_scheme, grid_size, eca_choice,
+        eca_custom_rule, auto_seed, manual_colors,
     )
     result = generator.generate_from_pil(
         image,
@@ -266,7 +286,7 @@ def _generate_mosaic(image, level, color_scheme, grid_size, empty_tiles_cutoff,
     return result, scheme, image
 
 
-def render_mosaic(image, level, color_scheme, grid_size,
+def render_mosaic(image, tile_shape, level, color_scheme, grid_size,
                   empty_tiles_cutoff, alpha_cutoff, eca_choice, eca_custom_rule,
                   bg_pattern_size, auto_seed,
                   gol_background, gol_pixel, eca_background, eca_pixel
@@ -286,9 +306,9 @@ def render_mosaic(image, level, color_scheme, grid_size,
     manual_colors = (gol_background, gol_pixel, eca_background, eca_pixel)
     try:
         mosaic, scheme, bounded = _generate_mosaic(
-            image, level, color_scheme, grid_size, empty_tiles_cutoff,
-            alpha_cutoff, eca_choice, eca_custom_rule, bg_pattern_size,
-            auto_seed, manual_colors,
+            image, tile_shape, level, color_scheme, grid_size,
+            empty_tiles_cutoff, alpha_cutoff, eca_choice, eca_custom_rule,
+            bg_pattern_size, auto_seed, manual_colors,
         )
         # Fit to the original aspect ratio on a solid ECA-background backdrop
         # (fills the aspect padding around the opaque mosaic).
@@ -313,6 +333,18 @@ def generate(*args) -> Optional[str]:
     out_path = os.path.join(tempfile.mkdtemp(prefix="gol_"), "gol-mosaic.png")
     mosaic.save(out_path)
     return out_path
+
+
+def on_shape_change(tile_shape, level):
+    """Re-range the level dropdown when the tile shape changes.
+
+    Diamonds ship levels 3-6, squares 3-5. A selected level that doesn't
+    exist for the new shape falls back to the default; otherwise it is kept.
+    """
+    choices = LEVELS_BY_SHAPE[tile_shape]
+    level = int(level)
+    return gr.update(choices=choices,
+                     value=level if level in choices else DEFAULT_LEVEL)
 
 
 # --- Background-removal state & selection -------------------------------------
@@ -398,9 +430,9 @@ def _binary_bbox(mosaic: np.ndarray) -> np.ndarray:
     return binary[r0:r1 + 1, c0:c1 + 1]
 
 
-def export_cells_ui(state, remove_bg, level, color_scheme, grid_size,
-                    empty_tiles_cutoff, alpha_cutoff, eca_choice, eca_custom_rule,
-                    bg_pattern_size, auto_seed,
+def export_cells_ui(state, remove_bg, tile_shape, level, color_scheme,
+                    grid_size, empty_tiles_cutoff, alpha_cutoff, eca_choice,
+                    eca_custom_rule, bg_pattern_size, auto_seed,
                     gol_background, gol_pixel, eca_background, eca_pixel
                     ) -> Optional[str]:
     """Build a Golly .cells file of the still-life mosaic for the current settings.
@@ -416,9 +448,9 @@ def export_cells_ui(state, remove_bg, level, color_scheme, grid_size,
     manual_colors = (gol_background, gol_pixel, eca_background, eca_pixel)
     try:
         (_, gol_mosaic, _), _, _ = _generate_mosaic(
-            image, level, color_scheme, grid_size, empty_tiles_cutoff,
-            alpha_cutoff, eca_choice, eca_custom_rule, bg_pattern_size,
-            auto_seed, manual_colors, return_arrays=True,
+            image, tile_shape, level, color_scheme, grid_size,
+            empty_tiles_cutoff, alpha_cutoff, eca_choice, eca_custom_rule,
+            bg_pattern_size, auto_seed, manual_colors, return_arrays=True,
         )
     except Exception as exc:
         raise gr.Error(f"Could not build the .cells file: {exc}")
@@ -439,6 +471,12 @@ Each tile is a **Game of Life still life** — a pattern that, under Conway's Ga
 of Life rules, never changes from one generation to the next. Darker areas of
 your image are filled with denser still lifes, lighter areas with sparser ones,
 so the portrait emerges from the arrangement of stable patterns.
+
+**Tile shape:** *Diamonds* is the classic layout — diamond-shaped tiles on two
+interlocking 45° grids, glued by shared pond patterns. *Squares* uses
+axis-aligned square tiles bordered by a ring of ponds; adjacent tiles share
+their border ponds. Both are mathematically guaranteed to stay a still life,
+whatever mix of tiles the image asks for.
 
 The coloured backdrop behind the subject is an **Elementary Cellular Automaton
 (ECA)** — a one-dimensional automaton (Wolfram's rules) evolved row by row.
@@ -535,12 +573,20 @@ def build_demo() -> gr.Blocks:
                     interactive=False,
                     height=170,
                 )
+                shape_in = gr.Radio(
+                    label="Tile shape",
+                    choices=TILE_SHAPE_LABELS,
+                    value=DIAMONDS,
+                    info="Diamonds: the classic 45° layout. Squares: "
+                         "axis-aligned tiles (levels 3-5).",
+                )
                 level_in = gr.Dropdown(
                     label="Detail level",
                     choices=LEVELS,
                     value=DEFAULT_LEVEL,
                     info="Higher = finer tiles. Levels 5-6 are noticeably "
-                         "slower; level 6 (332k tiles) loads on first use.",
+                         "slower; diamond level 6 (332k tiles) loads on "
+                         "first use.",
                 )
                 color_in = gr.Dropdown(
                     label="Colour scheme",
@@ -619,6 +665,7 @@ def build_demo() -> gr.Blocks:
         _wire_events(
             inputs_state=inputs_state, auto_seed=auto_seed,
             image_in=image_in, bg_toggle=bg_toggle, input_preview=input_preview,
+            shape_in=shape_in,
             level_in=level_in, color_in=color_in, manual_group=manual_group,
             gol_bg_in=gol_bg_in, gol_px_in=gol_px_in,
             eca_bg_in=eca_bg_in, eca_px_in=eca_px_in,
@@ -632,9 +679,10 @@ def build_demo() -> gr.Blocks:
 
 
 def _wire_events(*, inputs_state, auto_seed, image_in, bg_toggle, input_preview,
-                 level_in, color_in, manual_group, gol_bg_in, gol_px_in,
-                 eca_bg_in, eca_px_in, grid_in, reroll_btn, empty_in, alpha_in,
-                 eca_in, eca_custom_in, bg_size_in, image_out, cells_btn):
+                 shape_in, level_in, color_in, manual_group, gol_bg_in,
+                 gol_px_in, eca_bg_in, eca_px_in, grid_in, reroll_btn,
+                 empty_in, alpha_in, eca_in, eca_custom_in, bg_size_in,
+                 image_out, cells_btn):
     """Attach all event handlers to the components built by build_demo.
 
     Must be called inside the gr.Blocks context (build_demo does so), since
@@ -643,9 +691,17 @@ def _wire_events(*, inputs_state, auto_seed, image_in, bg_toggle, input_preview,
     # Inputs passed to every generation call. The first two (cached upload
     # state + toggle) are resolved to a PIL image by generate_ui; the rest
     # match render_mosaic's remaining arguments in order.
-    gen_inputs = [inputs_state, bg_toggle, level_in, color_in, grid_in,
-                  empty_in, alpha_in, eca_in, eca_custom_in, bg_size_in,
-                  auto_seed, gol_bg_in, gol_px_in, eca_bg_in, eca_px_in]
+    gen_inputs = [inputs_state, bg_toggle, shape_in, level_in, color_in,
+                  grid_in, empty_in, alpha_in, eca_in, eca_custom_in,
+                  bg_size_in, auto_seed, gol_bg_in, gol_px_in, eca_bg_in,
+                  eca_px_in]
+
+    # Tile shape: re-range the level dropdown, then regenerate once. The level
+    # dropdown's live trigger is `.input` (user edits only), so the
+    # programmatic re-range here doesn't fire a second generation.
+    shape_in.change(
+        fn=on_shape_change, inputs=[shape_in, level_in], outputs=level_in,
+    ).then(fn=generate_ui, inputs=gen_inputs, outputs=image_out)
 
     # Show the manual colour pickers only for the "Manual" scheme.
     color_in.change(
@@ -673,10 +729,11 @@ def _wire_events(*, inputs_state, auto_seed, image_in, bg_toggle, input_preview,
     ).then(fn=generate_ui, inputs=gen_inputs, outputs=image_out)
 
     # Live regeneration: sliders fire on release (not every pixel of drag),
-    # dropdowns / colour pickers fire on change. (Upload and toggle have their
-    # own chains above.)
+    # dropdowns / colour pickers fire on change. (Upload, toggle and tile
+    # shape have their own chains above; the level dropdown listens to .input
+    # so the shape chain's programmatic update doesn't double-generate.)
     live_triggers = [
-        level_in.change, color_in.change,
+        level_in.input, color_in.change,
         grid_in.release, empty_in.release, alpha_in.release,
         eca_in.change, eca_custom_in.release, bg_size_in.release,
         gol_bg_in.change, gol_px_in.change, eca_bg_in.change, eca_px_in.change,

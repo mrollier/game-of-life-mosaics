@@ -32,7 +32,8 @@ The result is a unique mosaic where:
 ## Features
 
 - **Automatic mosaic generation** from any image (PNG, JPG, GIF)
-- **Six pre-computed complexity levels** (1–6; levels 1–2 are trivial, 3–6 give the best results — level 6 alone holds 332,321 exhaustively enumerated tiles)
+- **Two tile shapes**: the classic 45° *diamond* layout (diamond tiles on two interlocking diagonal grids, glued by shared ponds) and the axis-aligned *square* layout (square tiles bordered by a ring of ponds, sharing their border ponds) — select with `MosaicGenerator(tile_shape="diamond" | "square")`
+- **Pre-computed complexity levels**: diamonds 1–6 (levels 1–2 are trivial, 3–6 give the best results — level 6 alone holds 332,321 exhaustively enumerated tiles), squares 3–5 (censuses 3, 65 and 10,398; see `gol_mosaics.tile_scheme` and `notebooks/tile_scheme_generalisation.ipynb` for the underlying geometry)
 - **Customisable colour schemes** (UGent colours, monochrome, Warhol palette, or custom)
 - **ECA background overlays** with multiple rule options
 - **Export to Golly format** for Game of Life simulation (collapsing the Still Life)
@@ -143,9 +144,10 @@ from gol_mosaics import MosaicGenerator, ColorScheme
 
 generator = MosaicGenerator(
     level=5,                    # Pattern complexity (1-6; 3-6 recommended)
-    grid_size=100,              # Number of tiles (must be even)
+    grid_size=100,              # Number of tiles (must be even for diamonds)
     color_scheme=ColorScheme.ugent(),
-    eca_rule=106                # ECA rule (30, 45, 54, 106, 110, etc.)
+    eca_rule=106,               # ECA rule (30, 45, 54, 106, 110, etc.)
+    tile_shape="diamond",       # "diamond" (default) or "square"
 )
 
 mosaic = generator.generate_from_image(
@@ -160,8 +162,9 @@ mosaic.save('output.png')
 
 ### Parameter Guide
 
-- **level** (1-6): Pattern complexity. Higher = more detailed but larger files. Pre-computed levels: 1-6 (levels 1-2 are trivial; 3-6 recommended; level 6 ships as 2.7 MB of packed symmetry-orbit bits and expands to ~450 MB of tiles on first load).
-- **grid_size** (must be even): Number of tiles. Higher = more detail but slower. Typical: 30-150.
+- **tile_shape** ("diamond" or "square"): Tile geometry. Diamonds are the classic 45° layout; squares are axis-aligned tiles whose adjacent border ponds are shared. Both compose into provable global still lifes.
+- **level**: Pattern complexity. Higher = more detailed but larger files. Pre-computed: diamonds 1-6 (levels 1-2 are trivial; 3-6 recommended; level 6 ships as 2.7 MB of packed symmetry-orbit bits and expands to ~450 MB of tiles on first load), squares 3-5 (all shipped as packed orbit bits, ~60 KB total).
+- **grid_size** (must be even for diamonds; squares take any size): Number of tiles across. Higher = more detail but slower. Typical: 30-150.
 - **eca_rule**: Wolfram rule for background pattern.
   - Complex: 54, 147, 110, 124, 137, 193
   - Chaotic: 30, 45, 106, 150
@@ -180,7 +183,8 @@ from gol_mosaics import PatternLibrary
 import numpy as np
 
 # Load pre-computed patterns
-library = PatternLibrary.load(level=5)
+library = PatternLibrary.load(level=5)                 # diamond tiles
+squares = PatternLibrary.load(level=5, shape="square")  # square tiles (3-5)
 
 # Get a single pattern for a greyscale value
 pattern = library.get_pattern_for_value(0.5, random=True)
@@ -270,7 +274,8 @@ Main API for generating mosaics.
 **Constructor:**
 ```python
 MosaicGenerator(level=4, grid_size=30, color_scheme=None,
-                eca_rule=106, random_patterns=True, invert=True)
+                eca_rule=106, random_patterns=True, invert=True,
+                tile_shape="diamond")
 ```
 
 **Methods:**
@@ -283,7 +288,7 @@ MosaicGenerator(level=4, grid_size=30, color_scheme=None,
 Manages Game of Life patterns.
 
 **Class Methods:**
-- `PatternLibrary.load(level)` - Load pre-computed patterns (levels 1-6)
+- `PatternLibrary.load(level, shape="diamond")` - Load pre-computed patterns (diamonds 1-6, squares 3-5)
 - `PatternLibrary.generate(level, solution_limit)` - Generate new patterns
 
 **Methods:**
@@ -409,7 +414,8 @@ game-of-life-mosaics/
 │   ├── solutions_pattern_level_3.npy
 │   ├── solutions_pattern_level_4.npy
 │   ├── solutions_pattern_level_5.npy
-│   └── solutions_pattern_level_6_orbits.npy  # 332,321 tiles as packed orbit bits
+│   ├── solutions_pattern_level_6_orbits.npy  # 332,321 tiles as packed orbit bits
+│   └── solutions_square_level_{3,4,5}_orbits.npy  # square tiles as packed orbit bits
 ├── tests/                     # Unit and integration tests
 ├── notebooks/                 # Example Jupyter notebooks
 ├── input/                     # Example input images

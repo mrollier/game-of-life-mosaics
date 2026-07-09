@@ -256,6 +256,93 @@ def test_packed_roundtrip():
                               reference.astype(np.uint8))
 
 
+# --- Square-shape libraries ------------------------------------------------
+
+SQUARE_COUNTS = {3: 3, 4: 65, 5: 10398}
+
+
+def test_load_square_levels():
+    """Square libraries load from the packed data files with the known
+    censuses and expose their scheme."""
+    from gol_mosaics.tile_scheme import pond_square_scheme
+
+    for level, count in SQUARE_COUNTS.items():
+        library = PatternLibrary.load(level=level, shape="square")
+        assert library.shape == "square"
+        assert library.level == level
+        n = 6 * level
+        assert library.solutions.shape == (count, n, n)
+        assert library.solutions.dtype == np.uint8
+        assert 0.0 <= library.densities.min() <= library.densities.max() <= 1.0
+        assert library.scheme.name == pond_square_scheme(level).name
+
+
+def test_load_square_invalid_levels_and_shapes():
+    """Squares ship for levels 3-5 only; unknown shapes are rejected."""
+    for level in (1, 2, 6):
+        with pytest.raises(ValueError):
+            PatternLibrary.load(level=level, shape="square")
+    with pytest.raises(ValueError):
+        PatternLibrary.load(level=4, shape="hexagon")
+
+
+def test_square_and_diamond_libraries_cached_separately():
+    assert (PatternLibrary.load(4, shape="square")
+            is PatternLibrary.load(4, shape="square"))
+    assert (PatternLibrary.load(4, shape="square")
+            is not PatternLibrary.load(4))
+    # default shape is the historical diamond
+    assert PatternLibrary.load(4) is PatternLibrary.load(4, shape="diamond")
+
+
+def test_square_library_rejects_diamond_geometry_helpers():
+    """The diamond lattice arithmetic is meaningless for squares and must
+    fail loudly rather than produce a wrong mosaic."""
+    library = PatternLibrary.load(level=4, shape="square")
+    with pytest.raises(ValueError):
+        library.tile_pad_size
+    with pytest.raises(ValueError):
+        library.pond_pattern_edge()
+    with pytest.raises(ValueError):
+        library.pond_pattern_multiple()
+
+
+def test_square_tile_shape_from_scheme():
+    """tile_shape stays meaningful for squares (the n x n bounding box)."""
+    assert PatternLibrary.load(4, shape="square").tile_shape == (24, 24)
+
+
+def test_square_solutions_match_fresh_enumeration():
+    """The shipped packed files must equal a fresh SAT enumeration."""
+    pytest.importorskip("pysat")
+    from gol_mosaics.tile_scheme import (enumerate_scheme_tiles,
+                                         pond_square_scheme)
+
+    for level in (3, 4):
+        shipped = PatternLibrary.load(level, shape="square").solutions
+        fresh = enumerate_scheme_tiles(pond_square_scheme(level))
+        assert np.array_equal(shipped, fresh)
+
+
+def test_get_indices_for_values_agrees_with_patterns():
+    """The index mapper is the selection half of get_patterns_for_values:
+    solutions[idx] (with -1 meaning empty) must reproduce the tile grids."""
+    for shape, level in (("diamond", 3), ("square", 4)):
+        library = PatternLibrary.load(level, shape=shape)
+        values = np.array([[0.0, 0.3, 0.6], [0.7, 0.9, 1.0]])
+        idx = library.get_indices_for_values(
+            values, random=False, empty_tiles_cutoff=0.65)
+        assert idx.shape == values.shape
+        assert idx.dtype.kind == "i"
+        assert (idx[values > 0.65] == -1).all()
+        assert (idx[values <= 0.65] >= 0).all()
+        patterns = library.get_patterns_for_values(
+            values, random=False, empty_tiles_cutoff=0.65)
+        expected = np.where((idx >= 0)[..., None, None],
+                            library.solutions[np.clip(idx, 0, None)], 0)
+        assert np.array_equal(patterns, expected)
+
+
 def test_small_levels_by_exhaustive_expansion():
     """Levels 1-3 re-derived SAT-free: every free-orbit assignment is
     expanded and tested (2^1, 2^3, 2^10 candidates); the survivors must

@@ -259,3 +259,72 @@ def test_edge_touching_foreground_keeps_gaps_filled():
     h, w = mask.shape
     window = mask[h // 8: h // 4, w // 4: 3 * w // 4]
     assert window.all(), "background region contains unfilled speck holes"
+
+
+# --- Square tile shape ------------------------------------------------------
+
+def test_square_tile_shape_accepts_odd_grid():
+    """Only the diamond layout needs an even tile count."""
+    generator = MosaicGenerator(level=4, grid_size=25, tile_shape="square")
+    assert generator.grid_size == 25
+    assert generator.tile_shape == "square"
+    with pytest.raises(ValueError):
+        MosaicGenerator(level=4, grid_size=25)  # diamond stays even-only
+
+
+def test_unknown_tile_shape_rejected():
+    with pytest.raises(ValueError):
+        MosaicGenerator(level=4, grid_size=10, tile_shape="hexagon")
+
+
+def test_square_generate_is_global_still_life(test_image_path):
+    """The square pipeline end to end: correct lattice dimensions and a
+    provably stable Game of Life pattern."""
+    from gol_mosaics.life import is_still_life
+
+    generator = MosaicGenerator(level=4, grid_size=10, tile_shape="square")
+    image, gol, mask = generator.generate_from_pil(
+        Image.open(test_image_path), remove_background=False, seed=0,
+        return_arrays=True)
+
+    assert image.mode == 'RGBA'
+    # 10x10 tiles: pitch 18, tile size 24, assembly pad 2 per side
+    expected = 18 * 9 + 24 + 4
+    assert gol.shape == (expected, expected)
+    assert mask.shape == gol.shape
+    assert set(np.unique(gol)) <= {0, 1}
+    assert gol.any()
+    assert is_still_life(gol)
+
+
+def test_square_landscape_keeps_aspect_via_rectangular_grid():
+    """No pad-then-crop: a 2:1 landscape maps to a rows = grid_size/2
+    rectangular tile grid directly."""
+    img = Image.new('L', (200, 100), 0)  # dark, so no empty tiles
+    generator = MosaicGenerator(level=3, grid_size=12, tile_shape="square")
+    _, gol, _ = generator.generate_from_pil(
+        img, remove_background=False, seed=0, return_arrays=True)
+    # 6 rows x 12 cols of tiles: pitch 12, tile size 18, pad 2 per side
+    assert gol.shape == (12 * 5 + 18 + 4, 12 * 11 + 18 + 4)
+
+
+def test_square_white_image_is_all_holes():
+    """Values above empty_tiles_cutoff leave true holes (no tile at all)."""
+    img = Image.new('L', (60, 60), 255)
+    generator = MosaicGenerator(level=3, grid_size=6, tile_shape="square")
+    _, gol, _ = generator.generate_from_pil(
+        img, remove_background=False, seed=0, return_arrays=True,
+        empty_tiles_cutoff=0.65)
+    assert not gol.any()
+
+
+def test_square_transparency_mask_marks_background(transparent_image_path):
+    """Mask semantics match the diamond path: 1 where the ECA background is
+    drawn (transparent input), 0 on the opaque subject."""
+    generator = MosaicGenerator(level=3, grid_size=10, tile_shape="square")
+    _, gol, mask = generator.generate_from_pil(
+        Image.open(transparent_image_path), seed=0, return_arrays=True)
+    assert set(np.unique(mask)) <= {0, 1}
+    H, W = mask.shape
+    assert mask[0, 0] == 1          # corner: background, ECA visible
+    assert mask[H // 2, W // 2] == 0  # centre: subject, no ECA

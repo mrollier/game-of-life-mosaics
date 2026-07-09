@@ -13,6 +13,7 @@ from typing import Optional
 from scipy.ndimage import binary_fill_holes
 
 from .tile_domain import derive_dead_edges, unpack_solutions
+from .tile_scheme import pond_square_scheme, unpack_scheme_solutions
 
 # Gurobi is optional - only needed for generating new patterns
 try:
@@ -46,7 +47,7 @@ class PatternLibrary:
         >>> patterns = library.get_patterns_for_values(values)
     """
 
-    def __init__(self, level: int = 4):
+    def __init__(self, level: int = 4, shape: str = "diamond"):
         """
         Initialise PatternLibrary.
 
@@ -55,9 +56,12 @@ class PatternLibrary:
 
         Args:
             level: Pattern complexity level (positive integer)
+            shape: Tile geometry, "diamond" (the historical pond-diamond
+                tiles) or "square" (axis-aligned pond-frame squares from
+                gol_mosaics.tile_scheme)
 
         Raises:
-            ValueError: If level is smaller than 1
+            ValueError: If level is smaller than 1 or shape is unknown
         """
         if level < 1:
             raise ValueError(
@@ -65,13 +69,40 @@ class PatternLibrary:
                 "Pre-computed patterns exist for levels 1-5 (use load()); "
                 "higher levels must be created with generate()."
             )
+        if shape not in ("diamond", "square"):
+            raise ValueError(
+                f"Unknown tile shape {shape!r}; expected 'diamond' or 'square'."
+            )
 
         self.level = level
+        self.shape = shape
         self.pond_width = 6
         self._solutions: Optional[np.ndarray] = None
         self._densities: Optional[np.ndarray] = None
         self._pond_pattern_multiple: Optional[np.ndarray] = None
         self._pond_pattern_edge: Optional[np.ndarray] = None
+        self._scheme = None
+
+    @property
+    def scheme(self):
+        """The TileScheme behind a square library (its lattice drives mosaic
+        assembly). Diamond libraries keep their geometry in the historical
+        pond_pattern_* helpers instead."""
+        if self.shape != "square":
+            raise ValueError(
+                "scheme is only defined for square libraries; diamond "
+                "geometry lives in the pond_pattern_* helpers."
+            )
+        if self._scheme is None:
+            self._scheme = pond_square_scheme(self.level)
+        return self._scheme
+
+    def _require_diamond(self, what: str) -> None:
+        if self.shape != "diamond":
+            raise ValueError(
+                f"{what} is diamond-lattice arithmetic and is undefined for "
+                f"shape={self.shape!r}; use the library's scheme instead."
+            )
 
     @property
     def solutions(self) -> np.ndarray:
@@ -118,39 +149,54 @@ class PatternLibrary:
         return (densities - dens_min) / (dens_max - dens_min)
 
     @classmethod
-    def load(cls, level: int) -> 'PatternLibrary':
+    def load(cls, level: int, shape: str = "diamond") -> 'PatternLibrary':
         """
         Load pre-computed patterns from disk.
 
-        Pre-computed patterns are available for levels 1-6. Levels 1-5 are
+        Diamond patterns are available for levels 1-6. Levels 1-5 are
         stored as full grids; level 6 (332,321 patterns) ships as packed
         symmetry-orbit bits and is expanded on load (~0.5 s, ~450 MB).
-        For other levels, use PatternLibrary.generate() instead.
+        Square patterns (axis-aligned pond-frame squares) are available for
+        levels 3-5, all shipped as packed orbit bits. For other diamond
+        levels, use PatternLibrary.generate() instead.
 
         Args:
-            level: Pattern complexity level (must be 1-6)
+            level: Pattern complexity level (diamond: 1-6, square: 3-5)
+            shape: Tile geometry, "diamond" or "square"
 
         Returns:
             PatternLibrary instance with loaded patterns. Instances are
-            cached and shared per level (the data files are large), so
-            treat the returned library and its arrays as read-only.
+            cached and shared per (level, shape) (the data files are large),
+            so treat the returned library and its arrays as read-only.
 
         Raises:
-            ValueError: If level is not 1-6
+            ValueError: If level is outside the shape's pre-computed range
             FileNotFoundError: If data file is missing
 
         Example:
             >>> library = PatternLibrary.load(level=5)
             >>> print(f"Loaded {len(library.solutions)} patterns")
         """
-        if level not in [1, 2, 3, 4, 5, 6]:
+        if shape not in ("diamond", "square"):
+            raise ValueError(
+                f"Unknown tile shape {shape!r}; expected 'diamond' or 'square'."
+            )
+        if shape == "square":
+            if level not in [3, 4, 5]:
+                raise ValueError(
+                    f"Pre-computed square patterns only available for levels "
+                    f"3-5, got level={level}. (Level 2 is a single fully "
+                    f"forced tile; the level-6 census of 19,287,185 tiles is "
+                    f"too large to ship.)"
+                )
+        elif level not in [1, 2, 3, 4, 5, 6]:
             raise ValueError(
                 f"Pre-computed patterns only available for levels 1-6. "
                 f"Got level={level}. Use PatternLibrary.generate(level={level}) "
                 f"to create patterns for this level."
             )
 
-        return _load_pattern_library(level)
+        return _load_pattern_library(level, shape)
 
     @classmethod
     def generate(cls, level: int, solution_limit: int = 1000) -> 'PatternLibrary':
@@ -444,19 +490,52 @@ class PatternLibrary:
             >>> patterns.shape
             (2, 2, 24, 24)
         """
-        greyscale_values = np.asarray(greyscale_values, dtype=float)
         solutions = self.solutions
+        indices = self.get_indices_for_values(
+            greyscale_values, random=random, invert=invert,
+            empty_tiles_cutoff=empty_tiles_cutoff)
+        output_shape = indices.shape + solutions.shape[1:]
+
+        flat = indices.ravel()
+        mosaics = solutions[np.clip(flat, 0, None)]
+        mosaics[flat < 0] = 0
+        return mosaics.reshape(output_shape)
+
+    def get_indices_for_values(self,
+                               greyscale_values: np.ndarray,
+                               random: bool = True,
+                               invert: bool = True,
+                               empty_tiles_cutoff: float = 1.0) -> np.ndarray:
+        """
+        Map greyscale values to solution indices by density matching.
+
+        The selection half of get_patterns_for_values: -1 marks an empty
+        tile (value above the cutoff), any other entry indexes solutions.
+        Lattice assemblers that place tiles by index (the square path)
+        consume this directly.
+
+        Args:
+            greyscale_values: Array of greyscale values in [0, 1]
+            random: If True, randomly select from patterns with matching density
+            invert: If True, invert the density mapping
+            empty_tiles_cutoff: Values above this threshold become empty (-1)
+
+        Returns:
+            Integer array with the same shape as greyscale_values
+
+        Raises:
+            ValueError: If any value is outside [0, 1]
+        """
+        greyscale_values = np.asarray(greyscale_values, dtype=float)
 
         flat = greyscale_values.ravel()
         if flat.size and (flat.min() < 0 or flat.max() > 1):
             bad = flat[(flat < 0) | (flat > 1)][0]
             raise ValueError(f"Greyscale value must be in [0, 1], got {bad}")
 
-        output_shape = greyscale_values.shape + solutions.shape[1:]
-
         if empty_tiles_cutoff <= 0:
             # Every value sits above the cutoff: all tiles are empty.
-            return np.zeros(output_shape, dtype=solutions.dtype)
+            return np.full(greyscale_values.shape, -1, dtype=np.int64)
 
         empty = flat > empty_tiles_cutoff
         adjusted = flat / empty_tiles_cutoff
@@ -475,9 +554,9 @@ class PatternLibrary:
         else:
             indices = diffs.argmin(axis=1)  # first tie wins
 
-        mosaics = solutions[indices]
-        mosaics[empty] = 0
-        return mosaics.reshape(output_shape)
+        indices = indices.astype(np.int64)
+        indices[empty] = -1
+        return indices.reshape(greyscale_values.shape)
 
     def get_patterns_for_mask(self,
                              mask: np.ndarray,
@@ -544,7 +623,10 @@ class PatternLibrary:
 
     @property
     def tile_shape(self) -> tuple:
-        """Shape (height, width) of one tile (the pond edge pattern)."""
+        """Shape (height, width) of one tile: the pond edge pattern for
+        diamonds, the scheme's n x n bounding box for squares."""
+        if self.shape == "square":
+            return (self.scheme.n, self.scheme.n)
         return self.pond_pattern_edge().shape
 
     @property
@@ -556,6 +638,7 @@ class PatternLibrary:
         vertically) so that the tiles of one grid sit in the gaps of the
         other without overlapping.
         """
+        self._require_diamond("tile_pad_size")
         return ((self.pond_width - 3) * (2 * self.level - 1) + 1 + 2) // 2
 
     def pond_pattern_multiple(self) -> np.ndarray:
@@ -568,6 +651,7 @@ class PatternLibrary:
         Returns:
             Pattern array sized according to level
         """
+        self._require_diamond("pond_pattern_multiple")
         if self._pond_pattern_multiple is not None:
             return self._pond_pattern_multiple
 
@@ -622,6 +706,7 @@ class PatternLibrary:
         Returns:
             Pattern array with only edge tiles
         """
+        self._require_diamond("pond_pattern_edge")
         if self._pond_pattern_edge is not None:
             return self._pond_pattern_edge
 
@@ -647,6 +732,7 @@ class PatternLibrary:
         Returns:
             Pattern array with the eighth of unique cells
         """
+        self._require_diamond("pond_pattern_eighth")
         width = self.pond_width * self.level
         half_width = width // 2
 
@@ -693,21 +779,36 @@ class PatternLibrary:
 
 
 @lru_cache(maxsize=None)
-def _load_pattern_library(level: int) -> PatternLibrary:
+def _load_pattern_library(level: int, shape: str = "diamond") -> PatternLibrary:
     """
-    Load and cache one shared PatternLibrary per level.
+    Load and cache one shared PatternLibrary per (level, shape).
 
-    The solution files are large (up to ~19 MB), so each level is read from
-    disk once per process. Cached instances are shared between callers and
-    must be treated as read-only.
+    The solution files are large (up to ~19 MB), so each library is read
+    from disk once per process. Cached instances are shared between callers
+    and must be treated as read-only.
     """
-    library = PatternLibrary(level=level)
+    library = PatternLibrary(level=level, shape=shape)
 
     # Load solutions bundled inside the package (gol_mosaics/data/), located
     # via importlib.resources so it works regardless of install location.
     # Large levels ship as packed free-orbit bits (one bit per free symmetry
     # orbit per pattern) and are expanded to full grids here.
     data = files(__package__).joinpath("data")
+
+    if shape == "square":
+        packed_resource = data.joinpath(
+            f"solutions_square_level_{level}_orbits.npy")
+        if not packed_resource.is_file():
+            raise FileNotFoundError(
+                f"Pattern data file not found: {packed_resource}\n"
+                f"Expected packaged resource: "
+                f"gol_mosaics/data/solutions_square_level_{level}_orbits.npy"
+            )
+        with packed_resource.open("rb") as f:
+            packed = np.load(f)
+        library._solutions = unpack_scheme_solutions(library.scheme, packed)
+        return library
+
     resource = data.joinpath(f"solutions_pattern_level_{level}.npy")
     packed_resource = data.joinpath(f"solutions_pattern_level_{level}_orbits.npy")
 
