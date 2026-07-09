@@ -147,6 +147,8 @@ def cmd_run(args) -> int:
                           file=sys.stderr, flush=True)
         if is_tty:
             print(file=sys.stderr)
+        print(f"solve phase: {time.time() - t0:.1f}s wall on {workers} workers "
+              f"({done - done_before} cubes, {found - found_before} solutions)")
 
     return cmd_merge(args)
 
@@ -181,14 +183,17 @@ def cmd_merge(args) -> int:
         return 2
 
     ncols = (enc.n_vars + 7) // 8
+    t_load = time.time()
     packed = np.vstack([
         np.load(cubes_dir / f"cube_{c:05d}.npy").reshape(-1, ncols)
         for c in range(total)
     ])
     m = len(packed)
+    t_load = time.time() - t_load
 
     # Chunked verification with the independent checker, plus alive counts
     # (needed for sorting) computed per chunk without keeping grids around.
+    t_verify = time.time()
     alive_counts = np.empty(m, dtype=np.int64)
     for start in range(0, m, VERIFY_CHUNK):
         stop = min(start + VERIFY_CHUNK, m)
@@ -200,9 +205,14 @@ def cmd_merge(args) -> int:
             print(f"FATAL: solution #{bad} fails independent verification")
             return 1
         alive_counts[start:stop] = grids.sum(axis=(1, 2))
+    t_verify = time.time() - t_verify
+    t_dedup = time.time()
     if len(np.unique(packed, axis=0)) != m:
         print("FATAL: duplicate solutions across cubes")
         return 1
+    t_dedup = time.time() - t_dedup
+    print(f"merge phases: load {t_load:.1f}s, verify {t_verify:.1f}s, "
+          f"uniqueness {t_dedup:.1f}s")
 
     if _wants_packed(args):
         # Sort by (alive count, packed-bit row); packbits is bitorder='big',
@@ -224,14 +234,19 @@ def cmd_merge(args) -> int:
 
     # Grid output (levels <= 6): sort by (alive count, grid bytes) — the
     # historical order of the shipped data files.
+    t_sort = time.time()
     bits = np.unpackbits(packed, axis=1, count=enc.n_vars)
     grids = domain.expand_many(bits)
     order = sorted(range(m),
                    key=lambda i: (int(alive_counts[i]), grids[i].tobytes()))
     grids = grids[order]
+    t_sort = time.time() - t_sort
+    t_write = time.time()
     out = Path(args.output or f"solutions_pattern_level_{level}.npy")
     with open(out, "wb") as f:
         np.save(f, grids)
+    t_write = time.time() - t_write
+    print(f"merge phases: expand+sort {t_sort:.1f}s, write {t_write:.1f}s")
     densities = grids.mean(axis=(1, 2))
     print(f"saved {out}: {m} solutions, shape {grids.shape}, "
           f"dtype {grids.dtype}, {out.stat().st_size / 1e6:.1f} MB, "

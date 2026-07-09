@@ -254,3 +254,23 @@ def test_packed_roundtrip():
         packed = pack_solutions(reference, level)
         assert np.array_equal(unpack_solutions(packed, level),
                               reference.astype(np.uint8))
+
+
+def test_small_levels_by_exhaustive_expansion():
+    """Levels 1-3 re-derived SAT-free: every free-orbit assignment is
+    expanded and tested (2^1, 2^3, 2^10 candidates); the survivors must
+    equal the shipped censuses byte for byte after the same canonical
+    sort (the historical small-level files predate the canonical order)."""
+    from gol_mosaics.sat_search import bruteforce_tiles
+
+    def canonical(grids):
+        order = sorted(range(len(grids)),
+                       key=lambda i: (int(grids[i].sum()),
+                                      grids[i].tobytes()))
+        return grids[order]
+
+    for level, expected in ((1, 1), (2, 2), (3, 7)):
+        tiles = bruteforce_tiles(level)  # already canonically sorted
+        assert len(tiles) == expected
+        reference = PatternLibrary.load(level).solutions.astype(np.uint8)
+        assert np.array_equal(tiles, canonical(reference))

@@ -81,3 +81,5 @@ paper/
 workstation/level6_search/work/
 workstation/level6_search/reference/
 workstation/level6_search/solutions_pattern_level_*.npy
+workstation/level6_search/tools/
+workstation/level6_search/counts/

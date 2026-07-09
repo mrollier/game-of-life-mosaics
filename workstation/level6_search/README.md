@@ -92,6 +92,9 @@ python -m pytest tests/test_tiling.py tests/test_patterns.py  # from the repo ro
 |---|---|
 | `search.py` | CLI: `validate` \| `run` \| `merge` (parallelism, checkpoints, streaming) |
 | `verify.py` | independent solution checker + reference comparison |
+| `certify.py` | emits a DRAT proof that CNF + one blocking clause per census tile is UNSAT (completeness certificate); checks it with drat-trim or the bundled checker |
+| `rup_check.py` | self-contained forward RUP/DRAT proof checker (no shared code; for small proofs — use drat-trim at level-6 scale) |
+| `requirements-lock.txt` | exact package versions used for the paper's measurements |
 | `geometry.py`, `encoding.py` | thin shims re-exporting `gol_mosaics.tile_domain` / `.sat_search` |
 | `pack_level6.py` | one-off: grids → packed orbit bits for the package data dir |
 | `reference/` | optional local copy of the level 3–5 databases; when absent, `validate` reads the byte-identical files shipped in `src/gol_mosaics/data/` |

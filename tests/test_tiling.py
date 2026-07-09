@@ -59,10 +59,10 @@ def test_stability_check_has_teeth():
     for tile in violators[:20]:
         assert is_still_life(np.pad(tile, n)), "violator unstable in isolation"
 
-    # ...but MIXED violators interact across tile boundaries. (Curiously, a
-    # uniform mosaic of one violator repeated is stable — the protrusions
-    # meet their own mirror images compatibly; dead edges are what makes
-    # arbitrary mixing safe.)
+    # ...but violators interact across tile boundaries: every level-4
+    # violator breaks an assembled mosaic, even repeated uniformly and even
+    # in contact with only the bare pond frame (verified exhaustively for
+    # all 267 violators — see paper/ars/revision_data/evidence_core.json).
     library = PatternLibrary(level=level)
     library._solutions = violators
     generator = MosaicGenerator(level=level, grid_size=10)
