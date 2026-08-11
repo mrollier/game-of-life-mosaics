@@ -32,7 +32,8 @@ The result is a unique mosaic where:
 ## Features
 
 - **Automatic mosaic generation** from any image (PNG, JPG, GIF)
-- **Five pre-computed complexity levels** (1–5; levels 1–2 are trivial, 3–5 give the best results)
+- **Two tile shapes**: the classic 45° *diamond* layout (diamond tiles on two interlocking diagonal grids, glued by shared ponds) and the axis-aligned *square* layout (square tiles bordered by a ring of ponds, sharing their border ponds) — select with `MosaicGenerator(tile_shape="diamond" | "square")`
+- **Pre-computed complexity levels**: diamonds 1–6 (levels 1–2 are trivial, 3–6 give the best results — level 6 alone holds 332,321 exhaustively enumerated tiles), squares 3–5 (censuses 3, 65 and 10,398; see `gol_mosaics.tile_scheme` and `notebooks/tile_scheme_generalisation.ipynb` for the underlying geometry)
 - **Customisable colour schemes** (UGent colours, monochrome, Warhol palette, or custom)
 - **ECA background overlays** with multiple rule options
 - **Export to Golly format** for Game of Life simulation (collapsing the Still Life)
@@ -48,9 +49,12 @@ The result is a unique mosaic where:
 git clone https://github.com/mrollier/game-of-life-mosaics.git
 cd game-of-life-mosaics
 
-# Install dependencies
-pip install -r requirements.txt
+# Install the library (editable)
+pip install -e .
 ```
+
+> `requirements.txt` is the dependency set for the web app (it additionally
+> pins gradio and rembg); library users only need the install above.
 
 ### Dependencies
 
@@ -58,10 +62,11 @@ pip install -r requirements.txt
 - **scipy** (>=1.7.0) - Scientific computing (binary_fill_holes)
 - **cellpylib** (>=2.0.0) - Cellular automaton simulation
 - **Pillow** (>=9.0.0) - Image processing
-- **gurobipy** (>=11.0.0) - Optimisation solver (only for generating new patterns)
+- **python-sat** (>=1.8) - SAT solver (optional; only for generating new patterns/levels/rules)
+- **gurobipy** (>=11.0.0) - Optimisation solver (optional; historical generation path)
 - **rembg** (>=2.0.0) - Automatic background removal (optional)
 
-> **Note on Gurobi**: Gurobi is only required for *generating* new patterns. Using pre-computed patterns (levels 1-5) works without a Gurobi licence. For pattern generation, obtain a free academic licence or trial from [gurobi.com](https://www.gurobi.com/). Note that (with the current algorithm) calculating all patterns for level > 5 is computationally highly demanding.
+> **Note on pattern generation**: using the pre-computed patterns (levels 1–6) needs no extra dependencies. New levels or Life-like rule variants are generated with the open-source SAT pipeline (`pip install gol-mosaics[sat]`; see `gol_mosaics.sat_search` and `notebooks/tile_generation_sat.ipynb` for the method and its validation). The historical Gurobi ILP (`PatternLibrary.generate`, licence from [gurobi.com](https://www.gurobi.com/)) is retained for reference but is dramatically slower — days versus seconds for level 6.
 
 > **Note on background removal**: `rembg` is only required when the algorithm removes an image's background for you (the `remove_background='auto'` default, or `remove_background=True`). Install it with `pip install gol-mosaics[bg-removal]`. If your images already have transparent backgrounds, you don't need it.
 >
@@ -138,10 +143,11 @@ mosaic.save('output.png')
 from gol_mosaics import MosaicGenerator, ColorScheme
 
 generator = MosaicGenerator(
-    level=5,                    # Pattern complexity (1-5; 3-5 recommended)
-    grid_size=100,              # Number of tiles (must be even)
+    level=5,                    # Pattern complexity (1-6; 3-6 recommended)
+    grid_size=100,              # Number of tiles (must be even for diamonds)
     color_scheme=ColorScheme.ugent(),
-    eca_rule=106                # ECA rule (30, 45, 54, 106, 110, etc.)
+    eca_rule=106,               # ECA rule (30, 45, 54, 106, 110, etc.)
+    tile_shape="diamond",       # "diamond" (default) or "square"
 )
 
 mosaic = generator.generate_from_image(
@@ -156,17 +162,17 @@ mosaic.save('output.png')
 
 ### Parameter Guide
 
-- **level** (1-5): Pattern complexity. Higher = more detailed but larger files. Pre-computed levels: 1, 2, 3, 4, 5 (levels 1-2 are trivial; 3-5 recommended).
-- **grid_size** (must be even): Number of tiles. Higher = more detail but slower. Typical: 30-150.
+- **tile_shape** ("diamond" or "square"): Tile geometry. Diamonds are the classic 45° layout; squares are axis-aligned tiles whose adjacent border ponds are shared. Both compose into provable global still lifes.
+- **level**: Pattern complexity. Higher = more detailed but larger files. Pre-computed: diamonds 1-6 (levels 1-2 are trivial; 3-6 recommended; level 6 ships as 2.7 MB of packed symmetry-orbit bits and expands to ~450 MB of tiles on first load), squares 3-5 (all shipped as packed orbit bits, ~60 KB total).
+- **grid_size** (must be even for diamonds; squares take any size): Number of tiles across. Higher = more detail but slower. Typical: 30-150.
 - **eca_rule**: Wolfram rule for background pattern.
   - Complex: 54, 147, 110, 124, 137, 193
   - Chaotic: 30, 45, 106, 150
   - Any rule between 0-255 is fine
 - **empty_tiles_cutoff** (0-1): Brightness threshold above which tiles are empty. Lower = more empty tiles.
 - **alpha_cutoff** (0-1): Transparency threshold. Transparent areas get filled with ECA pattern.
-- **supersample**: ECA upsampling factor. Must divide mosaic width evenly. Higher = finer ECA detail.
+- **supersample**: ECA cell size in pixels (any positive value; the pattern is cropped to the mosaic size). Higher = chunkier ECA cells. `None` (default) auto-selects ~15.
 - **contrast**: Sigmoid (S-curve) contrast boost on the greyscale before tiling. 0 disables; higher is punchier (default 5.0). High-contrast images give the most striking mosaics.
-- **rim_color**: Colour of the outer rim (the rotation/padding border). `None` (default) makes it transparent; pass an `(R, G, B)` tuple or hex string to fill it with a colour.
 
 ### Working with Pattern Library
 
@@ -177,7 +183,8 @@ from gol_mosaics import PatternLibrary
 import numpy as np
 
 # Load pre-computed patterns
-library = PatternLibrary.load(level=5)
+library = PatternLibrary.load(level=5)                 # diamond tiles
+squares = PatternLibrary.load(level=5, shape="square")  # square tiles (3-5)
 
 # Get a single pattern for a greyscale value
 pattern = library.get_pattern_for_value(0.5, random=True)
@@ -186,9 +193,11 @@ pattern = library.get_pattern_for_value(0.5, random=True)
 values = np.array([[0.2, 0.5], [0.7, 0.9]])
 patterns = library.get_patterns_for_values(values, random=True, invert=True)
 
-# Generate new patterns (requires Gurobi licence). Stop searching after 500 Tiles have been found.
-library = PatternLibrary.generate(level=6, solution_limit=500)
-np.save('solutions_level_6.npy', library.solutions)
+# Enumerate Tiles yourself with the open-source SAT pipeline
+# (pip install gol-mosaics[sat]) - exhaustive, and fast:
+from gol_mosaics.sat_search import enumerate_tiles
+tiles = enumerate_tiles(level=5)                    # all 2632 level-5 Tiles
+highlife = enumerate_tiles(level=5, birth=(3, 6))   # ...or for HighLife B36/S23
 ```
 
 ### Export to Golly
@@ -227,9 +236,9 @@ Conway's Game of Life is a cellular automaton where cells live or die based on t
 - A dead cell with exactly 3 neighbours becomes alive
 - All other cells die
 
-**Still Lives** are stable patterns that never change. This project uses **8-fold symmetric Still Lives** computed via integer linear programming (Gurobi) to find all valid patterns at each complexity level.
+**Still Lives** are stable patterns that never change. This project uses **8-fold symmetric Still Lives**, exhaustively enumerated at each complexity level with a SAT solver over the free symmetry orbits (originally via a Gurobi ILP; see `notebooks/tile_generation_sat.ipynb` for the method, its five-tier validation, and the generalisation to other Life-like rules).
 
-For level 4, there are **85 unique symmetric patterns** ranging from sparse to dense.
+The complete counts per level: 1, 2, 7, 85, 2632, and **332,321** unique symmetric patterns for levels 1–6, ranging from sparse to dense.
 
 ### Pattern Mapping
 
@@ -265,19 +274,21 @@ Main API for generating mosaics.
 **Constructor:**
 ```python
 MosaicGenerator(level=4, grid_size=30, color_scheme=None,
-                eca_rule=106, random_patterns=True, invert=True)
+                eca_rule=106, random_patterns=True, invert=True,
+                tile_shape="diamond")
 ```
 
 **Methods:**
-- `generate_from_image(image_path, empty_tiles_cutoff=1.0, alpha_cutoff=0.5, supersample=15, remove_background='auto', contrast=5.0, rim_color=None)` - Generate from image file
-- `generate_from_gif(gif_path, ...)` - Process animated GIF
+- `generate_from_image(image_path, empty_tiles_cutoff=0.65, alpha_cutoff=0.5, supersample=None, no_eca=False, remove_background='auto', contrast=5.0, seed=None)` - Generate from image file
+- `generate_from_pil(img, ..., return_arrays=False)` - Same pipeline for an in-memory PIL image; `return_arrays=True` also returns the binary GoL mosaic and transparency mask
+- `generate_from_gif(gif_path, ...)` - Process animated GIF (same defaults as the image path)
 
 ### PatternLibrary
 
 Manages Game of Life patterns.
 
 **Class Methods:**
-- `PatternLibrary.load(level)` - Load pre-computed patterns (levels 1-5)
+- `PatternLibrary.load(level, shape="diamond")` - Load pre-computed patterns (diamonds 1-6, squares 3-5)
 - `PatternLibrary.generate(level, solution_limit)` - Generate new patterns
 
 **Methods:**
@@ -318,8 +329,7 @@ ECABackground(rule=106)
 ```
 
 **Methods:**
-- `generate(width, height, supersample)` - Generate ECA pattern
-- `list_valid_supersamples(width)` - Get valid supersample values
+- `generate(width, height, supersample)` - Generate ECA pattern (any positive supersample; the result is cropped to size)
 
 **Class Methods:**
 - `from_category(category)` - Create with 'complex' or 'chaotic' rule
@@ -403,7 +413,9 @@ game-of-life-mosaics/
 |   ├── solutions_pattern_level_2.npy
 │   ├── solutions_pattern_level_3.npy
 │   ├── solutions_pattern_level_4.npy
-│   └── solutions_pattern_level_5.npy
+│   ├── solutions_pattern_level_5.npy
+│   ├── solutions_pattern_level_6_orbits.npy  # 332,321 tiles as packed orbit bits
+│   └── solutions_square_level_{3,4,5}_orbits.npy  # square tiles as packed orbit bits
 ├── tests/                     # Unit and integration tests
 ├── notebooks/                 # Example Jupyter notebooks
 ├── input/                     # Example input images

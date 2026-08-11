@@ -30,9 +30,10 @@ _MANUAL = (app.DEFAULT_MANUAL.gol_background, app.DEFAULT_MANUAL.gol_pixel,
 
 def _render(image, color_scheme=app.UGENT, auto_seed=0, manual=_MANUAL,
             eca_choice="random", eca_custom_rule=110,
-            bg_pattern_size=app.DEFAULT_BG_SIZE):
+            bg_pattern_size=app.DEFAULT_BG_SIZE, tile_shape=None):
     """Call render_mosaic with sensible defaults for the fixed settings."""
-    return app.render_mosaic(image, 3, color_scheme, 40, 0.65, 0.5,
+    tile_shape = tile_shape or app.DIAMONDS
+    return app.render_mosaic(image, tile_shape, 3, color_scheme, 40, 0.65, 0.5,
                              eca_choice, eca_custom_rule, bg_pattern_size,
                              auto_seed, *manual)
 
@@ -104,16 +105,17 @@ def test_output_matches_original_aspect_ratio():
 
 def test_generate_saves_named_png():
     """The UI wrapper returns a real PNG path named gol-mosaic.png."""
-    path = app.generate(_subject_on_transparent(), 3, app.UGENT, 40, 0.65, 0.5,
-                        "random", 110, app.DEFAULT_BG_SIZE, 0, *_MANUAL)
+    path = app.generate(_subject_on_transparent(), app.DIAMONDS, 3, app.UGENT,
+                        40, 0.65, 0.5, "random", 110, app.DEFAULT_BG_SIZE, 0,
+                        *_MANUAL)
     assert os.path.basename(path) == "gol-mosaic.png"
     Image.open(path).load()  # opens without error => valid image
 
 
 def test_generate_no_image_returns_none():
     """The UI wrapper returns None (not a path) when there's no image."""
-    assert app.generate(None, 3, app.UGENT, 40, 0.65, 0.5, "random", 110,
-                        app.DEFAULT_BG_SIZE, 0, *_MANUAL) is None
+    assert app.generate(None, app.DIAMONDS, 3, app.UGENT, 40, 0.65, 0.5,
+                        "random", 110, app.DEFAULT_BG_SIZE, 0, *_MANUAL) is None
 
 
 # --- Background-removal caching / selection -----------------------------------
@@ -211,11 +213,53 @@ def test_export_cells_writes_valid_golly_file():
     """export_cells_ui writes a named .cells file containing only Golly glyphs."""
     state = {"with_bg": _subject_on_transparent(), "without_bg": None,
              "has_bg": False}
-    path = app.export_cells_ui(state, False, 3, app.UGENT, 40, 0.65, 0.5,
-                               "random", 110, app.DEFAULT_BG_SIZE, 0, *_MANUAL)
+    path = app.export_cells_ui(state, False, app.DIAMONDS, 3, app.UGENT, 40,
+                               0.65, 0.5, "random", 110, app.DEFAULT_BG_SIZE,
+                               0, *_MANUAL)
     assert os.path.basename(path) == "gol-mosaic.cells"
     with open(path) as f:
         lines = f.read().splitlines()
     assert lines[0].startswith("!")  # Golly header comment
     body = [ln for ln in lines if not ln.startswith("!")]
     assert body and all(set(ln) <= {".", "O"} for ln in body)
+
+
+# --- Tile shape ----------------------------------------------------------------
+
+def test_render_square_tiles_returns_rgba():
+    """The square tile shape renders end to end through the app path."""
+    result = _render(_subject_on_transparent(), tile_shape=app.SQUARES)
+    assert isinstance(result, Image.Image)
+    assert result.mode == 'RGBA'
+
+
+def test_levels_by_shape():
+    """Diamonds offer 3-6; squares ship for 3-5 only."""
+    assert app.LEVELS_BY_SHAPE[app.DIAMONDS] == [3, 4, 5, 6]
+    assert app.LEVELS_BY_SHAPE[app.SQUARES] == [3, 4, 5]
+
+
+def test_on_shape_change_reranges_level_dropdown():
+    """Switching shapes re-ranges the level dropdown; a level that doesn't
+    exist for the new shape falls back to the default."""
+    update = app.on_shape_change(app.SQUARES, 6)  # 6 not available for squares
+    assert update["choices"] == app.LEVELS_BY_SHAPE[app.SQUARES]
+    assert update["value"] == app.DEFAULT_LEVEL
+
+    update = app.on_shape_change(app.DIAMONDS, 5)  # 5 is valid, keep it
+    assert update["choices"] == app.LEVELS_BY_SHAPE[app.DIAMONDS]
+    assert update["value"] == 5
+
+
+def test_prepare_generation_grid_parity_per_shape():
+    """The even-grid clamp is diamond-only; squares keep odd grid sizes."""
+    img = _subject_on_transparent()
+    gen, *_ = app._prepare_generation(img, app.SQUARES, 3, app.UGENT, 25,
+                                      "random", 110, 0, _MANUAL)
+    assert gen.tile_shape == "square"
+    assert gen.grid_size == 25
+
+    gen, *_ = app._prepare_generation(img, app.DIAMONDS, 3, app.UGENT, 25,
+                                      "random", 110, 0, _MANUAL)
+    assert gen.tile_shape == "diamond"
+    assert gen.grid_size == 26

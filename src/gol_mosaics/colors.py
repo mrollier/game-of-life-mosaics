@@ -97,44 +97,8 @@ class ColorScheme:
         )
 
     @classmethod
-    def custom(cls,
-               gol_background: str = '#FFFFFF',
-               gol_pixel: str = '#000000',
-               eca_background: str = '#FFD200',
-               eca_pixel: str = '#1E64C8') -> 'ColorScheme':
-        """
-        Custom colour scheme.
-
-        Args:
-            gol_background: Background colour for Game of Life mosaic (default: white)
-            gol_pixel: Foreground/alive cell colour for Game of Life mosaic (default: black)
-            eca_background: Background colour for Elementary Cellular Automaton overlay (default: yellow)
-            eca_pixel: Foreground colour for Elementary Cellular Automaton overlay (default: blue)
-
-        Returns:
-            ColorScheme with custom colours
-
-        Example:
-            >>> colors = ColorScheme.custom()
-            >>> colors.gol_pixel
-            '#000000'
-            >>> # Blue on white
-            >>> colors = ColorScheme.custom(
-            ...     gol_background='#FFFFFF',
-            ...     gol_pixel='#0000FF',
-            ...     eca_background='#FFD200',
-            ...     eca_pixel='#1E64C8'
-            ... )
-        """
-        return cls(
-            gol_background=gol_background,
-            gol_pixel=gol_pixel,
-            eca_background=eca_background,
-            eca_pixel=eca_pixel
-        )
-
-    @classmethod
-    def warhol(cls, force_white=False, dark_on_light=True) -> 'ColorScheme':
+    def warhol(cls, force_white: bool = False,
+               dark_on_light: bool = True) -> 'ColorScheme':
         """
         Warhol-inspired colour scheme.
 

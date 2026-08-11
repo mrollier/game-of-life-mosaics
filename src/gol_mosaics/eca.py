@@ -7,7 +7,6 @@ Elementary Cellular Automaton patterns to use as mosaic backgrounds.
 
 import numpy as np
 import cellpylib as cpl
-from typing import List
 
 
 class ECABackground:
@@ -120,56 +119,6 @@ class ECABackground:
         eca_upsized = eca_upsized[:height, :width]
 
         return eca_upsized.astype(np.uint8)
-
-    @staticmethod
-    def validate_supersample(width: int, supersample: int) -> bool:
-        """
-        Check if supersample value is compatible with width.
-
-        Args:
-            width: Image width
-            supersample: Proposed supersample value
-
-        Returns:
-            True if compatible, False otherwise
-
-        Example:
-            >>> ECABackground.validate_supersample(100, 10)
-            True
-            >>> ECABackground.validate_supersample(100, 7)
-            False
-        """
-        return width % supersample == 0
-
-    @staticmethod
-    def list_valid_supersamples(width: int) -> List[int]:
-        """
-        List all valid supersample values for given width.
-
-        Returns all divisors of width, which are the values that
-        allow upsampling without interpolation.
-
-        Args:
-            width: Image width
-
-        Returns:
-            Sorted list of valid supersample values
-
-        Example:
-            >>> ECABackground.list_valid_supersamples(60)
-            [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60]
-        """
-        if not isinstance(width, int) or width <= 0:
-            raise ValueError("Width must be a positive integer")
-
-        divisors = []
-        for i in range(1, int(np.sqrt(width)) + 1):
-            if width % i == 0:
-                divisors.append(i)
-                if i != width // i:
-                    divisors.append(width // i)
-
-        return sorted(divisors)
 
     def get_rule_category(self) -> str:
         """

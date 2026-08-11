@@ -444,39 +444,55 @@ class ImageProcessor:
 
         return lowres_first, lowres_second, mask_first, mask_second, aspect_ratio
 
-    @staticmethod
-    def list_denominators(n: int) -> list:
+    @classmethod
+    def preprocess_for_square_mosaic(cls,
+                                     image_path: Union[str, Image.Image],
+                                     grid_size: int,
+                                     alpha_color: str = 'white',
+                                     remove_background: Union[bool, str] = 'auto',
+                                     contrast: float = 5.0
+                                     ) -> Tuple[np.ndarray, np.ndarray, float]:
         """
-        Return all positive divisors of a positive integer.
+        Preprocessing pipeline for axis-aligned (square-tile) mosaics.
 
-        Useful for finding valid supersample values that divide
-        the mosaic width evenly (no pixel interpolation needed).
+        Square tiles sit on a single axis-aligned lattice, so there is no
+        rotation and no diagonal-grid split: the image is resized straight
+        to a rectangular tile grid whose row count follows the aspect ratio
+        (grid_size columns, ~grid_size/aspect rows), which also makes the
+        later aspect-ratio crop of the diamond path unnecessary.
 
         Args:
-            n: Positive integer
+            image_path: Path to input image, or an already loaded PIL Image
+                (passed straight through to load_image).
+            grid_size: Number of tile columns (any positive integer; the
+                even-grid restriction is diamond-specific)
+            alpha_color: Background colour for transparent pixels
+            remove_background: Background removal mode passed to load_image
+                ('auto', True or False; default 'auto')
+            contrast: Sigmoid contrast strength passed to load_image
+                (default 5.0; 0 disables)
 
         Returns:
-            Sorted list of divisors
-
-        Raises:
-            ValueError: If n is not a positive integer
+            Tuple of:
+            - lowres: (rows, grid_size) greyscale array, values 0-255
+            - lowres_mask: (rows, grid_size) alpha-mask array, values 0-255
+              (255 = opaque subject)
+            - aspect_ratio: Original width/height ratio
 
         Example:
-            >>> ImageProcessor.list_denominators(60)
-            [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60]
-            >>> # These are all valid supersample values for width=60
+            >>> lowres, mask, aspect = ImageProcessor.preprocess_for_square_mosaic(
+            ...     'portrait.png', grid_size=30)
         """
-        if not isinstance(n, int) or n <= 0:
-            raise ValueError("n must be a positive integer")
+        img, mask = cls.load_image(image_path, alpha_color=alpha_color,
+                                   return_alpha=True,
+                                   remove_background=remove_background,
+                                   contrast=contrast)
 
-        small, large = [], []
-        i = 1
-        while i * i <= n:
-            if n % i == 0:
-                small.append(i)
-                j = n // i
-                if j != i:
-                    large.append(j)
-            i += 1
+        width, height = img.size
+        aspect_ratio = width / height
+        rows = max(1, round(grid_size / aspect_ratio))
 
-        return small + large[::-1]
+        lowres = np.array(img.resize((grid_size, rows), resample=Image.LANCZOS))
+        lowres_mask = np.array(
+            mask.resize((grid_size, rows), resample=Image.LANCZOS))
+        return lowres, lowres_mask, aspect_ratio

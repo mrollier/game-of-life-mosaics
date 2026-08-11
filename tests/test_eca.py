@@ -2,7 +2,7 @@
 
 import pytest
 import numpy as np
-from src.gol_mosaics.eca import ECABackground
+from gol_mosaics.eca import ECABackground
 
 
 def test_eca_initialization():
@@ -52,25 +52,6 @@ def test_eca_generate_rejects_non_positive_supersample():
     eca = ECABackground(rule=106)
     with pytest.raises(ValueError):
         eca.generate(width=100, height=100, supersample=0)
-
-
-def test_eca_validate_supersample():
-    """Test supersample validation."""
-    assert ECABackground.validate_supersample(100, 10) == True
-    assert ECABackground.validate_supersample(100, 5) == True
-    assert ECABackground.validate_supersample(100, 7) == False
-
-
-def test_eca_list_valid_supersamples():
-    """Test listing valid supersamples."""
-    valid = ECABackground.list_valid_supersamples(60)
-    assert 1 in valid
-    assert 2 in valid
-    assert 3 in valid
-    assert 5 in valid
-    assert 10 in valid
-    assert 60 in valid
-    assert 7 not in valid
 
 
 def test_eca_rule_category():

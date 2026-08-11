@@ -5,7 +5,7 @@ import numpy as np
 from PIL import Image
 import tempfile
 import os
-from src.gol_mosaics import MosaicGenerator, ColorScheme
+from gol_mosaics import MosaicGenerator, ColorScheme
 
 
 @pytest.fixture
@@ -124,13 +124,6 @@ def test_generate_from_pil_smoke(transparent_image_path):
     assert result.size[0] > 0 and result.size[1] > 0
 
 
-def test_auto_supersample_returns_target_regardless_of_divisibility():
-    """Auto-selection no longer needs a divisor: it returns the target itself."""
-    generator = MosaicGenerator(level=3, grid_size=40)
-    # 588 has no divisor equal to 15, but the relaxed pipeline can use 15 directly.
-    assert generator._auto_select_supersample(588, target=15) == 15
-
-
 def test_auto_supersample_on_non_square_image_does_not_raise():
     """A non-square image must not raise when supersample is auto-selected.
 
@@ -186,3 +179,152 @@ def test_generate_from_pil_return_arrays(transparent_image_path):
     assert isinstance(image, Image.Image)
     assert gol_mosaic.ndim == 2 and mask.ndim == 2
     assert set(np.unique(mask)) <= {0, 1}
+    # The two interlocking diagonal grids never overlap, so the summed GoL
+    # mosaic must stay strictly binary.
+    assert set(np.unique(gol_mosaic)) <= {0, 1}
+
+
+def test_generate_from_gif(tmp_path):
+    """A 2-frame GIF is processed into a mosaic image carrying the animation
+    metadata (duration/loop) of the source.
+
+    Uses explicit kwargs rather than the gif-path defaults so the test pins
+    behaviour, not default values."""
+    frames = [Image.new('RGBA', (60, 60), (0, 0, 0, 0)) for _ in range(2)]
+    frames[0].paste(Image.new('RGBA', (30, 30), (20, 20, 20, 255)), (15, 15))
+    frames[1].paste(Image.new('RGBA', (30, 30), (60, 60, 60, 255)), (10, 10))
+    gif_path = tmp_path / "anim.gif"
+    frames[0].save(gif_path, save_all=True, append_images=frames[1:],
+                   duration=200, loop=0)
+
+    generator = MosaicGenerator(level=3, grid_size=10)
+    result = generator.generate_from_gif(
+        str(gif_path),
+        empty_tiles_cutoff=0.65,
+        supersample=12,
+        remove_background=False,
+    )
+
+    assert isinstance(result, Image.Image)
+    assert result.size[0] > 0 and result.size[1] > 0
+    assert result.info['duration'] == 200
+    assert result.info['loop'] == 0
+
+
+def test_enclosed_foreground_survives_mask_building(transparent_image_path):
+    """A subject surrounded by transparent background on all four edges must
+    stay foreground (mask 0) instead of being swallowed by hole filling.
+
+    Regression: binary_fill_holes on the background mask treated the whole
+    enclosed subject as a hole, so the ECA overlay covered the GoL mosaic."""
+    generator = MosaicGenerator(level=3, grid_size=20)
+    _, _, mask = generator.generate_from_pil(
+        Image.open(transparent_image_path),
+        supersample=12,
+        remove_background=False,
+        seed=42,
+        return_arrays=True,
+    )
+
+    # The 50x50 subject centred in the 100x100 image covers ~25% of the area.
+    foreground_fraction = (mask == 0).mean()
+    assert foreground_fraction > 0.1
+
+    # The centre of the mask sits inside the subject.
+    h, w = mask.shape
+    assert mask[h // 2, w // 2] == 0
+
+
+def test_edge_touching_foreground_keeps_gaps_filled():
+    """A subject touching an image edge still yields a solid background mask:
+    the tiny inter-tile gaps are filled, and both mask classes are present."""
+    img = Image.new('RGBA', (100, 100), (0, 0, 0, 0))
+    subject = Image.new('RGBA', (100, 50), (30, 30, 30, 255))
+    img.paste(subject, (0, 50))  # touches left, right and bottom edges
+
+    generator = MosaicGenerator(level=3, grid_size=20)
+    _, _, mask = generator.generate_from_pil(
+        img,
+        supersample=12,
+        remove_background=False,
+        seed=42,
+        return_arrays=True,
+    )
+
+    assert set(np.unique(mask)) == {0, 1}
+
+    # The background half must be solid: no leftover speck holes from the
+    # interlocking tile grids. Check an interior background window well away
+    # from the subject boundary and the image border.
+    h, w = mask.shape
+    window = mask[h // 8: h // 4, w // 4: 3 * w // 4]
+    assert window.all(), "background region contains unfilled speck holes"
+
+
+# --- Square tile shape ------------------------------------------------------
+
+def test_square_tile_shape_accepts_odd_grid():
+    """Only the diamond layout needs an even tile count."""
+    generator = MosaicGenerator(level=4, grid_size=25, tile_shape="square")
+    assert generator.grid_size == 25
+    assert generator.tile_shape == "square"
+    with pytest.raises(ValueError):
+        MosaicGenerator(level=4, grid_size=25)  # diamond stays even-only
+
+
+def test_unknown_tile_shape_rejected():
+    with pytest.raises(ValueError):
+        MosaicGenerator(level=4, grid_size=10, tile_shape="hexagon")
+
+
+def test_square_generate_is_global_still_life(test_image_path):
+    """The square pipeline end to end: correct lattice dimensions and a
+    provably stable Game of Life pattern."""
+    from gol_mosaics.life import is_still_life
+
+    generator = MosaicGenerator(level=4, grid_size=10, tile_shape="square")
+    image, gol, mask = generator.generate_from_pil(
+        Image.open(test_image_path), remove_background=False, seed=0,
+        return_arrays=True)
+
+    assert image.mode == 'RGBA'
+    # 10x10 tiles: pitch 18, tile size 24, assembly pad 2 per side
+    expected = 18 * 9 + 24 + 4
+    assert gol.shape == (expected, expected)
+    assert mask.shape == gol.shape
+    assert set(np.unique(gol)) <= {0, 1}
+    assert gol.any()
+    assert is_still_life(gol)
+
+
+def test_square_landscape_keeps_aspect_via_rectangular_grid():
+    """No pad-then-crop: a 2:1 landscape maps to a rows = grid_size/2
+    rectangular tile grid directly."""
+    img = Image.new('L', (200, 100), 0)  # dark, so no empty tiles
+    generator = MosaicGenerator(level=3, grid_size=12, tile_shape="square")
+    _, gol, _ = generator.generate_from_pil(
+        img, remove_background=False, seed=0, return_arrays=True)
+    # 6 rows x 12 cols of tiles: pitch 12, tile size 18, pad 2 per side
+    assert gol.shape == (12 * 5 + 18 + 4, 12 * 11 + 18 + 4)
+
+
+def test_square_white_image_is_all_holes():
+    """Values above empty_tiles_cutoff leave true holes (no tile at all)."""
+    img = Image.new('L', (60, 60), 255)
+    generator = MosaicGenerator(level=3, grid_size=6, tile_shape="square")
+    _, gol, _ = generator.generate_from_pil(
+        img, remove_background=False, seed=0, return_arrays=True,
+        empty_tiles_cutoff=0.65)
+    assert not gol.any()
+
+
+def test_square_transparency_mask_marks_background(transparent_image_path):
+    """Mask semantics match the diamond path: 1 where the ECA background is
+    drawn (transparent input), 0 on the opaque subject."""
+    generator = MosaicGenerator(level=3, grid_size=10, tile_shape="square")
+    _, gol, mask = generator.generate_from_pil(
+        Image.open(transparent_image_path), seed=0, return_arrays=True)
+    assert set(np.unique(mask)) <= {0, 1}
+    H, W = mask.shape
+    assert mask[0, 0] == 1          # corner: background, ECA visible
+    assert mask[H // 2, W // 2] == 0  # centre: subject, no ECA

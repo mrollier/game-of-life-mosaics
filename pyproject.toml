@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gol-mosaics"
-version = "2.0.0"
+version = "2.3.0"
 description = "Create artistic mosaics from images using Conway's Game of Life still-life patterns"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -44,6 +44,9 @@ dev = [
 gurobi = [
     "gurobipy>=11.0.0",
 ]
+sat = [
+    "python-sat>=1.8",
+]
 bg-removal = [
     "rembg[cpu]>=2.0.0",
 ]
@@ -64,6 +67,7 @@ where = ["src"]
 gol_mosaics = ["data/*.npy"]
 
 [tool.pytest.ini_options]
+pythonpath = ["src"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]

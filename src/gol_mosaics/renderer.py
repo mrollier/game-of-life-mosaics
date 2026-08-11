@@ -12,6 +12,24 @@ from typing import Dict
 from .colors import ColorScheme
 
 
+def hex_to_rgb(hex_color: str) -> tuple:
+    """
+    Convert a hex colour string to an RGB tuple.
+
+    Args:
+        hex_color: Hex colour string, with or without '#' (e.g. '#FFFFFF')
+
+    Returns:
+        RGB tuple (e.g. (255, 255, 255))
+
+    Example:
+        >>> hex_to_rgb('#1E64C8')
+        (30, 100, 200)
+    """
+    hex_color = hex_color.lstrip('#')
+    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+
 class MosaicRenderer:
     """
     Renders mosaic arrays as coloured PIL Images.
@@ -190,23 +208,8 @@ class MosaicRenderer:
 
     @staticmethod
     def _hex_to_rgb(hex_color: str) -> tuple:
-        """
-        Convert hex colour string to RGB tuple.
-
-        Args:
-            hex_color: Hex colour string (e.g., '#FFFFFF')
-
-        Returns:
-            RGB tuple (e.g., (255, 255, 255))
-
-        Example:
-            >>> MosaicRenderer._hex_to_rgb('#FFFFFF')
-            (255, 255, 255)
-            >>> MosaicRenderer._hex_to_rgb('#1E64C8')
-            (30, 100, 200)
-        """
-        hex_color = hex_color.lstrip('#')
-        return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        """Convert hex colour string to RGB tuple (see module-level hex_to_rgb)."""
+        return hex_to_rgb(hex_color)
 
     def render_full_mosaic(self,
                           gol_mosaic: np.ndarray,
@@ -231,22 +234,6 @@ class MosaicRenderer:
         base = self.render_gol_mosaic(gol_mosaic)
         overlay = self.render_eca_overlay(eca_mask)
         return self.composite(base, overlay)
-
-    def change_colors(self, new_color_scheme: ColorScheme) -> 'MosaicRenderer':
-        """
-        Create new renderer with different colours.
-
-        Args:
-            new_color_scheme: New ColorScheme to use
-
-        Returns:
-            New MosaicRenderer instance
-
-        Example:
-            >>> renderer1 = MosaicRenderer(ColorScheme.ugent())
-            >>> renderer2 = renderer1.change_colors(ColorScheme.monochrome())
-        """
-        return MosaicRenderer(new_color_scheme)
 
     def __repr__(self) -> str:
         """String representation of renderer."""

@@ -1,7 +1,7 @@
 """Tests for ColorScheme class."""
 
 import pytest
-from src.gol_mosaics.colors import ColorScheme
+from gol_mosaics.colors import ColorScheme
 
 
 def test_colorscheme_ugent():
@@ -32,6 +32,42 @@ def test_colorscheme_inverted():
     colors = ColorScheme.inverted()
     assert colors.gol_background == '#000000'
     assert colors.gol_pixel == '#FFFFFF'
+
+
+def _luminance(hex_color):
+    """Perceived luminance of a '#rrggbb' colour in [0, 1]."""
+    h = hex_color.lstrip('#')
+    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255
+
+
+def test_colorscheme_warhol_returns_valid_hex():
+    """All four colours are '#rrggbb' strings."""
+    import re
+    colors = ColorScheme.warhol()
+    for value in colors.to_dict().values():
+        assert re.fullmatch(r'#[0-9a-fA-F]{6}', value), value
+
+
+def test_colorscheme_warhol_dark_on_light():
+    """dark_on_light picks a GoL pixel darker than its background (the dark
+    and light palettes are disjoint in luminance)."""
+    for _ in range(20):
+        colors = ColorScheme.warhol(dark_on_light=True)
+        assert _luminance(colors.gol_pixel) < _luminance(colors.gol_background)
+
+
+def test_colorscheme_warhol_force_white():
+    """force_white pins the GoL background to pure white."""
+    for _ in range(5):
+        assert ColorScheme.warhol(force_white=True).gol_background == '#FFFFFF'
+
+
+def test_colorscheme_warhol_eca_colors_distinct():
+    """The two ECA colours are always distinct (drawn without replacement)."""
+    for _ in range(10):
+        colors = ColorScheme.warhol()
+        assert colors.eca_background != colors.eca_pixel
 
 
 def test_colorscheme_to_dict():
