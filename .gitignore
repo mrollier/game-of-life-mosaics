@@ -83,3 +83,5 @@ workstation/level6_search/reference/
 workstation/level6_search/solutions_pattern_level_*.npy
 workstation/level6_search/tools/
 workstation/level6_search/counts/
+workstation/nosym_search/work_nosym/
+workstation/nosym_search/solutions_pattern_nosym_level_*.npy

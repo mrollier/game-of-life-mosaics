@@ -62,6 +62,7 @@ Census files (`src/gol_mosaics/data/`):
 1f1d8a03203a3747daf9dad69acfaea6d96eab6554861c1eca50ca29b49cdefc  solutions_pattern_level_4.npy
 ba526fe2c52120813e75c6df1eed2794dbf961d07856756864508182d0b69f7e  solutions_pattern_level_5.npy
 9939a9b973ebc842f373d806afa49a05c848b5e245b18776812c0c4e7d28c96b  solutions_pattern_level_6_orbits.npy
+0c890554a74f7819806e57b11c291b78ee5a144a75e61c770469cac9ee5ae747  solutions_pattern_nosym_level_3_cells.npy
 ```
 
 CNF fingerprints (SHA-256 over level, rule, and every clause; printed by
@@ -86,3 +87,33 @@ canonical order (live-cell count, then raw-grid byte order). Expand with
 `gol_mosaics.tile_domain.unpack_solutions(packed, level=6)`; the free
 orbits are enumerated by `build_domain(6).free_reps` (lexicographic by
 representative).
+
+## No-symmetry census (`_cells` files)
+
+The `nosym` variant drops the D4 symmetry requirement while keeping the
+frame, dead-edge, and stability constraints (module
+`gol_mosaics.nosym_tiles`; notebook
+`notebooks/tile_nosym_enumeration.ipynb`). Censuses: 1, 2, 1061 raw
+grids at levels 1-3, forming 1, 2, 181 D4 equivalence classes (level-3
+class sizes {1: 7, 2: 9, 4: 71, 8: 94}; the singletons are exactly the
+symmetric census, and sum|Fix| = 1448 = 8 x 181 by Burnside).
+
+`solutions_pattern_nosym_level_3_cells.npy` is a `(1061, 9) uint8`
+array: row `k` holds the 68 free-CELL bits of tile `k` (identity
+domain — one bit per unforced cell, no orbit reduction) packed
+MSB-first, rows in the same canonical order as above. Expand with
+`gol_mosaics.nosym_tiles.unpack_nosym_solutions(packed, level=3)`;
+regenerate with `$PY workstation/pack_nosym_tiles.py`. Levels 1-2 ship
+no file (their nosym censuses equal the symmetric ones and re-derive in
+milliseconds).
+
+The level-4 nosym census (156 free cells) has not been computed: a
+single-shot AllSAT probe passed 2 x 10^6 models without exhausting the
+space, so the count exceeds two million and needs the cube-and-conquer
+treatment of the symmetric level 7 (hours of compute, artifact too
+large for git). The runner is ready:
+`workstation/nosym_search/search_nosym.py run --level 4 --cube-bits 16`
+(resumable; `self-test` reproduces the level-3 census through the cube
+path byte-exactly). Use fine cubes — with `--cube-bits 12` a handful of
+tail cubes hold nearly the whole census and the per-cube blocking-clause
+loop degrades badly.

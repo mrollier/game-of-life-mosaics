@@ -81,20 +81,16 @@ def _simplify(raw: Iterable[Lit]) -> Optional[Clause]:
     return tuple(sorted(lits, key=lambda l: (abs(l), l)))
 
 
-def build_cnf(level: int,
-              birth: Sequence[int] = CONWAY[0],
-              survival: Sequence[int] = CONWAY[1],
-              dead_edges=None) -> Encoding:
+def _domain_clauses(domain,
+                    birth: Tuple[int, ...],
+                    survival: Tuple[int, ...]) -> List[Clause]:
     """
-    Build the deduplicated still-life CNF for one level and rule.
+    Sorted, deduplicated binomial still-life clauses over one Domain.
 
-    dead_edges overrides the derived interlock forcings (see
-    tile_domain.forced_masks); pass [] to enumerate tiles that are stable
-    in isolation but may interact when mosaicked.
+    One variable per free rep; forced reps fold in as boolean constants.
+    Works for any Domain regardless of how its orbits were constructed
+    (D4-reduced or identity).
     """
-    birth = tuple(sorted(birth))
-    survival = tuple(sorted(survival))
-    domain = build_domain(level, dead_edges=dead_edges)
     n = domain.n
     var_of_rep = {rep: idx + 1 for idx, rep in enumerate(domain.free_reps)}
 
@@ -132,14 +128,32 @@ def build_cnf(level: int,
                         if clause:
                             clause_set.add(clause)
 
-    clauses = sorted(clause_set)
+    return sorted(clause_set)
+
+
+def build_cnf(level: int,
+              birth: Sequence[int] = CONWAY[0],
+              survival: Sequence[int] = CONWAY[1],
+              dead_edges=None) -> Encoding:
+    """
+    Build the deduplicated still-life CNF for one level and rule.
+
+    dead_edges overrides the derived interlock forcings (see
+    tile_domain.forced_masks); pass [] to enumerate tiles that are stable
+    in isolation but may interact when mosaicked.
+    """
+    birth = tuple(sorted(birth))
+    survival = tuple(sorted(survival))
+    domain = build_domain(level, dead_edges=dead_edges)
+    n = domain.n
+    clauses = _domain_clauses(domain, birth, survival)
     digest = hashlib.sha256()
-    digest.update(f"level={level};n={n};vars={len(var_of_rep)};"
+    digest.update(f"level={level};n={n};vars={len(domain.free_reps)};"
                   f"birth={birth};survival={survival};".encode())
     digest.update(repr(domain.free_reps).encode())
     digest.update(repr(clauses).encode())
     return Encoding(domain=domain, birth=birth, survival=survival,
-                    n_vars=len(var_of_rep), clauses=clauses,
+                    n_vars=len(domain.free_reps), clauses=clauses,
                     sha256=digest.hexdigest())
 
 
