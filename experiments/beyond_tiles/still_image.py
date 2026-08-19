@@ -41,6 +41,9 @@ class SpikeConfig:
     num_violation_ls: int = 0  # Feasibility-Jump local-search workers
     symmetry_level: Optional[int] = None  # None = CP-SAT default
     max_det_time: Optional[float] = None  # deterministic-time cap (repro A/Bs)
+    hint_mode: str = "none"  # "none" | "agar" (constructive block-lattice seed)
+    repair_hint: bool = True
+    hint_conflict_limit: int = 100_000  # CP-SAT default of 10 is useless here
 
 
 # One captured incumbent: (wall time, objective, interior pattern).
@@ -63,6 +66,7 @@ class SpikeResult:
     # consumers (save_run, LNS) never re-derive them from the greyscale.
     windows: Optional[List[Window]] = None
     targets: Optional[np.ndarray] = None
+    seed_objective: Optional[int] = None  # objective of the warm-start seed
 
 
 @dataclass
@@ -116,9 +120,20 @@ class _ObjectiveLogger(cp_model.CpSolverSolutionCallback):
 
 
 def build_model(
-    cell_t: np.ndarray, free_mask: np.ndarray, cfg: SpikeConfig
+    cell_t: np.ndarray,
+    free_mask: np.ndarray,
+    cfg: SpikeConfig,
+    relax_top: bool = False,
+    relax_bottom: bool = False,
 ) -> ModelBundle:
-    """Encode stability (hard) + window-density deviation (objective)."""
+    """Encode stability (hard) + window-density deviation (objective).
+
+    `relax_top` / `relax_bottom` drop every stability constraint touching
+    the first/last interior row (including the adjacent ring row). That
+    is the strip *relaxation* used for decomposition lower bounds: the
+    remaining constraints are a subset of the global model's, so the sum
+    of strip optima is a valid lower bound on the global optimum.
+    """
     t_build = time.perf_counter()
     h, w = cell_t.shape
     model = cp_model.CpModel()
@@ -144,11 +159,14 @@ def build_model(
     fixed_rows = fixed_dead.tolist()  # plain bools: no numpy boxing in the loop
     open_rows = open_nbrs.tolist()
     for i in range(h + 2):
+        skip_stability = (relax_top and i <= 1) or (relax_bottom and i >= h)
         for j in range(w + 2):
             if fixed_rows[i][j]:
                 model.Add(x[i][j] == 0)
-                if not open_rows[i][j]:
+                if skip_stability or not open_rows[i][j]:
                     continue
+            elif skip_stability:
+                continue
             neighbours = [
                 x[i + di][j + dj]
                 for di in (-1, 0, 1)
@@ -227,6 +245,9 @@ def solve(
 
     solver = cp_model.CpSolver()
     _apply_solver_params(solver, cfg)
+    if hint is not None:
+        solver.parameters.repair_hint = cfg.repair_hint
+        solver.parameters.hint_conflict_limit = cfg.hint_conflict_limit
     log_lines: List[str] = []
     if cfg.log_to:
         solver.parameters.log_search_progress = True
@@ -286,7 +307,16 @@ def solve_image(
         cell_t = np.where(free_mask, cell_t, 0.0)
         free_mask = np.ones_like(free_mask, dtype=bool)
     bundle = build_model(cell_t, free_mask, cfg)
-    return solve(bundle, cfg, hint)
+    seed_obj: Optional[int] = None
+    if hint is None and cfg.hint_mode == "agar":
+        from beyond_tiles.seeds import best_seed
+
+        hint, seed_obj = best_seed(
+            free_mask, bundle.windows, bundle.targets, slack=cfg.slack
+        )
+    result = solve(bundle, cfg, hint)
+    result.seed_objective = seed_obj
+    return result
 
 
 def verify_still_life(pattern: np.ndarray) -> Dict[str, bool]:

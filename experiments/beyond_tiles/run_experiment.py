@@ -49,6 +49,7 @@ def _cfg(args, **overrides) -> SpikeConfig:
         num_violation_ls=getattr(args, "violation_ls", 0),
         symmetry_level=getattr(args, "symmetry_level", None),
         log_to=getattr(args, "log_to", None),
+        hint_mode=getattr(args, "hint_mode", "none"),
     )
     kw.update(overrides)
     return SpikeConfig(**kw)
@@ -256,6 +257,177 @@ def cmd_bench(args) -> None:
     print(json.dumps(bench.median_summary(outdir), indent=2))
 
 
+def cmd_e9(args) -> None:
+    """Strip decomposition at scale: solve (restriction) and/or bound."""
+    from beyond_tiles.decompose import lower_bound_strips, plan_strips, solve_strips
+    from beyond_tiles.metrics import deviation_stats
+    from beyond_tiles.targets import cell_targets, window_slices
+
+    grey, free = _marilyn(args)
+    cfg = _cfg(args, k=8, stride=8)
+    plan = plan_strips(args.size, cfg.k, args.strip_rows, args.gap)
+    out = RESULTS / "e9" / f"marilyn_{args.size}_r{args.strip_rows}"
+    out.mkdir(parents=True, exist_ok=True)
+    report = {"plan": {"spans": plan.spans, "gap": plan.gap}}
+
+    if args.mode in ("solve", "both"):
+        solved = solve_strips(grey, free, cfg, plan, n_procs=args.procs)
+        pattern = solved.pop("pattern")
+        checks = verify_still_life(pattern)
+        assert all(checks.values()), checks
+        np.save(out / "pattern.npy", pattern)
+        cell_t = cell_targets(grey, cfg.d_max)
+        windows = window_slices(grey.shape, cfg.k, cfg.stride, edge=cfg.edge_windows)
+        solved["deviation_vs_full_targets"] = deviation_stats(
+            pattern, cell_t, free, windows
+        )
+        solved["verify"] = checks
+        report["solve"] = solved
+        print(
+            f"solve: strips={len(plan.spans)} objective={solved['objective']} "
+            f"wall={solved['wall_time_s']:.1f}s "
+            f"mad={solved['deviation_vs_full_targets']['mad']:.4f} verify={checks}"
+        )
+
+    if args.mode in ("bound", "both"):
+        bound = lower_bound_strips(grey, free, cfg, plan, n_procs=args.procs)
+        report["bound"] = bound
+        print(
+            f"bound: LB={bound['lower_bound']} all_optimal={bound['all_optimal']} "
+            f"wall={bound['wall_time_s']:.1f}s"
+        )
+
+    with open(out / "strips.json", "w") as fh:
+        json.dump(report, fh, indent=2, default=str)
+
+
+def cmd_e10(args) -> None:
+    """Annealing chain: agar seed -> parallel tempering -> exact repair."""
+    import time as time_mod
+
+    from beyond_tiles.anneal import AnnealConfig, anneal, instability, kill_repair
+    from beyond_tiles.lns import LnsConfig, improve, window_devs
+    from beyond_tiles.seeds import best_seed
+    from beyond_tiles.targets import cell_targets, window_slices, window_targets
+
+    grey, free = _marilyn(args)
+    cell_t = cell_targets(grey, 0.45)
+    windows = window_slices(grey.shape, 8, 8)
+    targets, kept = window_targets(cell_t, free, windows, dither=args.dither)
+
+    seed, seed_obj = best_seed(free, kept, targets, slack=args.slack)
+    print(f"seed objective: {seed_obj}", flush=True)
+    cfg = AnnealConfig(
+        sweeps=args.sweeps,
+        replicas=args.replicas,
+        lam=args.lam,
+        slack=args.slack,
+        seed=args.seed,
+    )
+    t0 = time_mod.perf_counter()
+    pattern, info = anneal(seed, free, kept, targets, cfg)
+    print(
+        f"anneal: best E={info['best_energy']:.0f} "
+        f"unstable={info['unstable_cells']} "
+        f"{info['updates_per_s']:.2e} updates/s",
+        flush=True,
+    )
+    repaired = kill_repair(pattern)
+    assert instability(np.pad(repaired, 1)) == 0
+    obj = int(window_devs(repaired, free, kept, targets, args.slack).sum())
+    print(f"after repair: objective {obj}", flush=True)
+
+    if args.lns_polish > 0:
+        res = improve(
+            repaired,
+            free,
+            kept,
+            targets,
+            LnsConfig(budget_s=args.lns_polish, slack=args.slack, seed=args.seed),
+        )
+        repaired, obj = res.pattern, res.objective
+        print(f"after lns: objective {obj}", flush=True)
+
+    checks = verify_still_life(repaired)
+    assert all(checks.values()), checks
+    out = RESULTS / "e10" / f"marilyn_{args.size}"
+    out.mkdir(parents=True, exist_ok=True)
+    np.save(out / "pattern.npy", repaired)
+    from beyond_tiles.metrics import deviation_stats
+
+    stats = deviation_stats(repaired, cell_t, free, kept)
+    report = {
+        "seed_objective": seed_obj,
+        "anneal": {k: v for k, v in info.items() if k != "history"},
+        "objective_after_repair": obj,
+        "deviation": stats,
+        "verify": checks,
+        "wall_time_s": time_mod.perf_counter() - t0,
+        "config": vars(args),
+    }
+    with open(out / "metrics.json", "w") as fh:
+        json.dump(report, fh, indent=2, default=str)
+    print(json.dumps({k: report[k] for k in ("objective_after_repair", "deviation")}, indent=2))
+
+
+def cmd_lns(args) -> None:
+    """Polish a saved run with rectangular LNS; writes RUN_DIR/lns/."""
+    import dataclasses
+    import resource
+
+    from beyond_tiles import lns as lns_mod
+    from beyond_tiles.still_image import SpikeConfig, SpikeResult
+    from beyond_tiles.targets import cell_targets, window_slices, window_targets
+
+    run_dir = Path(args.run_dir)
+    pattern = np.load(run_dir / "pattern.npy")
+    saved = json.loads((run_dir / "metrics.json").read_text())
+    known = {f.name for f in dataclasses.fields(SpikeConfig)}
+    cfg = SpikeConfig(**{k: v for k, v in saved["config"].items() if k in known})
+
+    sized = argparse.Namespace(size=pattern.shape[0], tone=args.tone)
+    grey, free = _marilyn(sized)
+    cell_t = cell_targets(grey, cfg.d_max)
+    if cfg.mask_mode == "none":
+        free = np.ones_like(free, dtype=bool)
+    elif cfg.mask_mode == "soft_zero":
+        cell_t = np.where(free, cell_t, 0.0)
+        free = np.ones_like(free, dtype=bool)
+    windows = window_slices(grey.shape, cfg.k, cfg.stride, edge=cfg.edge_windows)
+    targets, kept = window_targets(cell_t, free, windows, dither=cfg.dither)
+
+    lcfg = lns_mod.LnsConfig(
+        patch_windows=args.patch_windows,
+        patch_time_s=args.patch_time,
+        budget_s=args.budget,
+        n_procs=args.procs,
+        seed=cfg.seed,
+        slack=cfg.slack,
+    )
+    before = int(
+        lns_mod.window_devs(pattern, free, kept, targets, cfg.slack).sum()
+    )
+    res = lns_mod.improve(pattern, free, kept, targets, lcfg)
+    out = SpikeResult(
+        pattern=res.pattern,
+        status="LNS",
+        objective=res.objective,
+        best_bound=saved.get("best_bound", 0),
+        wall_time_s=res.obj_history[-1][0],
+        obj_history=res.obj_history,
+        max_rss_mb=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2**20,
+        config=cfg,
+        windows=kept,
+        targets=targets,
+    )
+    metrics = save_run(run_dir / "lns", out, grey, free)
+    print(
+        f"lns: objective {before} -> {res.objective} in {res.rounds} rounds "
+        f"({res.patches_improved}/{res.patches_solved} patches), "
+        f"verify={metrics['verify']}"
+    )
+
+
 def cmd_verify(args) -> None:
     pattern = np.load(args.pattern)
     checks = verify_still_life(pattern)
@@ -302,6 +474,9 @@ def main() -> None:
         p.add_argument("--symmetry-level", type=int, default=None)
         p.add_argument("--log-to", default=None,
                        help="write the CP-SAT search log to this file")
+        p.add_argument("--hint", dest="hint_mode", default="none",
+                       choices=["none", "agar"],
+                       help="warm-start the solve with a constructive seed")
         p.set_defaults(fn=fn)
     p5 = sub.add_parser("e5")
     p5.add_argument("pattern", help="pattern.npy of the free-form solve")
@@ -331,6 +506,47 @@ def main() -> None:
     pb.add_argument("--compare", nargs="*", default=None, metavar="TAG_DIR",
                     help="print a markdown table over these tag dirs instead")
     pb.set_defaults(fn=cmd_bench)
+    p10 = sub.add_parser("e10")
+    p10.add_argument("--size", type=int, default=400)
+    p10.add_argument("--sweeps", type=int, default=4000)
+    p10.add_argument("--replicas", type=int, default=4)
+    p10.add_argument("--lam", type=float, default=4.0)
+    p10.add_argument("--slack", type=int, default=0)
+    p10.add_argument("--seed", type=int, default=0)
+    p10.add_argument("--dither", default="round", choices=["round", "fs"])
+    p10.add_argument("--tone", default="eq", choices=["raw", "norm", "eq"])
+    p10.add_argument("--lns-polish", type=float, default=0.0,
+                     help="seconds of LNS after the repair pass")
+    p10.set_defaults(fn=cmd_e10)
+    p9 = sub.add_parser("e9")
+    p9.add_argument("--size", type=int, default=400)
+    p9.add_argument("--strip-rows", type=int, default=48)
+    p9.add_argument("--gap", type=int, default=2)
+    p9.add_argument("--mode", default="both", choices=["solve", "bound", "both"])
+    p9.add_argument("--procs", type=int, default=4)
+    p9.add_argument("--time", type=float, default=120.0,
+                    help="per-strip time limit")
+    p9.add_argument("--workers", type=int, default=2,
+                    help="CP-SAT workers per strip (times --procs processes)")
+    p9.add_argument("--seed", type=int, default=0)
+    p9.add_argument("--k", type=int, default=8)
+    p9.add_argument("--stride", type=int, default=8)
+    p9.add_argument("--dmax", type=float, default=0.45)
+    p9.add_argument("--mask-mode", default="force_dead",
+                    choices=["force_dead", "soft_zero", "none"])
+    p9.add_argument("--tone", default="eq", choices=["raw", "norm", "eq"])
+    p9.add_argument("--slack", type=int, default=0)
+    p9.add_argument("--dither", default="round", choices=["round", "fs"])
+    p9.set_defaults(fn=cmd_e9)
+    pl = sub.add_parser("lns")
+    pl.add_argument("run_dir", help="saved run directory to polish")
+    pl.add_argument("--budget", type=float, default=600.0)
+    pl.add_argument("--patch-windows", type=int, default=5,
+                    help="patch side length in windows")
+    pl.add_argument("--patch-time", type=float, default=2.0)
+    pl.add_argument("--procs", type=int, default=4)
+    pl.add_argument("--tone", default="eq", choices=["raw", "norm", "eq"])
+    pl.set_defaults(fn=cmd_lns)
     pv = sub.add_parser("verify")
     pv.add_argument("pattern")
     pv.set_defaults(fn=cmd_verify)

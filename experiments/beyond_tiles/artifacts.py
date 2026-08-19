@@ -143,6 +143,7 @@ def save_run(outdir, result, grey: np.ndarray, free_mask: np.ndarray) -> dict:
         "best_bound": result.best_bound,
         "wall_time_s": result.wall_time_s,
         "build_time_s": getattr(result, "build_time_s", 0.0),
+        "seed_objective": getattr(result, "seed_objective", None),
         "max_rss_mb": result.max_rss_mb,
         "live_cells": int(pattern.sum()),
         "config": dataclasses.asdict(cfg),

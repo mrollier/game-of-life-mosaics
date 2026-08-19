@@ -519,6 +519,304 @@ def test_save_run_uses_result_windows(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# constructive seeds + rectangular LNS (Stage 3)
+# ---------------------------------------------------------------------------
+
+
+def test_seed_is_still_life_under_any_mask():
+    from gol_mosaics.life import is_still_life
+
+    from beyond_tiles.seeds import build_seed
+    from beyond_tiles.targets import window_targets
+
+    rng = np.random.default_rng(5)
+    for trial in range(4):
+        free = rng.random((48, 48)) > 0.3
+        cell_t = rng.uniform(0, 0.45, (48, 48))
+        windows = window_slices((48, 48), k=8, stride=8)
+        targets, kept = window_targets(cell_t, free, windows)
+        seed = build_seed(free, kept, targets, phase=(trial % 3, trial % 3))
+        assert is_still_life(np.pad(seed, 1)), f"trial {trial}"
+        assert seed[~free].sum() == 0  # masked cells stay dead
+
+
+def test_seed_density_tracks_targets():
+    from beyond_tiles.seeds import build_seed
+    from beyond_tiles.targets import window_targets
+
+    # left half dark (0.4), right half light (0.05)
+    cell_t = np.concatenate(
+        [np.full((32, 16), 0.40), np.full((32, 16), 0.05)], axis=1
+    )
+    free = np.ones((32, 32), dtype=bool)
+    windows = window_slices((32, 32), k=8, stride=8)
+    targets, kept = window_targets(cell_t, free, windows)
+    seed = build_seed(free, kept, targets)
+    dark = seed[:, :16].mean()
+    light = seed[:, 16:].mean()
+    assert dark > 0.25 and light < 0.15
+    assert dark > light + 0.15
+
+
+def test_best_seed_reports_consistent_objective():
+    from beyond_tiles.seeds import best_seed, seed_objective
+    from beyond_tiles.targets import window_targets
+
+    rng = np.random.default_rng(9)
+    cell_t = rng.uniform(0, 0.45, (24, 24))
+    free = np.ones((24, 24), dtype=bool)
+    windows = window_slices((24, 24), k=8, stride=8)
+    targets, kept = window_targets(cell_t, free, windows)
+    seed, obj = best_seed(free, kept, targets)
+    assert obj == seed_objective(seed, free, kept, targets)
+    for phase in [(0, 0), (1, 2)]:
+        from beyond_tiles.seeds import build_seed
+
+        other = build_seed(free, kept, targets, phase)
+        assert obj <= seed_objective(other, free, kept, targets)
+
+
+def test_window_devs_hand_computed():
+    from beyond_tiles.lns import window_devs
+
+    pattern = np.zeros((8, 16), dtype=np.uint8)
+    pattern[:2, :2] = 1  # 4 live in the left window
+    free = np.ones((8, 16), dtype=bool)
+    windows = window_slices((8, 16), k=8, stride=8)
+    targets = np.array([1, 3])
+    assert window_devs(pattern, free, windows, targets).tolist() == [3, 3]
+    assert window_devs(pattern, free, windows, targets, slack=3).tolist() == [0, 0]
+
+
+def test_select_disjoint_keeps_gap():
+    from beyond_tiles.lns import _select_disjoint
+
+    scored = [
+        (10, (0, 1, 0, 1), (0, 8, 0, 8)),
+        (9, (0, 1, 1, 2), (0, 8, 8, 16)),  # touches the first: must be dropped
+        (8, (0, 1, 3, 4), (0, 8, 24, 32)),  # 8-cell gap: fine
+    ]
+    chosen = _select_disjoint(scored, limit=4)
+    boxes = [c[2] for c in chosen]
+    assert (0, 8, 0, 8) in boxes and (0, 8, 24, 32) in boxes
+    assert (0, 8, 8, 16) not in boxes
+
+
+def test_agar_hint_bounds_first_incumbent():
+    si = _solver()
+    import dataclasses as dc
+
+    grey = ramp_grey(24)
+    free = np.ones((24, 24), dtype=bool)
+    cfg = dc.replace(_test_config(si, k=8, stride=8), hint_mode="agar")
+    result = si.solve_image(grey, free, cfg)
+    assert result.seed_objective is not None
+    # The solver must do at least as well as the hint it was given.
+    assert result.objective <= result.seed_objective
+
+
+def test_lns_improves_seed_and_stays_still_life():
+    si = _solver()
+    from beyond_tiles.lns import LnsConfig, improve, window_devs
+    from beyond_tiles.seeds import build_seed
+    from beyond_tiles.targets import cell_targets, window_targets
+
+    grey = ramp_grey(24)
+    free = np.ones((24, 24), dtype=bool)
+    free[8:16, 8:16] = False
+    cell_t = cell_targets(grey, 0.45)
+    windows = window_slices((24, 24), k=8, stride=8)
+    targets, kept = window_targets(cell_t, free, windows)
+    seed = build_seed(free, kept, targets)
+    before = int(window_devs(seed, free, kept, targets).sum())
+
+    lcfg = LnsConfig(
+        patch_windows=2, patch_time_s=2.0, budget_s=30.0, n_procs=1, seed=0
+    )
+    res = improve(seed, free, kept, targets, lcfg, log=lambda *_: None)
+    objs = [o for _, o in res.obj_history]
+    assert objs == sorted(objs, reverse=True)  # monotone, never worsens
+    assert res.objective <= before
+    checks = si.verify_still_life(res.pattern)
+    assert checks["bounded"] and checks["toroidal"]
+    assert res.pattern[~free].sum() == 0
+
+
+def test_lns_rejects_overlapping_windows():
+    from beyond_tiles.lns import LnsConfig, improve
+
+    windows = window_slices((100, 100), k=8, stride=8)  # clamp: overlap at 92
+    with pytest.raises(ValueError):
+        improve(
+            np.zeros((100, 100), np.uint8),
+            np.ones((100, 100), bool),
+            windows,
+            np.zeros(len(windows), np.int64),
+            LnsConfig(budget_s=1.0),
+        )
+
+
+# ---------------------------------------------------------------------------
+# annealing engine (Stage 5)
+# ---------------------------------------------------------------------------
+
+
+def test_energy_zero_iff_stable_and_on_target():
+    pytest.importorskip("numba")
+    from beyond_tiles.anneal import energy, instability
+    from beyond_tiles.targets import window_targets
+
+    # A block exactly meets a target of 4 -> energy 0.
+    pattern = np.zeros((8, 8), dtype=np.uint8)
+    pattern[3:5, 3:5] = 1
+    free = np.ones((8, 8), dtype=bool)
+    windows = window_slices((8, 8), k=8, stride=8)
+    targets = np.array([4])
+    assert instability(np.pad(pattern, 1)) == 0
+    assert energy(np.pad(pattern, 1), free, windows, targets, 4.0, 0) == 0.0
+    # Off target by 2 -> energy 2; unstable single cell -> lam per violation.
+    assert energy(np.pad(pattern, 1), free, windows, np.array([6]), 4.0, 0) == 2.0
+    lonely = np.zeros((8, 8), dtype=np.uint8)
+    lonely[4, 4] = 1
+    assert instability(np.pad(lonely, 1)) == 1
+    assert energy(np.pad(lonely, 1), free, windows, np.array([1]), 4.0, 0) == 4.0
+
+
+def test_incremental_energy_matches_recompute():
+    pytest.importorskip("numba")
+    from beyond_tiles.anneal import AnnealConfig, anneal, energy
+    from beyond_tiles.targets import window_targets
+
+    rng = np.random.default_rng(3)
+    cell_t = rng.uniform(0, 0.45, (24, 24))
+    free = np.ones((24, 24), dtype=bool)
+    windows = window_slices((24, 24), k=8, stride=8)
+    targets, kept = window_targets(cell_t, free, windows)
+    seed = np.zeros((24, 24), dtype=np.uint8)
+    cfg = AnnealConfig(sweeps=30, replicas=2, seed=1, report_every=0, swap_every=10)
+    pattern, info = anneal(seed, free, kept, targets, cfg, log=lambda *_: None)
+    # The kernel's incremental energy must agree with a full recompute of
+    # the returned best grid.
+    assert info["best_energy"] == pytest.approx(
+        energy(np.pad(pattern, 1), free, kept, targets, cfg.lam, cfg.slack)
+    )
+
+
+def test_anneal_reduces_energy_and_is_deterministic():
+    pytest.importorskip("numba")
+    from beyond_tiles.anneal import AnnealConfig, anneal, energy
+    from beyond_tiles.targets import window_targets
+
+    cell_t = np.full((16, 16), 0.25)
+    free = np.ones((16, 16), dtype=bool)
+    windows = window_slices((16, 16), k=8, stride=8)
+    targets, kept = window_targets(cell_t, free, windows)
+    seed = np.zeros((16, 16), dtype=np.uint8)
+    e0 = energy(np.pad(seed, 1), free, kept, targets, 4.0, 0)
+    cfg = AnnealConfig(sweeps=200, replicas=2, seed=7, report_every=0)
+    a, info_a = anneal(seed, free, kept, targets, cfg, log=lambda *_: None)
+    b, info_b = anneal(seed, free, kept, targets, cfg, log=lambda *_: None)
+    assert info_a["best_energy"] < e0
+    assert np.array_equal(a, b)  # same config + seed -> same result
+
+
+def test_kill_repair_yields_exact_still_life():
+    pytest.importorskip("numba")
+    from beyond_tiles.anneal import instability, kill_repair
+
+    rng = np.random.default_rng(2)
+    for _ in range(5):
+        noisy = (rng.random((20, 20)) < 0.3).astype(np.uint8)
+        repaired = kill_repair(noisy)
+        assert instability(np.pad(repaired, 1)) == 0
+        # repair only removes cells
+        assert (repaired <= noisy).all()
+
+
+# ---------------------------------------------------------------------------
+# strip decomposition (Stage 4)
+# ---------------------------------------------------------------------------
+
+
+def test_plan_strips_alignment():
+    from beyond_tiles.decompose import plan_strips
+
+    plan = plan_strips(400, k=8, strip_rows=48, gap=2)
+    assert plan.spans[0] == (0, 48)
+    assert plan.spans[-1][1] == 400
+    assert all((r1 - r0) % 8 == 0 for r0, r1 in plan.spans)
+    # spans tile the height exactly
+    assert all(
+        plan.spans[i][1] == plan.spans[i + 1][0]
+        for i in range(len(plan.spans) - 1)
+    )
+    # no runt strip shorter than one window
+    assert all(r1 - r0 >= 8 for r0, r1 in plan.spans)
+
+
+def test_strip_solve_stitches_to_still_life():
+    si = _solver()
+    from beyond_tiles.decompose import StripPlan, solve_strips
+
+    grey = uniform_grey(32, 100)
+    free = np.ones((32, 32), dtype=bool)
+    cfg = _test_config(si, k=8, stride=8, time_limit_s=20.0)
+    plan = StripPlan(spans=[(0, 16), (16, 32)], gap=2)
+    out = solve_strips(grey, free, cfg, plan, n_procs=1)
+    pattern = out["pattern"]
+    assert pattern.shape == (32, 32)
+    checks = si.verify_still_life(pattern)
+    assert checks["bounded"] and checks["toroidal"]
+    assert pattern[14:16].sum() == 0  # the dead separator rows
+    assert pattern[:14].sum() > 0 and pattern[16:].sum() > 0
+
+
+def test_strip_solve_parallel_matches_serial():
+    si = _solver()
+    from beyond_tiles.decompose import StripPlan, solve_strips
+
+    grey = ramp_grey(24)
+    free = np.ones((24, 24), dtype=bool)
+    cfg = _test_config(si, k=8, stride=8, time_limit_s=15.0)
+    plan = StripPlan(spans=[(0, 8), (8, 16), (16, 24)], gap=2)
+    serial = solve_strips(grey, free, cfg, plan, n_procs=1)
+    parallel = solve_strips(grey, free, cfg, plan, n_procs=2)
+    assert np.array_equal(serial["pattern"], parallel["pattern"])
+    assert serial["objective"] == parallel["objective"]
+
+
+def test_lower_bound_is_valid_on_solved_instance():
+    si = _solver()
+    from beyond_tiles.decompose import StripPlan, lower_bound_strips
+
+    grey = ramp_grey(16)
+    free = np.ones((16, 16), dtype=bool)
+    cfg = _test_config(si, k=8, stride=8, time_limit_s=20.0)
+    exact = si.solve_image(grey, free, cfg)
+    assert exact.status == "OPTIMAL"
+    bound = lower_bound_strips(
+        grey, free, cfg, StripPlan(spans=[(0, 8), (8, 16)], gap=0), n_procs=1
+    )
+    assert bound["all_optimal"]
+    assert bound["lower_bound"] <= exact.objective
+
+
+def test_relaxed_model_has_fewer_constraints():
+    si = _solver()
+    grey = uniform_grey(16, 60)
+    free = np.ones((16, 16), dtype=bool)
+    cfg = _test_config(si, k=8, stride=8)
+    from beyond_tiles.targets import cell_targets
+
+    cell_t = cell_targets(grey, cfg.d_max)
+    full = si.build_model(cell_t, free, cfg)
+    relaxed = si.build_model(cell_t, free, cfg, relax_top=True, relax_bottom=True)
+    assert len(relaxed.model.Proto().constraints) < len(
+        full.model.Proto().constraints
+    )
+
+
+# ---------------------------------------------------------------------------
 # objective slack, dithered targets, solver parameters (Stage 2)
 # ---------------------------------------------------------------------------
 
