@@ -150,12 +150,26 @@ def run_case(case: BenchCase, outdir: Path, grey=None, free=None) -> dict:
     return metrics
 
 
+# Protocol-fixed fields: an override here would silently undo the suite's
+# seed variation or budget while the case names still claim them.
+PROTECTED = {"seed", "time_limit_s", "k", "stride"}
+
+
+def _check_overrides(overrides: Optional[Dict[str, object]]) -> Dict[str, object]:
+    overrides = dict(overrides or {})
+    clash = PROTECTED & overrides.keys()
+    if clash:
+        raise ValueError(f"protocol-fixed fields cannot be overridden: {sorted(clash)}")
+    return overrides
+
+
 def quick_suite(
     overrides: Optional[Dict[str, object]] = None, seeds=(0, 1, 2)
 ) -> List[BenchCase]:
     """Screening: 200² at 300 s across seeds."""
+    overrides = _check_overrides(overrides)
     return [
-        BenchCase(f"q200_s{s}", 200, 300.0, s, dict(overrides or {}))
+        BenchCase(f"q200_s{s}", 200, 300.0, s, dict(overrides))
         for s in seeds
     ]
 
@@ -164,8 +178,9 @@ def decisive_suite(
     overrides: Optional[Dict[str, object]] = None, seeds=(0, 1)
 ) -> List[BenchCase]:
     """Winners only: 400² at 600 s."""
+    overrides = _check_overrides(overrides)
     return [
-        BenchCase(f"d400_s{s}", 400, 600.0, s, dict(overrides or {}))
+        BenchCase(f"d400_s{s}", 400, 600.0, s, dict(overrides))
         for s in seeds
     ]
 
@@ -186,7 +201,9 @@ def compare(dirs: List[Path]) -> str:
     """Markdown table over every metrics.json below the given tag dirs."""
     rows = []
     for tag_dir in map(Path, dirs):
-        for path in sorted(tag_dir.rglob("metrics.json")):
+        # Direct case dirs only: nested lns/ sub-results would otherwise
+        # count a polished case twice.
+        for path in sorted(Path(tag_dir).glob("*/metrics.json")):
             metrics = json.loads(path.read_text())
             label = f"{tag_dir.name}/{path.parent.name}"
             rows.append((label, _flatten(metrics)))
@@ -215,8 +232,10 @@ def compare(dirs: List[Path]) -> str:
 def median_summary(tag_dir: Path) -> Dict[str, float]:
     """Median judge metrics across the cases of one tag (for A/B calls)."""
     tto, obj, mad = [], [], []
-    for path in sorted(Path(tag_dir).rglob("metrics.json")):
+    for path in sorted(Path(tag_dir).glob("*/metrics.json")):
         metrics = json.loads(path.read_text())
+        if "objective" not in metrics or "deviation" not in metrics:
+            continue  # a foreign metrics.json (e.g. e10's) — skip, not crash
         if metrics.get("time_to_optimal_s") is not None:
             tto.append(metrics["time_to_optimal_s"])
         obj.append(metrics["objective"])

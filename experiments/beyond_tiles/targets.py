@@ -66,7 +66,10 @@ def _dither_scan(
     each residual onto not-yet-quantized neighbouring windows, so the
     rounding error cancels in aggregate: the total live-cell mass is
     preserved to within half a cell. Weights are renormalized over the
-    neighbours that exist (dropped windows and the lattice edge take none).
+    neighbours that exist; when none of the four targets is available
+    (end of a kept segment, isolated window), the residual is carried to
+    the next kept window in scan order instead of being dropped, so only
+    the final window's residual is ever lost.
     """
     rows = sorted({w[0].start for w in windows})
     cols = sorted({w[1].start for w in windows})
@@ -79,30 +82,37 @@ def _dither_scan(
     out = np.zeros((n_rows, n_cols), dtype=np.int64)
     err = np.zeros((n_rows, n_cols), dtype=np.float64)
 
+    # Scan order, so a residual with no diffusion target can be handed to
+    # the next kept window instead of vanishing.
+    order = []
     for r in range(n_rows):
-        forward = r % 2 == 0
-        d = 1 if forward else -1
-        for c in range(n_cols) if forward else range(n_cols - 1, -1, -1):
-            if not kept[r, c]:
-                continue
-            v = value[r, c] + err[r, c]
-            q = int(np.clip(round(v), 0, n_free[r, c]))
-            out[r, c] = q
-            residual = v - q
-            neighbours = [
-                (r, c + d, 7.0),
-                (r + 1, c - d, 3.0),
-                (r + 1, c, 5.0),
-                (r + 1, c + d, 1.0),
-            ]
-            avail = [
-                (rr, cc, wgt)
-                for rr, cc, wgt in neighbours
-                if 0 <= rr < n_rows and 0 <= cc < n_cols and kept[rr, cc]
-            ]
+        cs = range(n_cols) if r % 2 == 0 else range(n_cols - 1, -1, -1)
+        order.extend((r, c) for c in cs if kept[r, c])
+    successor = {rc: order[i + 1] for i, rc in enumerate(order[:-1])}
+
+    for r, c in order:
+        d = 1 if r % 2 == 0 else -1
+        v = value[r, c] + err[r, c]
+        q = int(np.clip(round(v), 0, n_free[r, c]))
+        out[r, c] = q
+        residual = v - q
+        neighbours = [
+            (r, c + d, 7.0),
+            (r + 1, c - d, 3.0),
+            (r + 1, c, 5.0),
+            (r + 1, c + d, 1.0),
+        ]
+        avail = [
+            (rr, cc, wgt)
+            for rr, cc, wgt in neighbours
+            if 0 <= rr < n_rows and 0 <= cc < n_cols and kept[rr, cc]
+        ]
+        if avail:
             total = sum(wgt for _, _, wgt in avail)
             for rr, cc, wgt in avail:
                 err[rr, cc] += residual * wgt / total
+        elif (r, c) in successor:
+            err[successor[(r, c)]] += residual
     return out[kept].tolist()
 
 

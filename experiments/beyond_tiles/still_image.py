@@ -235,7 +235,10 @@ def _apply_solver_params(solver: cp_model.CpSolver, cfg: SpikeConfig) -> None:
 
 
 def solve(
-    bundle: ModelBundle, cfg: SpikeConfig, hint: Optional[np.ndarray] = None
+    bundle: ModelBundle,
+    cfg: SpikeConfig,
+    hint: Optional[np.ndarray] = None,
+    allow_unknown: bool = False,
 ) -> SpikeResult:
     h, w = bundle.shape
     if hint is not None:
@@ -266,7 +269,24 @@ def solve(
     if cfg.log_to:
         Path(cfg.log_to).write_text("\n".join(log_lines) + "\n")
 
-    assert status in (cp_model.OPTIMAL, cp_model.FEASIBLE), solver.StatusName(status)
+    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        # All-dead is always feasible, so this is only reachable with an
+        # extreme time limit. Callers that just need the proven bound
+        # (e.g. the strip relaxation) can opt in to an empty pattern.
+        assert allow_unknown, solver.StatusName(status)
+        return SpikeResult(
+            pattern=np.zeros((h, w), dtype=np.uint8),
+            status=solver.StatusName(status),
+            objective=int(sum(int(t) for t in bundle.targets)),
+            best_bound=int(solver.BestObjectiveBound()),
+            wall_time_s=wall,
+            obj_history=logger.history,
+            max_rss_mb=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2**20,
+            config=cfg,
+            build_time_s=bundle.build_time_s,
+            windows=bundle.windows,
+            targets=bundle.targets,
+        )
     # Bulk read: slice the whole solution vector once instead of 160k+
     # per-variable Value() calls at 400^2.
     solution = np.asarray(solver.ResponseProto().solution, dtype=np.int8)

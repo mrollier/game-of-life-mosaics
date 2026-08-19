@@ -283,7 +283,99 @@ windows (likely cheap now), aesthetic constraint experiments (e.g. banning
 extra, and a pysat/MaxSAT cross-encoding for the paper's reproducibility
 story.
 
-## 5. Out of scope
+## 5. Optimization campaign (2026-08-19)
+
+A systematic pass over the solver, after the spike shipped. Protocol fixed
+up front: a **quick suite** (Marilyn 200², k=8 stride=8, eq tone, 300 s,
+seeds {0,1,2}, judged by median time-to-optimal) screens every idea; a
+**decisive suite** (400², 600 s, seeds {0,1}, judged by objective@600 +
+dark-quartile MAD + best bound) tests the survivors; at most one 2,400 s
+headline run per landed stage. Raw objectives are only compared between
+runs with identical window geometry, targets and slack — across
+configurations the judges are the density-fidelity metrics.
+`run_experiment.py bench` runs the suites; every claim below has a
+`results/bench/<tag>` directory behind it.
+
+### Why the 400² lower bound is stuck at 2 (and what can move it)
+
+The half-reified stability constraints are vacuous at fractional values
+(set every cell to 0.5 and both branches disarm), so the LP relaxation's
+root bound is ~0, and no solver parameter changes that. Three genuine
+levers: make objective 0 *reachable* (per-window slack — then the first
+good incumbent closes the gap), compute a decomposition bound (strip
+relaxation, below), or stop caring about the proof and improve incumbents
+directly (LNS, seeds, annealing).
+
+### C0/C1 — instrumentation and model-build fixes
+
+Model build time was never measured (it starts before `wall_time_s`);
+now it is: ~0.4 s at 200². The builder also stops emitting the two
+half-reified stability constraints for forced-dead cells (the alive
+branch is structurally false; the no-birth branch is emitted, without an
+enforcement literal, only where a live neighbour is possible), drops
+fixed-dead variables from neighbour sums, leaves variables unnamed
+(160k+ name strings otherwise ship in the proto at 400²), and reads the
+final pattern out of the response proto in one slice instead of 160k
+`Value()` calls. `SpikeResult` now carries the solved window geometry
+and targets so `save_run` stops re-deriving them (which also fixes
+`soft_zero` runs being scored against targets the model never saw).
+A/B: objectives and MAD bit-identical to the baseline, median
+time-to-optimal 85.2 s vs 82.8 s (noise).
+
+Also fixed: `_axis_starts` silently emitted an *overlapping* final
+window whenever the canvas is not a multiple of k — even in "disjoint"
+mode (N=100/120/150 were affected; 200/400 divide evenly and were not).
+`edge_windows="partial"` now gives true disjointness with a short final
+window; the historic clamp remains the default for reproducibility.
+
+### C2 — objective slack, dithered targets, solver parameters (e7)
+
+Quick-suite medians (200², 3 seeds, full table in `results/bench/e7_*`):
+
+| variant | time-to-optimal (median) | objective | MAD |
+|---|---|---|---|
+| base (post-C1) | 80.3 s | 2 | 0.0091 |
+| slack=1 | 63.6 s | 0 (proven) | 0.0198 |
+| slack=2 | 60.7 s | 0 (proven) | 0.0315 |
+| dither=fs | 83.8 s | 2 | 0.0096 |
+| slack=1 + fs | 66.7 s | 0 (proven) | 0.0214 |
+| + lb subsolvers | 85.2 s | 2 | 0.0087 |
+| violation_ls=3 | 77.7 s | 2 | 0.0091 |
+| symmetry_level=0 | 76.9 s | 2 | 0.0091 |
+
+Readings. **Slack** buys proofs, not pictures: at 200² (which closes
+anyway) slack=1 costs 2.2× the MAD for a 20 % faster proof — the per-
+window tolerance is real density error the solver is no longer asked to
+remove. Its case lives or dies at 400². **Dithering** does not move
+per-window MAD (its ±1 targets are, per window, *coarser* than plain
+rounding's ±0.5; what it fixes is aggregate tonal bias across window
+groups, invisible to this metric) — default stays `round`, the flag
+exists for banding-sensitive inputs. **symmetry_level=0** is a small,
+consistent win (−5 % wall, first incumbent 2.6 s vs 3.1–3.6 s): an
+image-driven model has no symmetry worth a detection pass.
+**lb_tree_search/objective_lb_search** (cut from the default portfolio
+at 10 workers) and **violation_ls** do nothing at 200²; their decisive
+test is the 400² bound.
+
+### Considered and rejected
+
+- **MaxSAT encoding**: ~36.5M clauses at 400² before sharing; MSE 2026
+  anytime winners are clause-level stochastic local search, the worst
+  possible shape for a 2,500-term cardinality objective; CP-SAT-via-CNF
+  placed last in that track. The native linear structure is worth more
+  than any portfolio swap.
+- **Chu & Stuckey wastage bounds**: `live(R) <= |R|/2 + perim(R)/4`
+  gives 40 per 8×8 window; targets cap at 28.8 (d_max 0.45) — slack by
+  ~40 %, binds only near density 0.5. Their *method* (relax onto strips,
+  bound the parts) transfers; the arithmetic does not.
+- **GPU SAT/CP on Metal**: nothing production-ready exists (the research
+  systems are CUDA and lose to sequential CDCL anyway).
+- **Transfer-matrix DP**: exact column DP costs ~8^h per column — fine
+  to h≈9 in C, useless at h=400.
+- **Gurobi indicator-constraint MIP**: same vacuous-relaxation disease
+  as CP-SAT's LP (`gurobi_check.py` exists to record the numbers).
+
+## 6. Out of scope
 
 pysat/MaxSAT cross-check of the encoding; oscillators (period > 1);
 anti-banding aesthetic constraints; non-square canvases; app integration.

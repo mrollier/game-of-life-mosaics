@@ -19,6 +19,7 @@ Two distinct uses of horizontal strips, easy to conflate:
   near zero at 400².
 """
 
+import dataclasses
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
@@ -26,6 +27,27 @@ from typing import List, Optional, Tuple
 import numpy as np
 
 from beyond_tiles.still_image import SpikeConfig, build_model, solve
+
+
+def _check_cfg(cfg: SpikeConfig) -> SpikeConfig:
+    """Strip solving supports exactly the geometry its proofs assume.
+
+    - force_dead only: the dead separator is implemented through the free
+      mask, which pins cells only in that mode.
+    - stride == k: cuts must align with every window boundary, or windows
+      straddling a cut silently vanish from both strips' objectives.
+    - dither forced to "round": per-window rounding is local, so strip
+      targets equal global targets; Floyd-Steinberg error diffusion is
+      not local and would make the strip objective (and therefore the
+      lower bound) refer to different targets than the global model's.
+    """
+    if cfg.mask_mode != "force_dead":
+        raise ValueError("strip decomposition requires mask_mode='force_dead'")
+    if cfg.stride != cfg.k:
+        raise ValueError("strip decomposition requires stride == k")
+    if cfg.dither != "round":
+        cfg = dataclasses.replace(cfg, dither="round")
+    return cfg
 
 
 @dataclass
@@ -62,7 +84,7 @@ def _solve_strip_task(payload: dict):
         relax_top=payload.get("relax_top", False),
         relax_bottom=payload.get("relax_bottom", False),
     )
-    result = sv(bundle, cfg)
+    result = sv(bundle, cfg, allow_unknown=True)
     return {
         "pattern": result.pattern,
         "status": result.status,
@@ -93,8 +115,15 @@ def solve_strips(
     embedded in a dead plane, and gaps keep them out of reach of each
     other); callers should still run verify_still_life on it.
     """
+    cfg = _check_cfg(cfg)
     h, w = grey.shape
     plan = plan or plan_strips(h, cfg.k)
+    if plan.gap < 2 and len(plan.spans) > 1:
+        raise ValueError(
+            "gap must be >= 2 dead rows: one row is checked against only "
+            "one side by either strip's model, so 2+1 live neighbours "
+            "across the cut could still give birth"
+        )
     payloads = []
     for idx, (r0, r1) in enumerate(plan.spans):
         free = free_mask[r0:r1].copy()
@@ -129,6 +158,7 @@ def lower_bound_strips(
     Every strip must reach OPTIMAL for the bound to be valid; strips that
     time out contribute their proven best_bound instead (still valid).
     """
+    cfg = _check_cfg(cfg)
     h, w = grey.shape
     plan = plan or plan_strips(h, cfg.k)
     payloads = []

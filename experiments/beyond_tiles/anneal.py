@@ -311,8 +311,15 @@ def anneal(
     (by energy at the campaign lam) and a stats dict."""
     h, w = seed_pattern.shape
     win_id = np.full((h, w), -1, dtype=np.int64)
+    overlap = np.zeros((h, w), dtype=np.int8)
     for idx, (si, sj) in enumerate(windows):
         win_id[si, sj] = idx
+        overlap[si, sj] += 1
+    if (overlap > 1).any():
+        raise ValueError(
+            "anneal needs pairwise-disjoint windows (stride == k; use "
+            "edge_windows='partial' when the canvas is not a multiple of k)"
+        )
     csr = _class_csr(free_mask, win_id, len(windows))
     block_csr = _block_csr(free_mask, win_id, len(windows))
     targets64 = np.asarray(targets, dtype=np.int64)
@@ -320,8 +327,13 @@ def anneal(
     rng = np.random.default_rng(cfg.seed)
     # Ladder: geometric in beta, lam relaxed toward the hot end so hot
     # replicas can cross stability barriers (the 2-D tempering idea).
-    betas = np.geomspace(cfg.beta0, cfg.beta1, cfg.replicas)
-    lams = np.linspace(max(1.0, cfg.lam / 2), cfg.lam, cfg.replicas)
+    # A single replica gets the cold endpoints (numpy's *space(..., 1)
+    # would otherwise return the hot start and never anneal).
+    if cfg.replicas == 1:
+        betas, lams = np.array([cfg.beta1]), np.array([cfg.lam])
+    else:
+        betas = np.geomspace(cfg.beta0, cfg.beta1, cfg.replicas)
+        lams = np.linspace(max(1.0, cfg.lam / 2), cfg.lam, cfg.replicas)
 
     replicas: List[_Replica] = []
     for r in range(cfg.replicas):

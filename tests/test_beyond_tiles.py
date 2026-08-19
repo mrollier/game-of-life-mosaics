@@ -657,6 +657,85 @@ def test_lns_rejects_overlapping_windows():
 
 
 # ---------------------------------------------------------------------------
+# review fixes (guard rails)
+# ---------------------------------------------------------------------------
+
+
+def test_dither_carries_residual_across_segments():
+    # Isolated kept windows (all diffusion neighbours masked): residuals
+    # must be handed down the scan instead of dropped per segment.
+    from beyond_tiles.targets import window_targets
+
+    free = np.zeros((48, 48), dtype=bool)
+    for r in range(0, 6, 2):
+        for c in range(0, 6, 2):
+            free[r * 8 : r * 8 + 8, c * 8 : c * 8 + 8] = True
+    cell_t = np.full((48, 48), 2.5 / 64)
+    windows = window_slices((48, 48), k=8, stride=8)
+    fs, kept = window_targets(cell_t, free, windows, dither="fs")
+    assert len(kept) == 9
+    assert abs(fs.sum() - 9 * 2.5) <= 1.0
+
+
+def test_strip_guards_reject_unsound_configs():
+    si = _solver()
+    from beyond_tiles.decompose import StripPlan, lower_bound_strips, solve_strips
+
+    grey = uniform_grey(16, 100)
+    free = np.ones((16, 16), dtype=bool)
+    plan = StripPlan(spans=[(0, 8), (8, 16)], gap=1)
+    with pytest.raises(ValueError, match="gap"):
+        solve_strips(grey, free, _test_config(si, k=8, stride=8), plan)
+    with pytest.raises(ValueError, match="stride"):
+        solve_strips(grey, free, _test_config(si), StripPlan([(0, 8), (8, 16)], 2))
+    with pytest.raises(ValueError, match="force_dead"):
+        lower_bound_strips(
+            grey, free, _test_config(si, k=8, stride=8, mask_mode="none"),
+            StripPlan([(0, 8), (8, 16)], 2),
+        )
+
+
+def test_bench_rejects_protocol_overrides():
+    from beyond_tiles.bench import quick_suite
+
+    with pytest.raises(ValueError, match="protocol-fixed"):
+        quick_suite({"seed": 7})
+    with pytest.raises(ValueError, match="protocol-fixed"):
+        quick_suite({"time_limit_s": 5.0})
+
+
+def test_anneal_rejects_overlapping_windows():
+    pytest.importorskip("numba")
+    from beyond_tiles.anneal import AnnealConfig, anneal
+
+    windows = window_slices((100, 100), k=8, stride=8)  # clamp overlap at 92
+    with pytest.raises(ValueError, match="disjoint"):
+        anneal(
+            np.zeros((100, 100), np.uint8),
+            np.ones((100, 100), bool),
+            windows,
+            np.zeros(len(windows), np.int64),
+            AnnealConfig(sweeps=1),
+        )
+
+
+def test_single_replica_uses_cold_endpoints():
+    pytest.importorskip("numba")
+    from beyond_tiles.anneal import AnnealConfig, anneal
+    from beyond_tiles.targets import window_targets
+
+    cell_t = np.full((16, 16), 0.25)
+    free = np.ones((16, 16), dtype=bool)
+    windows = window_slices((16, 16), k=8, stride=8)
+    targets, kept = window_targets(cell_t, free, windows)
+    seed = np.zeros((16, 16), dtype=np.uint8)
+    cfg = AnnealConfig(sweeps=200, replicas=1, seed=3, report_every=0)
+    pattern, info = anneal(seed, free, kept, targets, cfg, log=lambda *_: None)
+    # At the cold endpoints the block moves alone must make real progress.
+    assert info["best_energy"] < 64
+
+
+# ---------------------------------------------------------------------------
 # annealing engine (Stage 5)
 # ---------------------------------------------------------------------------
 

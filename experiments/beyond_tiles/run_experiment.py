@@ -34,13 +34,13 @@ RESULTS = Path(__file__).resolve().parent / "results"
 
 def _cfg(args, **overrides) -> SpikeConfig:
     kw = dict(
-        k=args.k,
-        stride=args.stride,
+        k=getattr(args, "k", 8),
+        stride=getattr(args, "stride", 8),
         d_max=args.dmax,
         time_limit_s=args.time,
         workers=args.workers,
         seed=args.seed,
-        mask_mode=args.mask_mode,
+        mask_mode=getattr(args, "mask_mode", "force_dead"),
         snapshot_gap_s=getattr(args, "snapshot_gap", 0.0),
         slack=getattr(args, "slack", 0),
         dither=getattr(args, "dither", "round"),
@@ -242,7 +242,9 @@ def cmd_bench(args) -> None:
     """Fixed-protocol A/B benchmark runs (see bench.py for the protocol)."""
     from beyond_tiles import bench
 
-    if args.compare:
+    if args.compare is not None:
+        if not args.compare:
+            raise SystemExit("bench --compare needs at least one tag directory")
         print(bench.compare([Path(p) for p in args.compare]))
         for p in args.compare:
             print(f"\n{p}: {json.dumps(bench.median_summary(Path(p)))}")
@@ -312,7 +314,8 @@ def cmd_e10(args) -> None:
 
     grey, free = _marilyn(args)
     cell_t = cell_targets(grey, 0.45)
-    windows = window_slices(grey.shape, 8, 8)
+    # partial edge mode: anneal and LNS both require disjoint windows.
+    windows = window_slices(grey.shape, 8, 8, edge="partial")
     targets, kept = window_targets(cell_t, free, windows, dither=args.dither)
 
     seed, seed_obj = best_seed(free, kept, targets, slack=args.slack)
@@ -407,6 +410,13 @@ def cmd_lns(args) -> None:
     before = int(
         lns_mod.window_devs(pattern, free, kept, targets, cfg.slack).sum()
     )
+    if before != saved.get("objective"):
+        raise SystemExit(
+            f"recomputed objective {before} does not match the saved "
+            f"{saved.get('objective')} — the rebuilt targets differ from "
+            "the run's (wrong --tone, or a different image/geometry). "
+            "Pass the tone the run was solved with."
+        )
     res = lns_mod.improve(pattern, free, kept, targets, lcfg)
     out = SpikeResult(
         pattern=res.pattern,
@@ -529,14 +539,12 @@ def main() -> None:
     p9.add_argument("--workers", type=int, default=2,
                     help="CP-SAT workers per strip (times --procs processes)")
     p9.add_argument("--seed", type=int, default=0)
-    p9.add_argument("--k", type=int, default=8)
-    p9.add_argument("--stride", type=int, default=8)
+    # k/stride are fixed at 8/8 (cuts must align to window boundaries) and
+    # dither at "round" (strip-local error diffusion would change targets);
+    # deliberately not exposed as flags.
     p9.add_argument("--dmax", type=float, default=0.45)
-    p9.add_argument("--mask-mode", default="force_dead",
-                    choices=["force_dead", "soft_zero", "none"])
     p9.add_argument("--tone", default="eq", choices=["raw", "norm", "eq"])
     p9.add_argument("--slack", type=int, default=0)
-    p9.add_argument("--dither", default="round", choices=["round", "fs"])
     p9.set_defaults(fn=cmd_e9)
     pl = sub.add_parser("lns")
     pl.add_argument("run_dir", help="saved run directory to polish")

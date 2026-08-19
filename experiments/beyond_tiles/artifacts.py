@@ -109,11 +109,17 @@ def save_run(outdir, result, grey: np.ndarray, free_mask: np.ndarray) -> dict:
             grey.shape, cfg.k, cfg.stride, edge=getattr(cfg, "edge_windows", "clamp")
         )
         targets, kept = window_targets(cell_t, free_mask, windows)
-    achieved, wanted = [], []
+    achieved, wanted, plotted = [], [], []
     for t, (si, sj) in zip(targets, kept):
         n_free = free_mask[si, sj].sum()
+        if n_free == 0:
+            # Possible when result.windows came from a soft_zero/none
+            # solve (all-ones model mask) but the caller's mask has a
+            # fully-masked window.
+            continue
         achieved.append(pattern[si, sj][free_mask[si, sj]].sum() / n_free)
         wanted.append(t / n_free)
+        plotted.append((si, sj))
     # Pure object-oriented matplotlib: no pyplot import, so importing this
     # module never hijacks a notebook's inline backend.
     fig = Figure(figsize=(12, 4))
@@ -127,7 +133,7 @@ def save_run(outdir, result, grey: np.ndarray, free_mask: np.ndarray) -> dict:
         ],
     ):
         im = ax.imshow(
-            _window_field(vals, kept, grey.shape), cmap="viridis", vmin=0
+            _window_field(vals, plotted, grey.shape), cmap="viridis", vmin=0
         )
         ax.set_title(title)
         ax.axis("off")
