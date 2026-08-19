@@ -50,6 +50,9 @@ sat = [
 bg-removal = [
     "rembg[cpu]>=2.0.0",
 ]
+beyond = [
+    "ortools>=9.12",
+]
 
 [project.urls]
 Homepage = "https://github.com/mrollier/game-of-life-mosaics"
@@ -67,7 +70,7 @@ where = ["src"]
 gol_mosaics = ["data/*.npy"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "experiments"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]

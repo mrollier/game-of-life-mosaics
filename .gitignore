@@ -77,6 +77,9 @@ hf_space/
 # Paper draft — kept off the public repository
 paper/
 
+# Beyond-tiles spike run outputs (curated figures live in experiments/beyond_tiles/figures/)
+experiments/beyond_tiles/results/
+
 # Workstation search artifacts (checkpoints, local oracle copy, big outputs)
 workstation/level6_search/work/
 workstation/level6_search/reference/
