@@ -101,8 +101,14 @@ def save_run(outdir, result, grey: np.ndarray, free_mask: np.ndarray) -> dict:
         writer.writerows(result.obj_history)
 
     cell_t = cell_targets(grey, cfg.d_max)
-    windows = window_slices(grey.shape, cfg.k, cfg.stride)
-    targets, kept = window_targets(cell_t, free_mask, windows)
+    if getattr(result, "windows", None) is not None:
+        # The geometry and targets the model was actually solved against.
+        kept, targets = result.windows, result.targets
+    else:
+        windows = window_slices(
+            grey.shape, cfg.k, cfg.stride, edge=getattr(cfg, "edge_windows", "clamp")
+        )
+        targets, kept = window_targets(cell_t, free_mask, windows)
     achieved, wanted = [], []
     for t, (si, sj) in zip(targets, kept):
         n_free = free_mask[si, sj].sum()
@@ -136,6 +142,7 @@ def save_run(outdir, result, grey: np.ndarray, free_mask: np.ndarray) -> dict:
         "objective": result.objective,
         "best_bound": result.best_bound,
         "wall_time_s": result.wall_time_s,
+        "build_time_s": getattr(result, "build_time_s", 0.0),
         "max_rss_mb": result.max_rss_mb,
         "live_cells": int(pattern.sum()),
         "config": dataclasses.asdict(cfg),

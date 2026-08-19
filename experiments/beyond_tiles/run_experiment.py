@@ -42,6 +42,13 @@ def _cfg(args, **overrides) -> SpikeConfig:
         seed=args.seed,
         mask_mode=args.mask_mode,
         snapshot_gap_s=getattr(args, "snapshot_gap", 0.0),
+        slack=getattr(args, "slack", 0),
+        dither=getattr(args, "dither", "round"),
+        edge_windows=getattr(args, "edge_windows", "clamp"),
+        add_lb_subsolvers=getattr(args, "lb_subsolvers", False),
+        num_violation_ls=getattr(args, "violation_ls", 0),
+        symmetry_level=getattr(args, "symmetry_level", None),
+        log_to=getattr(args, "log_to", None),
     )
     kw.update(overrides)
     return SpikeConfig(**kw)
@@ -201,6 +208,54 @@ def cmd_gif(args) -> None:
     )
 
 
+E7_VARIANTS = [
+    ("A_base", {}),
+    ("B_slack1", {"slack": 1}),
+    ("C_slack2", {"slack": 2}),
+    ("D_dither", {"dither": "fs"}),
+    ("E_slack1_dither", {"slack": 1, "dither": "fs"}),
+    ("F_lbsub", {"add_lb_subsolvers": True}),
+    ("G_vls3", {"num_violation_ls": 3}),
+    ("H_sym0", {"symmetry_level": 0}),
+]
+
+
+def cmd_e7(args) -> None:
+    """Stage-2 parameter study: quick suite per variant, tagged e7_<name>."""
+    from beyond_tiles import bench
+
+    variants = E7_VARIANTS
+    if args.only:
+        variants = [(n, ov) for n, ov in variants if n[0] in args.only]
+    seeds = tuple(args.seeds) if args.seeds else (0, 1, 2)
+    for name, overrides in variants:
+        suite = (
+            bench.quick_suite if args.suite == "quick" else bench.decisive_suite
+        )
+        for case in suite(overrides, seeds=seeds):
+            bench.run_case(case, RESULTS / "bench" / f"e7_{name}")
+    print(bench.compare(sorted((RESULTS / "bench").glob("e7_*"))))
+
+
+def cmd_bench(args) -> None:
+    """Fixed-protocol A/B benchmark runs (see bench.py for the protocol)."""
+    from beyond_tiles import bench
+
+    if args.compare:
+        print(bench.compare([Path(p) for p in args.compare]))
+        for p in args.compare:
+            print(f"\n{p}: {json.dumps(bench.median_summary(Path(p)))}")
+        return
+
+    overrides = bench.parse_overrides(args.overrides or [])
+    suite_fn = bench.quick_suite if args.suite == "quick" else bench.decisive_suite
+    cases = suite_fn(overrides, seeds=tuple(args.seeds)) if args.seeds else suite_fn(overrides)
+    outdir = RESULTS / "bench" / args.tag
+    for case in cases:
+        bench.run_case(case, outdir)
+    print(json.dumps(bench.median_summary(outdir), indent=2))
+
+
 def cmd_verify(args) -> None:
     pattern = np.load(args.pattern)
     checks = verify_still_life(pattern)
@@ -235,6 +290,18 @@ def main() -> None:
         p.add_argument("--mask-mode", default="force_dead",
                        choices=["force_dead", "soft_zero", "none"])
         p.add_argument("--tone", default="eq", choices=["raw", "norm", "eq"])
+        p.add_argument("--slack", type=int, default=0,
+                       help="free deviation per window, in cells")
+        p.add_argument("--dither", default="round", choices=["round", "fs"])
+        p.add_argument("--edge-windows", default="clamp",
+                       choices=["clamp", "partial"])
+        p.add_argument("--lb-subsolvers", action="store_true",
+                       help="schedule lb_tree_search + objective_lb_search")
+        p.add_argument("--violation-ls", type=int, default=0,
+                       help="Feasibility-Jump local-search workers")
+        p.add_argument("--symmetry-level", type=int, default=None)
+        p.add_argument("--log-to", default=None,
+                       help="write the CP-SAT search log to this file")
         p.set_defaults(fn=fn)
     p5 = sub.add_parser("e5")
     p5.add_argument("pattern", help="pattern.npy of the free-form solve")
@@ -248,6 +315,22 @@ def main() -> None:
     pg.add_argument("--no-panel", action="store_true",
                     help="pattern only, without the convergence curve")
     pg.set_defaults(fn=cmd_gif)
+    p7 = sub.add_parser("e7")
+    p7.add_argument("--suite", default="quick", choices=["quick", "decisive"])
+    p7.add_argument("--only", nargs="*", default=None, metavar="LETTER",
+                    help="variant letters to run, e.g. --only B E")
+    p7.add_argument("--seeds", type=int, nargs="*", default=None)
+    p7.set_defaults(fn=cmd_e7)
+    pb = sub.add_parser("bench")
+    pb.add_argument("--suite", default="quick", choices=["quick", "decisive"])
+    pb.add_argument("--tag", default="untagged",
+                    help="results land in results/bench/<tag>/")
+    pb.add_argument("--overrides", nargs="*", default=None, metavar="KEY=VAL",
+                    help="SpikeConfig overrides, e.g. workers=4 d_max=0.4")
+    pb.add_argument("--seeds", type=int, nargs="*", default=None)
+    pb.add_argument("--compare", nargs="*", default=None, metavar="TAG_DIR",
+                    help="print a markdown table over these tag dirs instead")
+    pb.set_defaults(fn=cmd_bench)
     pv = sub.add_parser("verify")
     pv.add_argument("pattern")
     pv.set_defaults(fn=cmd_verify)

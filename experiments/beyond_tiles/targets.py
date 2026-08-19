@@ -11,20 +11,39 @@ import numpy as np
 Window = Tuple[slice, slice]
 
 
-def _axis_starts(n: int, k: int, stride: int) -> List[int]:
+def _axis_starts(
+    n: int, k: int, stride: int, edge: str = "clamp"
+) -> List[Tuple[int, int]]:
+    """(start, stop) spans along one axis.
+
+    `edge="clamp"` (historic default) shifts a final full-size window back
+    to end at `n`, which overlaps its neighbour whenever `n % k != 0` —
+    even in otherwise disjoint stride==k geometry. `edge="partial"` keeps
+    the grid disjoint by emitting a final short window instead.
+    """
     assert n >= k, f"axis length {n} smaller than window {k}"
     starts = list(range(0, n - k + 1, stride))
-    if starts[-1] != n - k:
-        starts.append(n - k)
-    return starts
+    spans = [(s, s + k) for s in starts]
+    if edge == "clamp":
+        if starts[-1] != n - k:
+            spans.append((n - k, n))
+    elif edge == "partial":
+        last_stop = starts[-1] + k
+        if last_stop < n:
+            spans.append((last_stop, n))
+    else:
+        raise ValueError(f"unknown edge mode: {edge}")
+    return spans
 
 
-def window_slices(shape: Tuple[int, int], k: int, stride: int) -> List[Window]:
-    """All k x k windows at `stride`, clamped so the last row/col is covered."""
-    rows = _axis_starts(shape[0], k, stride)
-    cols = _axis_starts(shape[1], k, stride)
+def window_slices(
+    shape: Tuple[int, int], k: int, stride: int, edge: str = "clamp"
+) -> List[Window]:
+    """All k x k windows at `stride`; the edge is covered per `edge` mode."""
+    rows = _axis_starts(shape[0], k, stride, edge)
+    cols = _axis_starts(shape[1], k, stride, edge)
     return [
-        (slice(i, i + k), slice(j, j + k)) for i in rows for j in cols
+        (slice(i0, i1), slice(j0, j1)) for i0, i1 in rows for j0, j1 in cols
     ]
 
 
@@ -33,21 +52,91 @@ def cell_targets(grey: np.ndarray, d_max: float) -> np.ndarray:
     return d_max * (1.0 - np.asarray(grey, dtype=np.float64) / 255.0)
 
 
+def _dither_scan(
+    windows: List[Window],
+    exact: List[float],
+    counts: List[int],
+    kept_flags: List[bool],
+) -> List[int]:
+    """Serpentine Floyd-Steinberg on the window lattice.
+
+    Plain per-window rounding throws away up to half a live cell per
+    window, and the residual correlates with image gradients (a slow ramp
+    rounds the same way for whole bands of windows). Error diffusion pushes
+    each residual onto not-yet-quantized neighbouring windows, so the
+    rounding error cancels in aggregate: the total live-cell mass is
+    preserved to within half a cell. Weights are renormalized over the
+    neighbours that exist (dropped windows and the lattice edge take none).
+    """
+    rows = sorted({w[0].start for w in windows})
+    cols = sorted({w[1].start for w in windows})
+    n_rows, n_cols = len(rows), len(cols)
+    assert n_rows * n_cols == len(windows), "windows must form a full lattice"
+
+    value = np.asarray(exact, dtype=np.float64).reshape(n_rows, n_cols)
+    n_free = np.asarray(counts, dtype=np.int64).reshape(n_rows, n_cols)
+    kept = np.asarray(kept_flags, dtype=bool).reshape(n_rows, n_cols)
+    out = np.zeros((n_rows, n_cols), dtype=np.int64)
+    err = np.zeros((n_rows, n_cols), dtype=np.float64)
+
+    for r in range(n_rows):
+        forward = r % 2 == 0
+        d = 1 if forward else -1
+        for c in range(n_cols) if forward else range(n_cols - 1, -1, -1):
+            if not kept[r, c]:
+                continue
+            v = value[r, c] + err[r, c]
+            q = int(np.clip(round(v), 0, n_free[r, c]))
+            out[r, c] = q
+            residual = v - q
+            neighbours = [
+                (r, c + d, 7.0),
+                (r + 1, c - d, 3.0),
+                (r + 1, c, 5.0),
+                (r + 1, c + d, 1.0),
+            ]
+            avail = [
+                (rr, cc, wgt)
+                for rr, cc, wgt in neighbours
+                if 0 <= rr < n_rows and 0 <= cc < n_cols and kept[rr, cc]
+            ]
+            total = sum(wgt for _, _, wgt in avail)
+            for rr, cc, wgt in avail:
+                err[rr, cc] += residual * wgt / total
+    return out[kept].tolist()
+
+
 def window_targets(
-    cell_t: np.ndarray, free_mask: np.ndarray, windows: List[Window]
+    cell_t: np.ndarray,
+    free_mask: np.ndarray,
+    windows: List[Window],
+    dither: str = "round",
 ) -> Tuple[np.ndarray, List[Window]]:
     """Integer live-cell target per window, summed over free cells only.
 
-    Windows without any free cell are dropped.
+    Windows without any free cell are dropped. `dither="fs"` replaces the
+    per-window rounding with Floyd-Steinberg error diffusion over the
+    window lattice (see `_dither_scan`).
     """
-    targets: List[int] = []
-    kept: List[Window] = []
+    exact: List[float] = []
+    counts: List[int] = []
+    kept_flags: List[bool] = []
     for si, sj in windows:
         free = free_mask[si, sj]
-        if not free.any():
-            continue
-        targets.append(int(round(cell_t[si, sj][free].sum())))
-        kept.append((si, sj))
+        n = int(free.sum())
+        counts.append(n)
+        kept_flags.append(n > 0)
+        exact.append(float(cell_t[si, sj][free].sum()) if n else 0.0)
+
+    if dither == "round":
+        targets = [
+            int(round(v)) for v, keep in zip(exact, kept_flags) if keep
+        ]
+    elif dither == "fs":
+        targets = _dither_scan(windows, exact, counts, kept_flags)
+    else:
+        raise ValueError(f"unknown dither mode: {dither}")
+    kept = [w for w, keep in zip(windows, kept_flags) if keep]
     return np.asarray(targets, dtype=np.int64), kept
 
 

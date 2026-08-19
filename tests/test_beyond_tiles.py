@@ -442,6 +442,222 @@ def test_snapshots_off_by_default():
     assert result.obj_history  # the cheap log is always kept
 
 
+# ---------------------------------------------------------------------------
+# model-build optimizations (Stage 1 of the optimization campaign)
+# ---------------------------------------------------------------------------
+
+
+def test_partial_edge_windows_cover_and_disjoint():
+    windows = window_slices((150, 150), k=8, stride=8, edge="partial")
+    covered = np.zeros((150, 150), dtype=np.int32)
+    for si, sj in windows:
+        covered[si, sj] += 1
+    assert (covered == 1).all()  # full coverage, pairwise disjoint
+    row_spans = sorted({(ws[0].start, ws[0].stop) for ws in windows})
+    assert row_spans[-1] == (144, 150)  # final short window, not a clamped one
+    assert all(stop - start == 8 for start, stop in row_spans[:-1])
+
+
+def test_edge_mode_rejects_unknown():
+    with pytest.raises(ValueError):
+        window_slices((16, 16), k=8, stride=8, edge="wrap")
+
+
+def test_forced_dead_constraint_pruning():
+    si = _solver()
+    grey = uniform_grey(12, 0)
+    free = np.ones((12, 12), dtype=bool)
+    free[:, 6:] = False  # right half masked
+    cfg = _test_config(si)
+    full = si.build_model(cell_targets(grey, cfg.d_max), np.ones((12, 12), bool), cfg)
+    masked = si.build_model(cell_targets(grey, cfg.d_max), free, cfg)
+    n_full = len(full.model.Proto().constraints)
+    n_masked = len(masked.model.Proto().constraints)
+    # Interior fixed-dead cells away from the free region lose both
+    # stability branches, so the masked model must be strictly smaller
+    # even though it adds x == 0 pins.
+    assert n_masked < n_full
+    result = si.solve(masked, cfg)
+    assert result.pattern[:, 6:].sum() == 0
+    assert si.verify_still_life(result.pattern)["bounded"]
+
+
+def test_reported_objective_matches_pattern():
+    # Guards the bulk solution extraction: the pattern read back from the
+    # response proto must reproduce the objective CP-SAT reported.
+    si = _solver()
+    grey = ramp_grey(16)
+    free = np.ones((16, 16), dtype=bool)
+    free[2:6, 9:14] = False
+    result = si.solve_image(grey, free, _test_config(si))
+    assert result.windows is not None and result.targets is not None
+    recomputed = 0
+    for t, (subgrid_i, subgrid_j) in zip(result.targets, result.windows):
+        window_free = free[subgrid_i, subgrid_j]
+        live = int(result.pattern[subgrid_i, subgrid_j][window_free].sum())
+        recomputed += abs(live - int(t))
+    assert recomputed == result.objective
+
+
+def test_save_run_uses_result_windows(tmp_path):
+    si = _solver()
+    import dataclasses as dc
+    import json
+
+    from beyond_tiles.artifacts import save_run
+
+    grey = ramp_grey(16)
+    free = np.ones((16, 16), dtype=bool)
+    result = si.solve_image(grey, free, _test_config(si))
+    with_fields = save_run(tmp_path / "a", result, grey, free)
+    stripped = dc.replace(result, windows=None, targets=None)
+    fallback = save_run(tmp_path / "b", stripped, grey, free)
+    assert with_fields["deviation"] == fallback["deviation"]
+    assert with_fields["objective"] == fallback["objective"]
+    assert json.loads((tmp_path / "a" / "metrics.json").read_text())["deviation"] == \
+        with_fields["deviation"]
+
+
+# ---------------------------------------------------------------------------
+# objective slack, dithered targets, solver parameters (Stage 2)
+# ---------------------------------------------------------------------------
+
+
+def test_slack_absorbs_small_deviation():
+    # One 8x8 window with target 2: the nearest still lifes have 0 or 4
+    # live cells (the minimum non-empty still life is 4 cells), so the
+    # optimum is 2 without slack and 0 with slack 2.
+    si = _solver()
+    grey = uniform_grey(8, 237)  # cell target 0.0318 -> window target 2
+    free = np.ones((8, 8), dtype=bool)
+    base = _test_config(si, k=8, stride=8)
+    tight = si.solve_image(grey, free, base)
+    assert tight.targets.tolist() == [2]
+    assert tight.objective == 2
+    import dataclasses as dc
+
+    slacked = si.solve_image(grey, free, dc.replace(base, slack=2))
+    assert slacked.objective == 0
+    assert slacked.status == "OPTIMAL"
+
+
+def test_dither_preserves_total_mass():
+    from beyond_tiles.targets import window_targets
+
+    rng = np.random.default_rng(11)
+    cell_t = rng.uniform(0, 0.45, (40, 40))
+    free = np.ones((40, 40), dtype=bool)
+    windows = window_slices((40, 40), k=8, stride=8)
+    exact_total = cell_t.sum()
+    fs, _ = window_targets(cell_t, free, windows, dither="fs")
+    assert abs(fs.sum() - exact_total) <= 1.0
+    for t, (si, sj) in zip(fs, windows):
+        assert 0 <= t <= 64
+
+
+def test_dither_beats_rounding_on_biased_field():
+    # Every window sums to x.4: plain rounding drops 0.4 cells per window,
+    # error diffusion keeps the total within half a cell.
+    from beyond_tiles.targets import window_targets
+
+    cell_t = np.full((32, 32), 2.4 / 64)
+    free = np.ones((32, 32), dtype=bool)
+    windows = window_slices((32, 32), k=8, stride=8)
+    exact_total = 2.4 * 16
+    rounded, _ = window_targets(cell_t, free, windows, dither="round")
+    fs, _ = window_targets(cell_t, free, windows, dither="fs")
+    assert abs(rounded.sum() - exact_total) > 5  # systematic deficit
+    assert abs(fs.sum() - exact_total) <= 1.0
+
+
+def test_dither_skips_dropped_windows():
+    from beyond_tiles.targets import window_targets
+
+    cell_t = np.full((16, 16), 0.3)
+    free = np.ones((16, 16), dtype=bool)
+    free[:8, :8] = False  # first window fully masked -> dropped
+    windows = window_slices((16, 16), k=8, stride=8)
+    fs, kept = window_targets(cell_t, free, windows, dither="fs")
+    assert len(kept) == 3 and len(fs) == 3
+    assert abs(fs.sum() - 0.3 * 64 * 3) <= 1.0
+
+
+def test_apply_solver_params():
+    si = _solver()
+    from ortools.sat.python import cp_model
+
+    cfg = si.SpikeConfig(
+        time_limit_s=12.0,
+        workers=3,
+        seed=7,
+        add_lb_subsolvers=True,
+        num_violation_ls=2,
+        symmetry_level=0,
+        max_det_time=5.0,
+    )
+    solver = cp_model.CpSolver()
+    si._apply_solver_params(solver, cfg)
+    p = solver.parameters
+    assert p.max_time_in_seconds == 12.0
+    assert p.num_workers == 3 and p.random_seed == 7
+    assert list(p.extra_subsolvers) == ["lb_tree_search", "objective_lb_search"]
+    assert p.num_violation_ls == 2
+    assert p.symmetry_level == 0
+    assert p.max_deterministic_time == 5.0
+
+
+# ---------------------------------------------------------------------------
+# benchmark harness (Stage 0 of the optimization campaign)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_overrides_types():
+    from beyond_tiles.bench import parse_overrides
+
+    out = parse_overrides(["workers=4", "d_max=0.4", "mask_mode=none", "flag=true"])
+    assert out == {"workers": 4, "d_max": 0.4, "mask_mode": "none", "flag": True}
+    with pytest.raises(ValueError):
+        parse_overrides(["notapair"])
+
+
+def test_derive_timings_pure():
+    from beyond_tiles.bench import derive_timings
+
+    history = [(1.5, 30), (2.0, 10), (7.5, 2)]
+    t = derive_timings(history, "OPTIMAL", 8.0)
+    assert t == {"time_to_first_s": 1.5, "time_to_optimal_s": 8.0}
+    t = derive_timings(history, "FEASIBLE", 8.0)
+    assert t == {"time_to_first_s": 1.5, "time_to_optimal_s": None}
+    assert derive_timings([], "FEASIBLE", 8.0)["time_to_first_s"] is None
+
+
+def test_build_time_recorded():
+    si = _solver()
+    grey = uniform_grey(12, 128)
+    free = np.ones((12, 12), dtype=bool)
+    result = si.solve_image(grey, free, _test_config(si))
+    assert result.build_time_s > 0
+
+
+def test_bench_case_roundtrip(tmp_path):
+    _solver()
+    import json
+
+    from beyond_tiles.bench import BenchCase, compare, run_case
+
+    grey = uniform_grey(16, 200)
+    free = np.ones((16, 16), dtype=bool)
+    case = BenchCase("tiny", 16, 5.0, 0, {"workers": 1})
+    metrics = run_case(case, tmp_path / "tag", grey=grey, free=free)
+    saved = json.loads((tmp_path / "tag" / "tiny" / "metrics.json").read_text())
+    for key in ("build_time_s", "time_to_first_s", "time_to_optimal_s", "bench"):
+        assert key in saved, key
+    assert saved["bench"]["case"]["name"] == "tiny"
+    assert saved["objective"] == metrics["objective"]
+    table = compare([tmp_path / "tag"])
+    assert "tag/tiny" in table and "| run |" in table
+
+
 def test_snapshots_recorded_and_end_on_the_final_pattern():
     solver = _solver()
     grey = ramp_grey(24)

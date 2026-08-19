@@ -10,6 +10,7 @@ life embedded in a dead plane, not just internally consistent.
 import resource
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -32,6 +33,14 @@ class SpikeConfig:
     mask_mode: str = "force_dead"  # "force_dead" | "soft_zero" | "none"
     snapshot_gap_s: float = 0.0  # 0 = don't keep incumbent patterns
     max_snapshots: int = 400
+    log_to: Optional[str] = None  # write the CP-SAT search log to this file
+    edge_windows: str = "clamp"  # "clamp" (historic) | "partial" (disjoint)
+    slack: int = 0  # per-window deviation tolerance, in cells
+    dither: str = "round"  # "round" | "fs" (error-diffused window targets)
+    add_lb_subsolvers: bool = False  # schedule the bound-improving subsolvers
+    num_violation_ls: int = 0  # Feasibility-Jump local-search workers
+    symmetry_level: Optional[int] = None  # None = CP-SAT default
+    max_det_time: Optional[float] = None  # deterministic-time cap (repro A/Bs)
 
 
 # One captured incumbent: (wall time, objective, interior pattern).
@@ -49,6 +58,11 @@ class SpikeResult:
     max_rss_mb: float
     config: SpikeConfig
     snapshots: List[Snapshot] = field(default_factory=list)
+    build_time_s: float = 0.0
+    # Window geometry and integer targets of the solved model, so downstream
+    # consumers (save_run, LNS) never re-derive them from the greyscale.
+    windows: Optional[List[Window]] = None
+    targets: Optional[np.ndarray] = None
 
 
 @dataclass
@@ -58,6 +72,7 @@ class ModelBundle:
     shape: Tuple[int, int]  # interior (H, W)
     windows: List[Window]
     targets: np.ndarray
+    build_time_s: float = 0.0
 
 
 class _ObjectiveLogger(cp_model.CpSolverSolutionCallback):
@@ -104,20 +119,36 @@ def build_model(
     cell_t: np.ndarray, free_mask: np.ndarray, cfg: SpikeConfig
 ) -> ModelBundle:
     """Encode stability (hard) + window-density deviation (objective)."""
+    t_build = time.perf_counter()
     h, w = cell_t.shape
     model = cp_model.CpModel()
-    x = [
-        [model.NewBoolVar(f"x_{i}_{j}") for j in range(w + 2)]
-        for i in range(h + 2)
-    ]
+    # Unnamed variables: names would be serialized into the proto, and at
+    # 400^2 that is 160k+ strings of pure ballast.
+    x = [[model.NewBoolVar("") for _ in range(w + 2)] for _ in range(h + 2)]
 
     fixed_dead = np.ones((h + 2, w + 2), dtype=bool)
     fixed_dead[1:-1, 1:-1] = ~free_mask if cfg.mask_mode == "force_dead" else False
 
+    # A fixed-dead cell can never satisfy the alive branch, and only needs
+    # the no-birth branch when it has a neighbour that could be alive at
+    # all. Skipping the rest is exactly what presolve would conclude —
+    # minus the cost of building and shipping those constraints.
+    open_grid = ~fixed_dead
+    padded = np.pad(open_grid, 1)
+    open_nbrs = np.zeros((h + 2, w + 2), dtype=np.int8)
+    for di in (-1, 0, 1):
+        for dj in (-1, 0, 1):
+            if (di, dj) != (0, 0):
+                open_nbrs += padded[1 + di : h + 3 + di, 1 + dj : w + 3 + dj]
+
+    fixed_rows = fixed_dead.tolist()  # plain bools: no numpy boxing in the loop
+    open_rows = open_nbrs.tolist()
     for i in range(h + 2):
         for j in range(w + 2):
-            if fixed_dead[i, j]:
+            if fixed_rows[i][j]:
                 model.Add(x[i][j] == 0)
+                if not open_rows[i][j]:
+                    continue
             neighbours = [
                 x[i + di][j + dj]
                 for di in (-1, 0, 1)
@@ -125,31 +156,64 @@ def build_model(
                 if (di, dj) != (0, 0)
                 and 0 <= i + di < h + 2
                 and 0 <= j + dj < w + 2
+                and not fixed_rows[i + di][j + dj]
             ]
             s = cp_model.LinearExpr.Sum(neighbours)
+            if fixed_rows[i][j]:
+                # x is pinned to 0, so the no-birth branch holds outright.
+                model.AddLinearExpressionInDomain(s, _DEAD_OK)
+                continue
             model.AddLinearConstraint(s, 2, 3).OnlyEnforceIf(x[i][j])
             model.AddLinearExpressionInDomain(s, _DEAD_OK).OnlyEnforceIf(
                 x[i][j].Not()
             )
 
-    windows = window_slices((h, w), cfg.k, cfg.stride)
-    targets, kept = window_targets(cell_t, free_mask, windows)
+    windows = window_slices((h, w), cfg.k, cfg.stride, edge=cfg.edge_windows)
+    targets, kept = window_targets(cell_t, free_mask, windows, dither=cfg.dither)
+    free_rows = free_mask.tolist()
     devs = []
     for t, (si, sj) in zip(targets, kept):
         cells = [
             x[i + 1][j + 1]
             for i in range(si.start, si.stop)
             for j in range(sj.start, sj.stop)
-            if free_mask[i, j]
+            if free_rows[i][j]
         ]
         live = cp_model.LinearExpr.Sum(cells)
-        dev = model.NewIntVar(0, len(cells), f"dev_{si.start}_{sj.start}")
-        model.Add(dev >= live - int(t))
-        model.Add(dev >= int(t) - live)
+        dev = model.NewIntVar(0, len(cells), "")
+        # `slack` cells of deviation per window are free; with slack > 0
+        # an objective of 0 becomes reachable, which lets CP-SAT prove
+        # optimality instead of chasing a vacuous lower bound.
+        model.Add(dev >= live - int(t) - cfg.slack)
+        model.Add(dev >= int(t) - live - cfg.slack)
         devs.append(dev)
     model.Minimize(cp_model.LinearExpr.Sum(devs))
 
-    return ModelBundle(model=model, x=x, shape=(h, w), windows=kept, targets=targets)
+    return ModelBundle(
+        model=model,
+        x=x,
+        shape=(h, w),
+        windows=kept,
+        targets=targets,
+        build_time_s=time.perf_counter() - t_build,
+    )
+
+
+def _apply_solver_params(solver: cp_model.CpSolver, cfg: SpikeConfig) -> None:
+    p = solver.parameters
+    p.max_time_in_seconds = cfg.time_limit_s
+    p.num_workers = cfg.workers
+    p.random_seed = cfg.seed
+    if cfg.max_det_time is not None:
+        p.max_deterministic_time = cfg.max_det_time
+    if cfg.add_lb_subsolvers:
+        # At num_workers <= 10 the default portfolio schedules only 7 full
+        # subsolvers and cuts exactly the bound-improving ones.
+        p.extra_subsolvers.extend(["lb_tree_search", "objective_lb_search"])
+    if cfg.num_violation_ls:
+        p.num_violation_ls = cfg.num_violation_ls
+    if cfg.symmetry_level is not None:
+        p.symmetry_level = cfg.symmetry_level
 
 
 def solve(
@@ -162,9 +226,12 @@ def solve(
                 bundle.model.AddHint(bundle.x[i + 1][j + 1], int(hint[i, j]))
 
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = cfg.time_limit_s
-    solver.parameters.num_workers = cfg.workers
-    solver.parameters.random_seed = cfg.seed
+    _apply_solver_params(solver, cfg)
+    log_lines: List[str] = []
+    if cfg.log_to:
+        solver.parameters.log_search_progress = True
+        solver.parameters.log_to_stdout = False
+        solver.log_callback = log_lines.append
     # Variable indices of the interior cells, so a callback can slice a whole
     # incumbent out of the response proto in one go.
     index_grid = np.array(
@@ -175,15 +242,14 @@ def solve(
     t0 = time.perf_counter()
     status = solver.Solve(bundle.model, logger)
     wall = time.perf_counter() - t0
+    if cfg.log_to:
+        Path(cfg.log_to).write_text("\n".join(log_lines) + "\n")
 
     assert status in (cp_model.OPTIMAL, cp_model.FEASIBLE), solver.StatusName(status)
-    pattern = np.array(
-        [
-            [solver.Value(bundle.x[i + 1][j + 1]) for j in range(w)]
-            for i in range(h)
-        ],
-        dtype=np.uint8,
-    )
+    # Bulk read: slice the whole solution vector once instead of 160k+
+    # per-variable Value() calls at 400^2.
+    solution = np.asarray(solver.ResponseProto().solution, dtype=np.int8)
+    pattern = solution[index_grid].astype(np.uint8)
     snapshots = logger.snapshots
     if snapshots and not np.array_equal(snapshots[-1][2], pattern):
         # The reported solution is always the last frame of the movie.
@@ -200,6 +266,9 @@ def solve(
         max_rss_mb=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2**20,
         config=cfg,
         snapshots=snapshots,
+        build_time_s=bundle.build_time_s,
+        windows=bundle.windows,
+        targets=bundle.targets,
     )
 
 
