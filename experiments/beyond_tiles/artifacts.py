@@ -5,14 +5,34 @@ import dataclasses
 import json
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.figure import Figure
 
 from beyond_tiles.metrics import deviation_stats
 from beyond_tiles.targets import cell_targets, window_slices, window_targets
+
+# Committed extracts of the headline runs (the full results/ tree is
+# gitignored). Small enough to version: bit-packed patterns, ~16 kB total.
+ASSETS = Path(__file__).resolve().parent / "assets"
+
+
+def save_pattern_asset(path, pattern: np.ndarray) -> Path:
+    """Store a binary pattern bit-packed, for versioning alongside the code."""
+    pattern = np.asarray(pattern)
+    np.savez_compressed(
+        path,
+        packed=np.packbits(pattern.astype(bool), axis=None),
+        shape=np.asarray(pattern.shape, dtype=np.int64),
+    )
+    return Path(path)
+
+
+def load_pattern_asset(path) -> np.ndarray:
+    """Inverse of `save_pattern_asset`: uint8 array of the original shape."""
+    with np.load(path) as data:
+        shape = tuple(int(v) for v in data["shape"])
+        n = int(np.prod(shape))
+        return np.unpackbits(data["packed"])[:n].reshape(shape).astype(np.uint8)
 
 
 def _window_field(values, windows, shape) -> np.ndarray:
@@ -59,7 +79,10 @@ def save_run(outdir, result, grey: np.ndarray, free_mask: np.ndarray) -> dict:
         n_free = free_mask[si, sj].sum()
         achieved.append(pattern[si, sj][free_mask[si, sj]].sum() / n_free)
         wanted.append(t / n_free)
-    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+    # Pure object-oriented matplotlib: no pyplot import, so importing this
+    # module never hijacks a notebook's inline backend.
+    fig = Figure(figsize=(12, 4))
+    axes = fig.subplots(1, 3)
     for ax, (title, vals) in zip(
         axes,
         [
@@ -76,7 +99,6 @@ def save_run(outdir, result, grey: np.ndarray, free_mask: np.ndarray) -> dict:
         fig.colorbar(im, ax=ax, shrink=0.8)
     fig.tight_layout()
     fig.savefig(outdir / "density_maps.png", dpi=150)
-    plt.close(fig)
 
     metrics = {
         "deviation": deviation_stats(pattern, cell_t, free_mask, kept),

@@ -1,0 +1,10 @@
+{
+  // The package is not pip-installed in the conda env; src/ and experiments/
+  // are put on sys.path at runtime (notebooks) or via pytest's `pythonpath`.
+  // Pylance cannot see that, so tell it where the packages live.
+  "python.analysis.extraPaths": ["src", "experiments"],
+  "python.defaultInterpreterPath": "/opt/miniconda3/envs/gol-mosaics/bin/python",
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": ["tests"],
+  "jupyter.notebookFileRoot": "${workspaceFolder}"
+}

@@ -1,0 +1,29 @@
+{
+  "deviation": {
+    "mad": 0.028824295343071047,
+    "p95": 0.1336011029411765,
+    "max": 0.8085294117647059,
+    "mad_darkest_quartile": 0.08157549591366536,
+    "pearson": 0.9232595528208856,
+    "n_windows": 1968
+  },
+  "verify": {
+    "bounded": true,
+    "toroidal": true
+  },
+  "status": "FEASIBLE",
+  "objective": 2874,
+  "best_bound": 2,
+  "wall_time_s": 2403.8641256659757,
+  "max_rss_mb": 4634.21875,
+  "live_cells": 24295,
+  "config": {
+    "k": 8,
+    "stride": 8,
+    "d_max": 0.45,
+    "time_limit_s": 2400.0,
+    "workers": 10,
+    "seed": 0,
+    "mask_mode": "force_dead"
+  }
+}

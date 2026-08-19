@@ -334,3 +334,34 @@ def test_equalize_grey_flattens_distribution():
     a, b = grey[free], out[free]
     order = np.argsort(a, kind="stable")
     assert (np.diff(b[order].astype(int)) >= 0).all()
+
+
+# ---------------------------------------------------------------------------
+# shipped high-resolution assets
+# ---------------------------------------------------------------------------
+
+
+def test_pattern_asset_round_trip(tmp_path):
+    from beyond_tiles.artifacts import load_pattern_asset, save_pattern_asset
+
+    rng = np.random.default_rng(3)
+    pattern = rng.integers(0, 2, (37, 53)).astype(np.uint8)
+    path = save_pattern_asset(tmp_path / "p.npz", pattern)
+    back = load_pattern_asset(path)
+    assert back.shape == pattern.shape
+    assert back.dtype == np.uint8
+    assert (back == pattern).all()
+
+
+@pytest.mark.parametrize(
+    "name,size", [("marilyn_200_optimal.npz", 200), ("marilyn_400_feasible.npz", 400)]
+)
+def test_shipped_assets_are_still_lifes(name, size):
+    from gol_mosaics.life import is_still_life
+
+    from beyond_tiles.artifacts import ASSETS, load_pattern_asset
+
+    pattern = load_pattern_asset(ASSETS / name)
+    assert pattern.shape == (size, size)
+    assert pattern.sum() > 0
+    assert is_still_life(np.pad(pattern, 1))
