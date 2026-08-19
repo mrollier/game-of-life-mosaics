@@ -357,6 +357,55 @@ image-driven model has no symmetry worth a detection pass.
 at 10 workers) and **violation_ls** do nothing at 200²; their decisive
 test is the 400² bound.
 
+### C3 — the decisive suite: what actually helps at 400²
+
+400², nominal 600 s, seeds {0,1}, medians (`results/bench/d_*`):
+
+| config | objective* | MAD | best bound | wall |
+|---|---|---|---|---|
+| base (post-C1) | 8,921 | 0.0783 | 2 | 600 s |
+| slack=1 | 6,120 | 0.0687 | 0 | 600 s |
+| agar hint | 3,620 | 0.0354 | 1–2 | 871–1,274 s |
+| slack=1 + agar hint | **1,952** | **0.0327** | 0 | 986–1,061 s |
+| + lb subsolvers | 8,379 | 0.0733 | 2 | 600 s |
+
+*objectives are not comparable across slack values; MAD is.
+
+Four findings:
+
+1. **The constructive warm start is the dominant lever.** A block-agar
+   seed (built in seconds, exact still life by construction) dropped
+   MAD from 0.078 to 0.035 at the same nominal budget — the hinted
+   ten-minute run matches the *forty-minute* unhinted baselines
+   (0.0288/0.0334). The seed hands the solver the density field and
+   lets it spend its budget on texture and the dark-window shortfall
+   instead of rediscovering tone from nothing.
+2. **Slack helps large canvases and hurts small ones.** At 200² slack=1
+   doubles MAD (the tolerance is real error the solver stops removing);
+   at 400² it *improves* MAD (0.069 vs 0.078 unhinted, 0.0327 vs 0.0354
+   hinted) — the freed effort goes to the windows that are far off
+   instead of polishing the last cell of near-perfect ones. Defaults
+   therefore stay slack=0; use slack=1 at 400²+.
+3. **The bound-improving subsolvers do nothing here**, exactly as the
+   vacuous-relaxation analysis predicts: best bound 2 with or without
+   `lb_tree_search`/`objective_lb_search`. The strip relaxation remains
+   the only route to a real lower bound.
+4. **Caveat: hinted runs overran their wall limit** (600 s nominal,
+   871–1,274 s actual; CP-SAT's own log reports the same walltime, so
+   the overrun is inside the solver, and it persists with
+   `hint_conflict_limit` at its default of 10 — a 120 s nominal hinted
+   run took 438–549 s). The shape is a roughly constant tax (~5–10 min
+   at 400², independent of the nominal budget), consistent with per-
+   worker processing of a 161k-variable hint that the limit checks do
+   not cover. Treat hinted 400² budgets as nominal + tax; all wall
+   times quoted here are measured, not nominal.
+5. **The seed is most of the win.** The block-agar seed's own slack-1
+   objective is 2,399 (MAD ≈ 0.033) — built in seconds, before any
+   solving. CP-SAT improves it to ~1,950 given ~1,000 s. Which raises
+   the real question: does *targeted* improvement (LNS on the worst
+   windows) beat handing the whole 161k-variable model back to CP-SAT?
+   See the LNS benchmark below.
+
 ### Considered and rejected
 
 - **MaxSAT encoding**: ~36.5M clauses at 400² before sharing; MSE 2026

@@ -97,6 +97,14 @@ def cmd_e2(args) -> None:
         f"marilyn_{args.size}_s{args.seed}_{args.mask_mode}_{args.tone}"
         f"_k{args.k}s{args.stride}"
     )
+    # Non-default solver options get their own directories, so probe runs
+    # never clobber the canonical ones.
+    if args.slack:
+        name += f"_sl{args.slack}"
+    if getattr(args, "hint_mode", "none") != "none":
+        name += "_hint"
+    if args.dither != "round":
+        name += f"_{args.dither}"
     _run_one(name, grey, free, _cfg(args), RESULTS / "e2")
 
 
@@ -410,12 +418,17 @@ def cmd_lns(args) -> None:
     before = int(
         lns_mod.window_devs(pattern, free, kept, targets, cfg.slack).sum()
     )
-    if before != saved.get("objective"):
+    # A FEASIBLE incumbent may report an objective slightly above the true
+    # pattern deviation (dev variables are only forced tight at proven
+    # optimality), so allow a small tolerance; a wrong tone or geometry
+    # is off by hundreds.
+    saved_obj = saved.get("objective", 0)
+    if abs(before - saved_obj) > max(10, 0.02 * saved_obj):
         raise SystemExit(
             f"recomputed objective {before} does not match the saved "
-            f"{saved.get('objective')} — the rebuilt targets differ from "
-            "the run's (wrong --tone, or a different image/geometry). "
-            "Pass the tone the run was solved with."
+            f"{saved_obj} — the rebuilt targets differ from the run's "
+            "(wrong --tone, or a different image/geometry). Pass the "
+            "tone the run was solved with."
         )
     res = lns_mod.improve(pattern, free, kept, targets, lcfg)
     out = SpikeResult(
