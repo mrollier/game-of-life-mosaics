@@ -30,6 +30,12 @@ class SpikeConfig:
     workers: int = 10
     seed: int = 0
     mask_mode: str = "force_dead"  # "force_dead" | "soft_zero" | "none"
+    snapshot_gap_s: float = 0.0  # 0 = don't keep incumbent patterns
+    max_snapshots: int = 400
+
+
+# One captured incumbent: (wall time, objective, interior pattern).
+Snapshot = Tuple[float, int, np.ndarray]
 
 
 @dataclass
@@ -42,6 +48,7 @@ class SpikeResult:
     obj_history: List[Tuple[float, int]]
     max_rss_mb: float
     config: SpikeConfig
+    snapshots: List[Snapshot] = field(default_factory=list)
 
 
 @dataclass
@@ -54,12 +61,43 @@ class ModelBundle:
 
 
 class _ObjectiveLogger(cp_model.CpSolverSolutionCallback):
-    def __init__(self) -> None:
+    """Logs (time, objective) for every incumbent; optionally keeps patterns.
+
+    Keeping every incumbent pattern is wasteful (a long 400^2 run improves
+    thousands of times), so snapshots are throttled to one per
+    `gap_s` of wall time. If that still overflows `max_snapshots`, every
+    second frame is dropped and the gap doubles — the surviving frames stay
+    evenly spread over the run.
+    """
+
+    def __init__(
+        self,
+        index_grid: Optional[np.ndarray] = None,
+        gap_s: float = 0.0,
+        max_snapshots: int = 400,
+    ) -> None:
         super().__init__()
         self.history: List[Tuple[float, int]] = []
+        self.snapshots: List[Snapshot] = []
+        self._index_grid = index_grid
+        self._gap_s = gap_s
+        self._max_snapshots = max_snapshots
+        self._next_at = 0.0
+
+    def _pattern(self) -> np.ndarray:
+        solution = np.asarray(self.response_proto.solution, dtype=np.int8)
+        return solution[self._index_grid].astype(np.uint8)
 
     def on_solution_callback(self) -> None:
-        self.history.append((self.WallTime(), int(self.ObjectiveValue())))
+        t, obj = self.WallTime(), int(self.ObjectiveValue())
+        self.history.append((t, obj))
+        if self._index_grid is None or self._gap_s <= 0 or t < self._next_at:
+            return
+        self.snapshots.append((t, obj, self._pattern()))
+        self._next_at = t + self._gap_s
+        if len(self.snapshots) > self._max_snapshots:
+            self.snapshots = self.snapshots[::2]
+            self._gap_s *= 2
 
 
 def build_model(
@@ -127,7 +165,12 @@ def solve(
     solver.parameters.max_time_in_seconds = cfg.time_limit_s
     solver.parameters.num_workers = cfg.workers
     solver.parameters.random_seed = cfg.seed
-    logger = _ObjectiveLogger()
+    # Variable indices of the interior cells, so a callback can slice a whole
+    # incumbent out of the response proto in one go.
+    index_grid = np.array(
+        [[bundle.x[i + 1][j + 1].Index() for j in range(w)] for i in range(h)]
+    )
+    logger = _ObjectiveLogger(index_grid, cfg.snapshot_gap_s, cfg.max_snapshots)
 
     t0 = time.perf_counter()
     status = solver.Solve(bundle.model, logger)
@@ -141,6 +184,12 @@ def solve(
         ],
         dtype=np.uint8,
     )
+    snapshots = logger.snapshots
+    if snapshots and not np.array_equal(snapshots[-1][2], pattern):
+        # The reported solution is always the last frame of the movie.
+        snapshots.append(
+            (solver.WallTime(), int(solver.ObjectiveValue()), pattern.copy())
+        )
     return SpikeResult(
         pattern=pattern,
         status=solver.StatusName(status),
@@ -150,6 +199,7 @@ def solve(
         obj_history=logger.history,
         max_rss_mb=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2**20,
         config=cfg,
+        snapshots=snapshots,
     )
 
 

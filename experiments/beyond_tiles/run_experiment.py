@@ -41,6 +41,7 @@ def _cfg(args, **overrides) -> SpikeConfig:
         workers=args.workers,
         seed=args.seed,
         mask_mode=args.mask_mode,
+        snapshot_gap_s=getattr(args, "snapshot_gap", 0.0),
     )
     kw.update(overrides)
     return SpikeConfig(**kw)
@@ -163,6 +164,43 @@ def cmd_e5(args) -> None:
     print(json.dumps(report, indent=2))
 
 
+def cmd_e6(args) -> None:
+    """Convergence movies: re-solve at three sizes, keeping the incumbents.
+
+    The snapshot gap is scaled to the run length so every movie ends up with
+    roughly a hundred frames spread evenly over its wall time.
+    """
+    out = RESULTS / "e6"
+    plan = [(100, 60.0, 0.25), (200, 300.0, 1.0), (400, 2400.0, 10.0)]
+    if args.only:
+        plan = [row for row in plan if row[0] in args.only]
+    for size, time_limit, gap in plan:
+        sized = argparse.Namespace(**{**vars(args), "size": size})
+        grey, free = _marilyn(sized)
+        cfg = _cfg(
+            args,
+            k=8,
+            stride=8,
+            time_limit_s=time_limit,
+            snapshot_gap_s=gap,
+        )
+        metrics = _run_one(f"marilyn_{size}", grey, free, cfg, out)
+        print(f"  snapshots: {(out / f'marilyn_{size}' / 'snapshots.npz').exists()}", flush=True)
+        del metrics
+
+
+def cmd_gif(args) -> None:
+    from beyond_tiles.animate import movie_from_run
+
+    movie_from_run(
+        args.run_dir,
+        max_frames=args.max_frames,
+        pacing=args.pacing,
+        fps=args.fps,
+        panel=not args.no_panel,
+    )
+
+
 def cmd_verify(args) -> None:
     pattern = np.load(args.pattern)
     checks = verify_still_life(pattern)
@@ -174,8 +212,19 @@ def cmd_verify(args) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name, fn in [("e1", cmd_e1), ("e2", cmd_e2), ("e3", cmd_e3), ("e4", cmd_e4)]:
+    for name, fn in [
+        ("e1", cmd_e1),
+        ("e2", cmd_e2),
+        ("e3", cmd_e3),
+        ("e4", cmd_e4),
+        ("e6", cmd_e6),
+    ]:
         p = sub.add_parser(name)
+        p.add_argument("--snapshot-gap", type=float, default=0.0,
+                       help="keep an incumbent pattern at most every N seconds")
+        if name == "e6":
+            p.add_argument("--only", type=int, nargs="*", default=None,
+                           help="restrict to these canvas sizes")
         p.add_argument("--size", type=int, default=100)
         p.add_argument("--k", type=int, default=8)
         p.add_argument("--stride", type=int, default=4)
@@ -191,6 +240,14 @@ def main() -> None:
     p5.add_argument("pattern", help="pattern.npy of the free-form solve")
     p5.add_argument("--tile-grid", type=int, default=16)
     p5.set_defaults(fn=cmd_e5)
+    pg = sub.add_parser("gif")
+    pg.add_argument("run_dir", help="run directory holding snapshots.npz")
+    pg.add_argument("--max-frames", type=int, default=80)
+    pg.add_argument("--pacing", default="time", choices=["time", "index", "log"])
+    pg.add_argument("--fps", type=float, default=8.0)
+    pg.add_argument("--no-panel", action="store_true",
+                    help="pattern only, without the convergence curve")
+    pg.set_defaults(fn=cmd_gif)
     pv = sub.add_parser("verify")
     pv.add_argument("pattern")
     pv.set_defaults(fn=cmd_verify)

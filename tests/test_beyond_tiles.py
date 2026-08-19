@@ -365,3 +365,93 @@ def test_shipped_assets_are_still_lifes(name, size):
     assert pattern.shape == (size, size)
     assert pattern.sum() > 0
     assert is_still_life(np.pad(pattern, 1))
+
+
+# ---------------------------------------------------------------------------
+# convergence movies
+# ---------------------------------------------------------------------------
+
+
+def test_select_frames_keeps_endpoints_and_budget():
+    from beyond_tiles.animate import select_frames
+
+    times = list(np.linspace(0.0, 100.0, 500))
+    picks = select_frames(times, max_frames=10)
+    assert picks[0] == 0 and picks[-1] == len(times) - 1
+    assert len(picks) <= 10
+    assert picks == sorted(set(picks))  # strictly increasing, no repeats
+
+
+def test_select_frames_passes_short_runs_through():
+    from beyond_tiles.animate import select_frames
+
+    assert select_frames([0.0, 1.0, 2.0], max_frames=10) == [0, 1, 2]
+    assert select_frames([], max_frames=10) == []
+
+
+def test_select_frames_time_pacing_spreads_over_wall_time():
+    from beyond_tiles.animate import select_frames
+
+    # 90 incumbents in the first second, 10 spread over the next 99
+    times = list(np.linspace(0, 1, 90)) + list(np.linspace(2, 100, 10))
+    picks = select_frames(times, max_frames=10, pacing="time")
+    late = sum(times[i] > 10 for i in picks)
+    assert late >= 5  # uniform in time, not dominated by the early burst
+    index_picks = select_frames(times, max_frames=10, pacing="index")
+    assert sum(times[i] > 10 for i in index_picks) < late
+
+
+def test_snapshot_round_trip(tmp_path):
+    from beyond_tiles.artifacts import load_snapshots, save_snapshots
+
+    rng = np.random.default_rng(7)
+    snaps = [
+        (float(t), int(100 - t), rng.integers(0, 2, (12, 20)).astype(np.uint8))
+        for t in range(4)
+    ]
+    save_snapshots(tmp_path / "s.npz", snaps)
+    back = load_snapshots(tmp_path / "s.npz")
+    assert len(back) == len(snaps)
+    for (t0, o0, p0), (t1, o1, p1) in zip(snaps, back):
+        assert (t0, o0) == (t1, o1)
+        assert (p0 == p1).all()
+
+
+def test_write_gif_frame_count(tmp_path):
+    from PIL import Image
+
+    from beyond_tiles.animate import frame_image, write_gif
+
+    history = [(1.0, 30), (2.0, 20), (3.0, 10)]
+    snaps = [
+        (t, o, np.zeros((8, 8), dtype=np.uint8)) for t, o in history
+    ]
+    frames = [frame_image(s, history, "8x8", px=200) for s in snaps]
+    path = write_gif(tmp_path / "m.gif", frames, duration_ms=50)
+    with Image.open(path) as gif:
+        assert gif.n_frames == 3
+
+
+def test_snapshots_off_by_default():
+    solver = _solver()
+    grey = uniform_grey(16, 128)
+    free = np.ones((16, 16), dtype=bool)
+    cfg = solver.SpikeConfig(k=8, stride=8, time_limit_s=5.0, workers=1, seed=0)
+    result = solver.solve_image(grey, free, cfg)
+    assert result.snapshots == []
+    assert result.obj_history  # the cheap log is always kept
+
+
+def test_snapshots_recorded_and_end_on_the_final_pattern():
+    solver = _solver()
+    grey = ramp_grey(24)
+    free = np.ones((24, 24), dtype=bool)
+    cfg = solver.SpikeConfig(
+        k=8, stride=8, time_limit_s=10.0, workers=1, seed=0, snapshot_gap_s=0.01
+    )
+    result = solver.solve_image(grey, free, cfg)
+    assert result.snapshots
+    times = [t for t, _, _ in result.snapshots]
+    assert times == sorted(times)
+    assert (result.snapshots[-1][2] == result.pattern).all()
+    assert all(p.shape == result.pattern.shape for _, _, p in result.snapshots)

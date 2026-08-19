@@ -35,6 +35,32 @@ def load_pattern_asset(path) -> np.ndarray:
         return np.unpackbits(data["packed"])[:n].reshape(shape).astype(np.uint8)
 
 
+def save_snapshots(path, snapshots) -> Path:
+    """Store a run's incumbent patterns (time, objective, pattern) bit-packed."""
+    times = np.array([t for t, _, _ in snapshots], dtype=np.float64)
+    objectives = np.array([o for _, o, _ in snapshots], dtype=np.int64)
+    frames = np.stack([np.asarray(p) for _, _, p in snapshots])
+    np.savez_compressed(
+        path,
+        packed=np.packbits(frames.astype(bool), axis=-1),
+        shape=np.asarray(frames.shape[1:], dtype=np.int64),
+        times=times,
+        objectives=objectives,
+    )
+    return Path(path)
+
+
+def load_snapshots(path):
+    """Inverse of `save_snapshots`: list of (time, objective, pattern)."""
+    with np.load(path) as data:
+        shape = tuple(int(v) for v in data["shape"])
+        frames = np.unpackbits(data["packed"], axis=-1)[..., : shape[1]]
+        return [
+            (float(t), int(o), frame.astype(np.uint8))
+            for t, o, frame in zip(data["times"], data["objectives"], frames)
+        ]
+
+
 def _window_field(values, windows, shape) -> np.ndarray:
     """Scatter per-window values onto the window-grid for plotting."""
     rows = sorted({w[0].start for w in windows})
@@ -65,6 +91,9 @@ def save_run(outdir, result, grey: np.ndarray, free_mask: np.ndarray) -> dict:
         outdir / "render.png"
     )
     GollyExporter.export_to_cells(pattern, str(outdir / "pattern.cells"))
+
+    if result.snapshots:
+        save_snapshots(outdir / "snapshots.npz", result.snapshots)
 
     with open(outdir / "convergence.csv", "w", newline="") as fh:
         writer = csv.writer(fh)

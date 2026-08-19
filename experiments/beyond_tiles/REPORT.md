@@ -208,6 +208,44 @@ tile vocabulary. (It is also 0 for the square-tile mosaic, whose tiles are
 pond-frame squares rather than level-1 diamonds — the metric bites only on
 the free-form side.) Radially averaged spectra: `results/e5/spectra.png`.
 
+### E6 — convergence movies: choosing a cut-off
+
+The E4 wall raised a practical question the objective curve alone cannot
+answer: at 400², is the run still *improving the picture* when the cap
+stops it? To find out, the solution callback now optionally keeps the
+incumbent patterns themselves (`SpikeConfig.snapshot_gap_s`, bulk-read from
+the CP-SAT response proto), and `animate.py` renders them as a GIF —
+incumbent beside the live convergence curve — or as a static filmstrip.
+
+Three recording runs (disjoint 8×8, eq tone, 10 workers):
+
+| Size | Status | Final objective | Incumbents | MAD at 10 min | 20 min | 30 min | final |
+|------|--------|-----------------|------------|---------------|--------|--------|-------|
+| 100² | OPTIMAL (15 s) | 0 | 199 | — | — | — | 0.0086 |
+| 200² | OPTIMAL (110 s) | 2 | 801 | — | — | — | 0.0091 |
+| 400² | FEASIBLE (2,404 s cap) | 3,461 | 4,166 | 0.104 | 0.059 | 0.044 | 0.033 |
+
+Findings, and a correction to an earlier reading of the curve:
+
+- At 100² and 200² there is **nothing to tune** — the error collapses to its
+  optimum in the final seconds of the run (0.02 → 0.009 in the last ~20% of
+  the wall time), so stopping early is pure loss.
+- At 400² there is **no knee**: density error falls roughly like 1/t all the
+  way to the cap, the last ten minutes still cutting it by ~24%. The earlier
+  reading of the log-log plot as "diminishing returns" was wrong; the 40-min
+  run is cut off mid-descent, not at convergence.
+- The *structure* of the portrait appears in the first few minutes; the whole
+  remaining budget goes into filling the darkest windows — visibly so in the
+  filmstrip, and consistent with E4's darkest-quartile deficit.
+- Consequence for the roadmap: reaching 200²-grade fidelity (MAD ≈ 0.009) at
+  400² by brute force would take hours at a 1/t rate. This is the strongest
+  argument for strip decomposition — many small provable solves instead of
+  one long crawl.
+
+Assets: thinned snapshot stacks (~140 kB total) ship in `assets/` and drive
+the notebook's filmstrip; the GIFs themselves are rendered on demand with
+`run_experiment.py gif <run_dir>`.
+
 ## 4. Discussion & verdict
 
 **Gates.** G1 runtime: passed with an order of magnitude to spare (87 s
