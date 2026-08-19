@@ -2,8 +2,21 @@
 
 Run from anywhere:
     python experiments/beyond_tiles/run_experiment.py e2 --size 100 --time 600
-Subcommands: e1 (ramps/uniforms), e2 (Marilyn headline), verify (recheck a
-saved pattern). Later phases (e3/e4/e5) are added as the spike progresses.
+
+Subcommands (see REPORT.md for what each experiment established):
+    e1      synthetic targets: uniform densities 0.1-0.5 plus linear/radial ramps
+    e2      Marilyn headline solve at one size/tone/mask-mode combination
+    e3      one-factor-at-a-time knob study around the defaults
+    e4      scale probe: Marilyn at 150 and 200
+    e5      texture comparison: free-form solve vs a square-tile mosaic
+    e6      convergence movies: re-solve at three sizes keeping incumbents
+    e7      solver-parameter study (slack/dither/subsolvers) over the bench suite
+    e9      strip decomposition at scale; --lns-polish runs the champion pipeline
+    e10     annealing chain: agar seed -> parallel tempering -> exact repair
+    bench   fixed-protocol A/B benchmark runs; --compare prints a markdown table
+    gif     render a saved run's snapshots into a convergence GIF
+    lns     polish a saved run with rectangular LNS (writes RUN_DIR/lns/)
+    verify  recheck that a saved pattern is a still life; exits 1 on failure
 """
 
 import argparse

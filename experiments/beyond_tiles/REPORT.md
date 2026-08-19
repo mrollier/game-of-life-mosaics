@@ -107,6 +107,13 @@ effect). Textures: d ≤ 0.3 reads as organic scatter of small objects; d = 0.5
 locks into the predicted high-density texture, but a varied multi-directional
 labyrinth rather than monotone stripes.
 
+![uniform d=0.3](figures/e1_uniform_d03.png)
+![uniform d=0.5](figures/e1_uniform_d05.png)
+![linear ramp 0 to 0.45](figures/e1_ramp_linear.png)
+
+*E1 renders: uniform d = 0.3 (organic scatter), uniform d = 0.5 (the
+high-density labyrinth at the Elkies ceiling), and the linear ramp.*
+
 ### E2 — Marilyn headline
 
 **Tone mapping matters more than the solver.** The first runs (absolute
@@ -120,6 +127,11 @@ equalization inside the subject mask** (`equalize_grey`), which centres the
 subject's median at density ≈ 0.23 — the sweet spot for organic still-life
 texture. Percentile stretching alone does not help (the subject's range is
 already full; its *distribution* is the problem).
+
+![equalized 100² input](figures/marilyn_100_input_eq.png)
+
+*The equalized 100² input — the actual greyscale the solver's density
+targets are derived from.*
 
 Results with equalization (force_dead mask, 10 workers, M4):
 
@@ -136,6 +148,17 @@ the 200² pattern 10 generations — bit-identical. 6,743 live cells, overall
 density 0.169. The exported `.cells` files were additionally opened in Golly
 and stepped by hand: static, as required — the external G3 check.)
 
+![200² free-form, overlapping windows](figures/marilyn_200_freeform.png)
+![200² free-form, disjoint windows (OPTIMAL)](figures/marilyn_200_freeform_optimal.png)
+
+*The 200² solutions: overlapping-window run (left) and the disjoint-window
+proven optimum (right).*
+
+![200² density fidelity](figures/marilyn_200_density_maps.png)
+
+*Window-density fidelity of the 200² optimum: target field, achieved field,
+absolute difference.*
+
 **Recognizability:** at 100×100 the head, hair mass and face shape read
 clearly but facial features are marginal — the canvas, not the solver, is the
 limit (the density field has only ~24×24 effective windows). At **200×200 the
@@ -148,6 +171,11 @@ within the 900 s budget at 200².
 clusters — no likeness whatsoever. The free-form solve at the same cell count
 carries an entire portrait. Tile mosaics need roughly a 10× larger canvas
 (grid ≈ 100 tiles ⇒ ~1,200+ cells across) to compete on detail.
+
+![square-tile mosaic on a 106-cell canvas](figures/tile_mosaic_106cells.png)
+
+*The square-tile mosaic at the same ~106-cell budget: two disconnected pond
+clusters, no likeness.*
 
 ### E3 — knob study (100², eq tone, 90 s each, one factor at a time)
 
@@ -190,6 +218,11 @@ solver leaves them slightly under-filled when time runs out. For posters
 beyond 400², strip decomposition or longer budgets remain the fallback;
 for ≤200² the method is effectively instant and exact.
 
+![400² free-form incumbent](figures/marilyn_400_freeform.png)
+
+*The 40-minute 400² incumbent (MAD 0.0288) — the baseline the optimization
+campaign in §5 set out to beat.*
+
 ### E5 — texture: is it really "beyond tiles"?
 
 Motif census over non-empty blocks, free-form 200² vs square-tile mosaic
@@ -206,7 +239,12 @@ occur exactly once. `tile_db_overlap` (verbatim level-1 tiles mod D4) is 0.0
 for the free-form pattern, confirming no accidental reconstruction of the
 tile vocabulary. (It is also 0 for the square-tile mosaic, whose tiles are
 pond-frame squares rather than level-1 diamonds — the metric bites only on
-the free-form side.) Radially averaged spectra: `results/e5/spectra.png`.
+the free-form side.)
+
+![radially averaged spectra](figures/e5_spectra.png)
+
+*Radially averaged power spectra: the tile mosaic's lattice peaks vs the
+free-form pattern's broadband texture.*
 
 ### E6 — convergence movies: choosing a cut-off
 
@@ -510,6 +548,12 @@ dark patches monopolized every round, stalling it at objective 11,130.
 Failed patches now go stale (skipped until an accepted neighbour
 changes their context), which took the same run to 63.
 
+![400² champion pipeline](figures/marilyn_400_pipeline.png)
+![1000² champion pipeline](figures/marilyn_1000_pipeline.png)
+
+*The pipeline results: 400² (objective 3, MAD 0.0067, ~177 s) and the
+1000² flagship (objective 63, MAD 0.0048, ~13 min, 169,089 live cells).*
+
 Recommended recipes after the campaign (SpikeConfig defaults stay
 unchanged — the evidence favoured pipeline choice over parameter
 flips): up to ~200², plain `solve_image` (proves optimality in
@@ -533,7 +577,10 @@ large canvas is explicitly wanted.
 - **Transfer-matrix DP**: exact column DP costs ~8^h per column — fine
   to h≈9 in C, useless at h=400.
 - **Gurobi indicator-constraint MIP**: same vacuous-relaxation disease
-  as CP-SAT's LP (`gurobi_check.py` exists to record the numbers).
+  as CP-SAT's LP — indicator constraints contribute nothing at
+  fractional values either, so the MIP root bound is equally hollow.
+  A one-off cross-check script existed for the record and was removed
+  unrun during cleanup; the argument stands on its own.
 
 ## 6. Out of scope
 
