@@ -299,6 +299,47 @@ def cmd_e9(args) -> None:
             f"mad={solved['deviation_vs_full_targets']['mad']:.4f} verify={checks}"
         )
 
+        if args.lns_polish > 0:
+            # The polisher sees the full mask, so it re-populates the
+            # dead gap bands — the strips' one visible artifact.
+            from beyond_tiles.lns import LnsConfig, improve
+            from beyond_tiles.targets import window_targets
+
+            targets, kept = window_targets(
+                cell_t, free, windows, dither=cfg.dither
+            )
+            res = improve(
+                pattern, free, kept, targets,
+                LnsConfig(
+                    patch_windows=5,
+                    patch_time_s=3.0,
+                    budget_s=args.lns_polish,
+                    n_procs=args.procs,
+                    seed=cfg.seed,
+                    slack=cfg.slack,
+                ),
+            )
+            checks = verify_still_life(res.pattern)
+            assert all(checks.values()), checks
+            np.save(out / "pattern.npy", res.pattern)
+            report["lns"] = {
+                "objective": res.objective,
+                "rounds": res.rounds,
+                "patches_improved": res.patches_improved,
+                "patches_solved": res.patches_solved,
+                "wall_time_s": res.obj_history[-1][0],
+                "deviation_vs_full_targets": deviation_stats(
+                    res.pattern, cell_t, free, windows
+                ),
+                "verify": checks,
+            }
+            print(
+                f"polish: objective={res.objective} "
+                f"wall={report['lns']['wall_time_s']:.1f}s "
+                f"mad={report['lns']['deviation_vs_full_targets']['mad']:.4f} "
+                f"verify={checks}"
+            )
+
     if args.mode in ("bound", "both"):
         bound = lower_bound_strips(grey, free, cfg, plan, n_procs=args.procs)
         report["bound"] = bound
@@ -551,6 +592,8 @@ def main() -> None:
                     help="per-strip time limit")
     p9.add_argument("--workers", type=int, default=2,
                     help="CP-SAT workers per strip (times --procs processes)")
+    p9.add_argument("--lns-polish", type=float, default=0.0,
+                    help="seconds of full-mask LNS after stitching")
     p9.add_argument("--seed", type=int, default=0)
     # k/stride are fixed at 8/8 (cuts must align to window boundaries) and
     # dither at "round" (strip-local error diffusion would change targets);

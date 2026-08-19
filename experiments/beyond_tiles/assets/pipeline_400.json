@@ -1,0 +1,184 @@
+{
+  "plan": {
+    "spans": [
+      [
+        0,
+        48
+      ],
+      [
+        48,
+        96
+      ],
+      [
+        96,
+        144
+      ],
+      [
+        144,
+        192
+      ],
+      [
+        192,
+        240
+      ],
+      [
+        240,
+        288
+      ],
+      [
+        288,
+        336
+      ],
+      [
+        336,
+        384
+      ],
+      [
+        384,
+        400
+      ]
+    ],
+    "gap": 2
+  },
+  "solve": {
+    "objective": 4,
+    "statuses": [
+      "OPTIMAL",
+      "OPTIMAL",
+      "OPTIMAL",
+      "OPTIMAL",
+      "OPTIMAL",
+      "OPTIMAL",
+      "OPTIMAL",
+      "OPTIMAL",
+      "OPTIMAL"
+    ],
+    "wall_time_s": 117.0894863330177,
+    "total_cpu_s": 599.9472790840082,
+    "per_strip": [
+      {
+        "status": "OPTIMAL",
+        "objective": 0,
+        "best_bound": 0,
+        "wall_time_s": 26.48933800001396
+      },
+      {
+        "status": "OPTIMAL",
+        "objective": 0,
+        "best_bound": 0,
+        "wall_time_s": 66.86336008401122
+      },
+      {
+        "status": "OPTIMAL",
+        "objective": 0,
+        "best_bound": 0,
+        "wall_time_s": 77.14383324998198
+      },
+      {
+        "status": "OPTIMAL",
+        "objective": 0,
+        "best_bound": 0,
+        "wall_time_s": 96.77101583400508
+      },
+      {
+        "status": "OPTIMAL",
+        "objective": 1,
+        "best_bound": 1,
+        "wall_time_s": 73.62572125002043
+      },
+      {
+        "status": "OPTIMAL",
+        "objective": 2,
+        "best_bound": 2,
+        "wall_time_s": 117.0894863330177
+      },
+      {
+        "status": "OPTIMAL",
+        "objective": 1,
+        "best_bound": 1,
+        "wall_time_s": 67.51727695798036
+      },
+      {
+        "status": "OPTIMAL",
+        "objective": 0,
+        "best_bound": 0,
+        "wall_time_s": 59.85130974999629
+      },
+      {
+        "status": "OPTIMAL",
+        "objective": 0,
+        "best_bound": 0,
+        "wall_time_s": 14.595937624981161
+      }
+    ],
+    "spans": [
+      [
+        0,
+        48
+      ],
+      [
+        48,
+        96
+      ],
+      [
+        96,
+        144
+      ],
+      [
+        144,
+        192
+      ],
+      [
+        192,
+        240
+      ],
+      [
+        240,
+        288
+      ],
+      [
+        288,
+        336
+      ],
+      [
+        336,
+        384
+      ],
+      [
+        384,
+        400
+      ]
+    ],
+    "deviation_vs_full_targets": {
+      "mad": 0.01529367934463359,
+      "p95": 0.08612132352941171,
+      "max": 0.3811764705882353,
+      "mad_darkest_quartile": 0.022256223199647592,
+      "pearson": 0.9686534883346175,
+      "n_windows": 1968
+    },
+    "verify": {
+      "bounded": true,
+      "toroidal": true
+    }
+  },
+  "lns": {
+    "objective": 3,
+    "rounds": 16,
+    "patches_improved": 97,
+    "patches_solved": 108,
+    "wall_time_s": 59.514981125015765,
+    "deviation_vs_full_targets": {
+      "mad": 0.006659452227712712,
+      "p95": 0.007781709558823519,
+      "max": 0.3811764705882353,
+      "mad_darkest_quartile": 0.007077015376743568,
+      "pearson": 0.9852335489656718,
+      "n_windows": 1968
+    },
+    "verify": {
+      "bounded": true,
+      "toroidal": true
+    }
+  }
+}

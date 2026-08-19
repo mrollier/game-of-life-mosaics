@@ -32,6 +32,8 @@ from beyond_tiles.animate import select_frames
 RESULTS = Path(__file__).resolve().parent / "results"
 E2 = RESULTS / "e2"
 E6 = RESULTS / "e6"
+E9 = RESULTS / "e9"
+PIPELINES = [400, 1000]  # strips+LNS champion-pipeline runs
 RUNS = [
     ("marilyn_200_s0_force_dead_eq_k8s8", "200", "optimal"),
     ("marilyn_400_s0_force_dead_eq_k8s8", "400", "feasible"),
@@ -92,6 +94,27 @@ def main() -> None:
             f"movie {size}²: {len(picks)} of {len(snapshots)} incumbents -> "
             f"{out.name} ({out.stat().st_size / 1024:.1f} kB), "
             f"{metrics['status']} obj={metrics['objective']}"
+        )
+
+    for size in PIPELINES:
+        src = E9 / f"marilyn_{size}_r48"
+        if not src.exists():
+            print(f"skipping pipeline assets for {size}²: no {src}")
+            continue
+        pattern = np.load(src / "pattern.npy")
+        out = save_pattern_asset(
+            ASSETS / f"marilyn_{size}_pipeline.npz", pattern
+        )
+        report = json.loads((src / "strips.json").read_text())
+        (ASSETS / f"pipeline_{size}.json").write_text(
+            json.dumps(report, indent=2)
+        )
+        stage = report.get("lns", report.get("solve", {}))
+        print(
+            f"pipeline {size}²: {pattern.shape} -> {out.name} "
+            f"({out.stat().st_size / 1024:.1f} kB), "
+            f"objective={stage.get('objective')} "
+            f"mad={stage.get('deviation_vs_full_targets', {}).get('mad')}"
         )
 
 

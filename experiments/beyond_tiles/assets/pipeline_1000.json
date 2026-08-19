@@ -1,0 +1,364 @@
+{
+  "plan": {
+    "spans": [
+      [
+        0,
+        48
+      ],
+      [
+        48,
+        96
+      ],
+      [
+        96,
+        144
+      ],
+      [
+        144,
+        192
+      ],
+      [
+        192,
+        240
+      ],
+      [
+        240,
+        288
+      ],
+      [
+        288,
+        336
+      ],
+      [
+        336,
+        384
+      ],
+      [
+        384,
+        432
+      ],
+      [
+        432,
+        480
+      ],
+      [
+        480,
+        528
+      ],
+      [
+        528,
+        576
+      ],
+      [
+        576,
+        624
+      ],
+      [
+        624,
+        672
+      ],
+      [
+        672,
+        720
+      ],
+      [
+        720,
+        768
+      ],
+      [
+        768,
+        816
+      ],
+      [
+        816,
+        864
+      ],
+      [
+        864,
+        912
+      ],
+      [
+        912,
+        960
+      ],
+      [
+        960,
+        1000
+      ]
+    ],
+    "gap": 2
+  },
+  "solve": {
+    "objective": 229,
+    "statuses": [
+      "OPTIMAL",
+      "OPTIMAL",
+      "OPTIMAL",
+      "OPTIMAL",
+      "OPTIMAL",
+      "OPTIMAL",
+      "FEASIBLE",
+      "FEASIBLE",
+      "FEASIBLE",
+      "OPTIMAL",
+      "OPTIMAL",
+      "FEASIBLE",
+      "FEASIBLE",
+      "FEASIBLE",
+      "FEASIBLE",
+      "FEASIBLE",
+      "FEASIBLE",
+      "FEASIBLE",
+      "FEASIBLE",
+      "OPTIMAL",
+      "OPTIMAL"
+    ],
+    "wall_time_s": 300.98787870799424,
+    "total_cpu_s": 5028.794812166947,
+    "per_strip": [
+      {
+        "status": "OPTIMAL",
+        "objective": 1,
+        "best_bound": 1,
+        "wall_time_s": 55.37421316601103
+      },
+      {
+        "status": "OPTIMAL",
+        "objective": 0,
+        "best_bound": 0,
+        "wall_time_s": 85.33101233403431
+      },
+      {
+        "status": "OPTIMAL",
+        "objective": 0,
+        "best_bound": 0,
+        "wall_time_s": 145.25711058301385
+      },
+      {
+        "status": "OPTIMAL",
+        "objective": 0,
+        "best_bound": 0,
+        "wall_time_s": 198.93638645799365
+      },
+      {
+        "status": "OPTIMAL",
+        "objective": 0,
+        "best_bound": 0,
+        "wall_time_s": 222.39303650002694
+      },
+      {
+        "status": "OPTIMAL",
+        "objective": 0,
+        "best_bound": 0,
+        "wall_time_s": 181.53539670904865
+      },
+      {
+        "status": "FEASIBLE",
+        "objective": 18,
+        "best_bound": 0,
+        "wall_time_s": 300.30156137497397
+      },
+      {
+        "status": "FEASIBLE",
+        "objective": 70,
+        "best_bound": 0,
+        "wall_time_s": 300.3189792909543
+      },
+      {
+        "status": "FEASIBLE",
+        "objective": 41,
+        "best_bound": 0,
+        "wall_time_s": 300.3912631669664
+      },
+      {
+        "status": "OPTIMAL",
+        "objective": 0,
+        "best_bound": 0,
+        "wall_time_s": 287.07929120899644
+      },
+      {
+        "status": "OPTIMAL",
+        "objective": 0,
+        "best_bound": 0,
+        "wall_time_s": 257.5217512919917
+      },
+      {
+        "status": "FEASIBLE",
+        "objective": 2,
+        "best_bound": 0,
+        "wall_time_s": 300.3353133329656
+      },
+      {
+        "status": "FEASIBLE",
+        "objective": 36,
+        "best_bound": 0,
+        "wall_time_s": 300.3923296669964
+      },
+      {
+        "status": "FEASIBLE",
+        "objective": 12,
+        "best_bound": 0,
+        "wall_time_s": 300.36109508300433
+      },
+      {
+        "status": "FEASIBLE",
+        "objective": 16,
+        "best_bound": 0,
+        "wall_time_s": 300.3943944579805
+      },
+      {
+        "status": "FEASIBLE",
+        "objective": 6,
+        "best_bound": 0,
+        "wall_time_s": 300.42389204201754
+      },
+      {
+        "status": "FEASIBLE",
+        "objective": 2,
+        "best_bound": 0,
+        "wall_time_s": 300.26624641701346
+      },
+      {
+        "status": "FEASIBLE",
+        "objective": 8,
+        "best_bound": 0,
+        "wall_time_s": 300.98787870799424
+      },
+      {
+        "status": "FEASIBLE",
+        "objective": 12,
+        "best_bound": 0,
+        "wall_time_s": 300.4057525409735
+      },
+      {
+        "status": "OPTIMAL",
+        "objective": 5,
+        "best_bound": 5,
+        "wall_time_s": 186.32004395895638
+      },
+      {
+        "status": "OPTIMAL",
+        "objective": 0,
+        "best_bound": 0,
+        "wall_time_s": 104.4678638750338
+      }
+    ],
+    "spans": [
+      [
+        0,
+        48
+      ],
+      [
+        48,
+        96
+      ],
+      [
+        96,
+        144
+      ],
+      [
+        144,
+        192
+      ],
+      [
+        192,
+        240
+      ],
+      [
+        240,
+        288
+      ],
+      [
+        288,
+        336
+      ],
+      [
+        336,
+        384
+      ],
+      [
+        384,
+        432
+      ],
+      [
+        432,
+        480
+      ],
+      [
+        480,
+        528
+      ],
+      [
+        528,
+        576
+      ],
+      [
+        576,
+        624
+      ],
+      [
+        624,
+        672
+      ],
+      [
+        672,
+        720
+      ],
+      [
+        720,
+        768
+      ],
+      [
+        768,
+        816
+      ],
+      [
+        816,
+        864
+      ],
+      [
+        864,
+        912
+      ],
+      [
+        912,
+        960
+      ],
+      [
+        960,
+        1000
+      ]
+    ],
+    "deviation_vs_full_targets": {
+      "mad": 0.013620035906837687,
+      "p95": 0.08256433823529413,
+      "max": 0.37941176470588234,
+      "mad_darkest_quartile": 0.01996234477372961,
+      "pearson": 0.9799356764881676,
+      "n_windows": 11982
+    },
+    "verify": {
+      "bounded": true,
+      "toroidal": true
+    }
+  },
+  "lns": {
+    "objective": 63,
+    "rounds": 127,
+    "patches_improved": 654,
+    "patches_solved": 980,
+    "wall_time_s": 489.8562022499973,
+    "deviation_vs_full_targets": {
+      "mad": 0.00482134494484842,
+      "p95": 0.007564338235294121,
+      "max": 0.37941176470588234,
+      "mad_darkest_quartile": 0.004542520265959677,
+      "pearson": 0.9964102223923362,
+      "n_windows": 11982
+    },
+    "verify": {
+      "bounded": true,
+      "toroidal": true
+    }
+  }
+}

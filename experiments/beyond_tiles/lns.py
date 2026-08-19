@@ -246,9 +246,18 @@ def improve(
     devs = window_devs(pattern, free_mask, windows, targets, lcfg.slack)
     result.obj_history.append((0.0, int(devs.sum())))
 
+    # Boxes that failed to improve go stale and are skipped until an
+    # accepted patch nearby invalidates their context. Without this, a
+    # few high-deviation but locally-optimal regions (dark windows at
+    # the density ceiling) monopolize every round and the loop gives up
+    # while plenty of improvable patches never got a turn.
+    stale: set = set()
+
     while time.perf_counter() - t0 < lcfg.budget_s:
         scored = []
         for box in boxes:
+            if box in stale:
+                continue
             members = index[box[0] : box[1], box[2] : box[3]].ravel()
             members = members[members >= 0]
             score = int(devs[members].sum())
@@ -300,22 +309,36 @@ def improve(
         else:
             outs = [_solve_patch_task(p) for p in payloads]
 
-        improved_any = False
-        for payload, out in zip(payloads, outs):
+        accepted_boxes = []
+        for (_, wbox, cbox), payload, out in zip(chosen, payloads, outs):
             result.patches_solved += 1
-            if out is None:
-                continue
-            i0, i1, j0, j1 = payload["box"]
-            new_patch = out[_MARGIN : _MARGIN + (i1 - i0), _MARGIN : _MARGIN + (j1 - j0)]
-            candidate = pattern.copy()
-            candidate[i0:i1, j0:j1] = new_patch
-            new_devs = window_devs(
-                candidate, free_mask, windows, targets, lcfg.slack
-            )
-            if new_devs.sum() < devs.sum():
-                pattern, devs = candidate, new_devs
-                result.patches_improved += 1
-                improved_any = True
+            improved = False
+            if out is not None:
+                i0, i1, j0, j1 = payload["box"]
+                new_patch = out[
+                    _MARGIN : _MARGIN + (i1 - i0), _MARGIN : _MARGIN + (j1 - j0)
+                ]
+                candidate = pattern.copy()
+                candidate[i0:i1, j0:j1] = new_patch
+                new_devs = window_devs(
+                    candidate, free_mask, windows, targets, lcfg.slack
+                )
+                if new_devs.sum() < devs.sum():
+                    pattern, devs = candidate, new_devs
+                    result.patches_improved += 1
+                    improved = True
+                    accepted_boxes.append(cbox)
+            if not improved:
+                stale.add(wbox)
+        # A change of context wakes up nearby stale boxes.
+        if accepted_boxes:
+            for box in list(stale):
+                b0, b1, c0, c1 = _cell_box(box, windows, index)
+                for a0, a1, d0, d1 in accepted_boxes:
+                    if b0 < a1 + _MARGIN and a0 < b1 + _MARGIN and \
+                            c0 < d1 + _MARGIN and d0 < c1 + _MARGIN:
+                        stale.discard(box)
+                        break
         result.rounds += 1
         result.obj_history.append(
             (time.perf_counter() - t0, int(devs.sum()))
@@ -324,8 +347,6 @@ def improve(
             f"lns round {result.rounds}: objective {int(devs.sum())} "
             f"({result.patches_improved}/{result.patches_solved} patches improved)"
         )
-        if not improved_any:
-            break
 
     result.pattern = pattern
     result.objective = int(devs.sum())

@@ -354,7 +354,13 @@ def test_pattern_asset_round_trip(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "name,size", [("marilyn_200_optimal.npz", 200), ("marilyn_400_feasible.npz", 400)]
+    "name,size",
+    [
+        ("marilyn_200_optimal.npz", 200),
+        ("marilyn_400_feasible.npz", 400),
+        ("marilyn_400_pipeline.npz", 400),
+        ("marilyn_1000_pipeline.npz", 1000),
+    ],
 )
 def test_shipped_assets_are_still_lifes(name, size):
     from gol_mosaics.life import is_still_life

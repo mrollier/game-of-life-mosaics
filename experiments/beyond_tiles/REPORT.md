@@ -406,6 +406,117 @@ Four findings:
    windows) beat handing the whole 161k-variable model back to CP-SAT?
    See the LNS benchmark below.
 
+### C4 — rectangular LNS: targeted beats global
+
+`lns.py` frees a window-aligned rectangular patch, keeps everything else
+frozen, and re-solves the patch with the frozen ring's stability
+constraints folded in as constants — so every accepted patch is exactly
+a sub-problem: provably non-worsening, still-life preserved (verified
+after every benchmark below), non-interacting patches solved on the four
+performance cores in parallel.
+
+Measured at 400²:
+
+| experiment | start → end | wall | MAD |
+|---|---|---|---|
+| 40×40 patches on the 2,874 baseline | 2,874 → 2,852, stalls | 4 rounds | — |
+| 64×64 patches on the same | 2,874 → **1,899** | 600 s | — |
+| **seed → 40×40 LNS** (slack 1) | 2,399 → **799** | **309 s** | **0.0230** |
+
+Readings. Patch size is the knob that matters: at 40×40 the baseline
+pattern is locally optimal everywhere (its residual deviation is the
+near-ceiling dark-window shortfall, which needs longer-range
+rearrangement), while 64×64 patches cut it by a third. And the
+seed-plus-LNS pipeline — no global CP-SAT solve at all — is the new
+headline: **MAD 0.0230 in ~5 minutes total** (3 s to build the seed,
+309 s of LNS), versus 0.0288 for the 40-minute monolithic solve and
+0.0327 for seed-plus-global-CP-SAT at ~17 minutes. Targeted repair of
+the windows that are actually wrong beats handing the whole
+161k-variable model back to the solver, by a wide margin.
+
+### C5 — strip decomposition: 100 seconds to the best 400² yet
+
+Restriction form (`e9 --mode solve`): nine strips of 48 rows (the last
+takes the remainder), two forced-dead rows folded into the bottom of
+each non-final strip. Two dead rows decouple exactly — constraints
+centred on the upper gap row are enforced by the upper strip's model,
+and the lower gap row *is* the lower strip's dead ring, which still
+carries its no-birth constraint — so the stitched pattern is a still
+life by construction (and verified). Measured at 400², 120 s per strip
+cap, four strips at a time on the performance cores:
+
+> summed strip objective **4**, wall **100.6 s**, **MAD 0.0153**
+> against the *full* targets (the gap rows' shortfall included).
+
+That is half the seed+LNS MAD and a third of the 40-minute monolith's,
+in 100 seconds: the optimality wall between 200² and 400² is not a wall
+at all once the instance is cut into 200²-sized pieces. The visible
+cost is the horizontal dead bands every 48 rows — quantified inside
+that 0.0153, and repairable (the LNS polisher's scoring gravitates to
+exactly those windows, and its sub-models are free to re-populate the
+bands; measured below).
+
+Relaxation form (`e9 --mode bound`): LB = 2 with strips at a 120 s cap
+— no better than CP-SAT's own stuck bound. The relaxed cut rows have no
+stability constraints, so they absorb their windows' deviation for
+free, and the per-strip optima collapse toward zero. A real bound would
+need wider relaxed strips solved to optimality; parked as not worth the
+compute for now.
+
+### C6 — the annealer: an honest negative result
+
+The numba parallel-tempering engine hits **3.3×10⁷ cell-updates/s** on
+the M4 (above the 10⁷ gate), nucleates fine with the 2×2 block moves,
+and holds every correctness property (incremental energy matches full
+recomputes; deterministic per seed). It just doesn't *win*: starting
+from the agar seed (E = 2,399), 3,000 sweeps × 4 replicas ≈ 10¹⁰
+updates moved the energy to 2,397. The landscape is the limit, not the
+throughput — from a block-packing seed, single flips and block moves
+mostly shuffle between equivalent packings rather than densify past the
+lattice ceiling. The exact-repair pass works (0 unstable cells,
+verified), and a post-anneal LNS reached 2,111 — still far behind LNS
+alone. Consequence: the planned MLX/Metal port is **not warranted** —
+GPU throughput would accelerate a search that converges to the wrong
+basin. Kept as `e10` for the record.
+
+### C7 — the champion pipeline: strips + LNS polish
+
+Chaining the two winners closes the campaign. The strips leave one
+artifact — dead bands every 48 rows — and the polisher's scoring sends
+its patches exactly there (the gap windows carry the worst deviation),
+with sub-models that see the full mask and are free to re-populate the
+bands. Measured at 400² (`e9 --lns-polish`):
+
+| stage | wall | objective vs full targets | MAD |
+|---|---|---|---|
+| 9 strips, proven per strip | 100.6 s | 1,138 (gap bands) | 0.0153 |
+| + full-mask LNS | 52 s | **4** | **0.0067** |
+
+**Total: ~177 seconds to objective 3 / MAD 0.0067 at 400², verified
+still life** (the committed `e9 --lns-polish` run: strips 117 s, polish
+60 s) — against 2,874 / 0.0288 for the 2,400-second monolithic solve
+the campaign started from. Thirteen times less wall time, four times
+better fidelity, better than the 200² *proven optimum* (MAD 0.0091),
+and within 1 of the only lower bound ever proven for this instance
+(2). For practical purposes the 400² problem is closed.
+
+**And it scales.** At 1000² — a canvas whose monolithic model would not
+fit in this machine's memory — 21 strips at a 300 s cap plus a 490 s
+polish give **objective 63 / MAD 0.0048, verified, in ~13 minutes**
+(`assets/marilyn_1000_pipeline.npz`). One refinement mattered along the
+way: the polisher originally stopped at the first zero-improvement
+round, and at 1000² a handful of high-deviation but locally-optimal
+dark patches monopolized every round, stalling it at objective 11,130.
+Failed patches now go stale (skipped until an accepted neighbour
+changes their context), which took the same run to 63.
+
+Recommended recipes after the campaign (SpikeConfig defaults stay
+unchanged — the evidence favoured pipeline choice over parameter
+flips): up to ~200², plain `solve_image` (proves optimality in
+seconds to minutes); 400² and beyond, `e9 --lns-polish` (strips then
+polish); slack=1 and the agar hint only when a monolithic solve of a
+large canvas is explicitly wanted.
+
 ### Considered and rejected
 
 - **MaxSAT encoding**: ~36.5M clauses at 400² before sharing; MSE 2026
