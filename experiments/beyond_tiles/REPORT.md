@@ -561,6 +561,51 @@ seconds to minutes); 400² and beyond, `e9 --lns-polish` (strips then
 polish); slack=1 and the agar hint only when a monolithic solve of a
 large canvas is explicitly wanted.
 
+### C8 — case study: a dark 1416×2000 portrait (John Conway, 2026-08-20)
+
+The first real poster job after the campaign stress-tested the recipe on
+everything Marilyn is not: an A-format rectangular canvas (1416×2000 —
+the source's 1414 columns rounded up to a multiple of the window size)
+and a **low-key photo** (subject median grey 40 against Marilyn's 234).
+Two failure modes appeared that the campaign never hit, and both fixes
+are now defaults in `poster.py`, the general-form CLI distilled from
+this run (any image, any rectangular multiple-of-8 size):
+
+1. **The density ceiling bites at d_max 0.45.** Histogram equalization
+   sends ~25 % of a dark image's windows to the top of the tone range,
+   i.e. to target density 0.45 — the practical still-life packing limit.
+   Strips cap out, and no amount of polishing helps (the residual is
+   infeasibility, not sloppiness): the d = 0.45 attempt stalled at
+   objective 60,513 with the seam bands clearly visible, and even 64×64
+   patches recovered only 2 %. At **d_max 0.40** the same targets are
+   achievable (consistent with E1's uniform-density scaling) and the
+   pipeline converges. Perceptual cost: slightly lighter blacks, in
+   exchange for uniform instead of mottled dark masses.
+2. **Dense seam repairs need patch *time*, not patch *size*.** A seam
+   window needs ~6 cells inserted between two rigid near-ceiling slabs —
+   a local rebuild that a 2 s patch solve cannot do at density 0.40
+   (rounds stalled), while **10 s patches with the standard 5-window
+   geometry** improved on *every single patch*: three rounds took the
+   objective 51,787 → 44,793 → 26,875 → **4,511**, and the gap-band mean
+   deviation from 3.76 to 0.63 cells per window. Corollary: one 20-minute
+   polish round is nowhere near converged on a 32k-window canvas — keep
+   polishing while the patch improvement rate stays high.
+
+| stage | wall | objective vs full targets | MAD |
+|---|---|---|---|
+| 42 strips (5 procs × 2 workers) | 38 min | 51,787 | 0.0250 |
+| + 3 × 30 min LNS, 10 s patches | 90 min | **4,511** | **0.0063** |
+
+Final result, verified still life (bounded + toroidal): **MAD 0.0063 /
+darkest-quartile 0.0057 / Pearson 0.9932, 400,660 live cells** — better
+density fidelity than the 400² flagship, on an 8× larger canvas, in
+~2.5 h of useful compute.
+
+![John Conway 1416×2000](figures/john_1416x2000_pipeline.png)
+
+*The 1416×2000 John Conway still life (d_max 0.40, strips + three
+10 s-patch LNS rounds).*
+
 ### Considered and rejected
 
 - **MaxSAT encoding**: ~36.5M clauses at 400² before sharing; MSE 2026

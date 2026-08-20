@@ -17,6 +17,9 @@ Subcommands (see REPORT.md for what each experiment established):
     gif     render a saved run's snapshots into a convergence GIF
     lns     polish a saved run with rectangular LNS (writes RUN_DIR/lns/)
     verify  recheck that a saved pattern is a still life; exits 1 on failure
+
+For arbitrary images and rectangular canvases, use poster.py (the general
+form of the e9 pipeline; see REPORT.md section 5, C8).
 """
 
 import argparse
