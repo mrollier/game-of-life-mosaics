@@ -92,3 +92,15 @@ def test_render_full_mosaic_matches_manual_pipeline(renderer):
         renderer.render_eca_overlay(eca)
     )
     assert np.array_equal(np.array(combined), np.array(manual))
+
+
+def test_render_eca_overlay_paints_the_fill_state(renderer):
+    """State 3 is the filler, and falls back to the ECA pixel colour."""
+    overlay = np.asarray(renderer.render_eca_overlay(np.array([[2, 3]])))
+    assert tuple(overlay[0, 0]) == tuple(overlay[0, 1]), "no fill_pixel set"
+
+    tinted = MosaicRenderer(ColorScheme(eca_pixel='#1E64C8',
+                                        fill_pixel='#FF0000'))
+    painted = np.asarray(tinted.render_eca_overlay(np.array([[2, 3]])))
+    assert tuple(painted[0, 0]) == (30, 100, 200, 255)
+    assert tuple(painted[0, 1]) == (255, 0, 0, 255)

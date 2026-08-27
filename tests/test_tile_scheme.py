@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from gol_mosaics.life import is_still_life
+from gol_mosaics.patterns import PatternLibrary
 from gol_mosaics.tile_domain import EXPECTED_FREE_ORBITS, derive_dead_edges_full
 from gol_mosaics.tile_scheme import (
     assemble,
@@ -184,6 +185,32 @@ def test_assemble_with_holes_is_still_life(level):
             assert not mosaic[i0:i0 + 2 * pitch - n,
                               j0:j0 + 2 * pitch - n].any()
         assert is_still_life(mosaic), "hole-punched mosaic destabilised"
+
+
+@pytest.mark.parametrize("level", [2, 3, 4])
+def test_diamond_assemble_with_holes_is_still_life(level):
+    """The same hole guarantee on the diamond lattice, with library tiles.
+
+    The composition theorem covers any scheme satisfying (S1)-(S3) and (H),
+    and derive_interlock(diamond_scheme(L)) reproduces tile_domain exactly —
+    but the shipped diamond tiles were enumerated through tile_domain, not
+    through this module, and gol_mosaics.mosaic assembles them by np.block
+    rather than by assemble(). This closes that gap: it is what lets a
+    hole-punched diamond field back a free-form still life.
+    """
+    scheme = diamond_scheme(level)
+    tiles = np.asarray(PatternLibrary.load(level, shape="diamond").solutions,
+                       dtype=np.uint8)
+    assert not tiles[:, ~(scheme.support | scheme.frame)].any(), (
+        "library tiles must live inside the scheme's support"
+    )
+    rng = np.random.default_rng(0)
+    for _ in range(5):
+        index_grid = rng.integers(0, len(tiles), size=(5, 5))
+        index_grid[rng.random((5, 5)) < 0.4] = -1
+        assert is_still_life(assemble(scheme, index_grid, tiles)), (
+            "hole-punched diamond mosaic destabilised"
+        )
 
 
 def test_assemble_rejects_inconsistent_overlap():

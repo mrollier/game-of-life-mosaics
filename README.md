@@ -310,6 +310,8 @@ Immutable colour configuration (dataclass).
 - `gol_pixel` - Foreground colour for GoL patterns
 - `eca_background` - Background colour for ECA overlay
 - `eca_pixel` - Foreground colour for ECA overlay
+- `fill_pixel` - Colour for filler cells (see `compose`); `None` falls back to `eca_pixel`, so a scheme that ignores filler renders unchanged
+- `fill` (property) - The resolved filler colour
 
 ### GollyExporter
 
@@ -359,9 +361,47 @@ MosaicRenderer(color_scheme)
 
 **Methods:**
 - `render_gol_mosaic(mosaic)` - Render GoL pattern with colours
-- `render_eca_overlay(eca_mask)` - Render ECA overlay with transparency
+- `render_eca_overlay(eca_mask)` - Render ECA overlay with transparency (`0` transparent, `1` field background, `2` field pixel, `3` filler)
 - `composite(base, overlay)` - Alpha-composite images
 - `render_full_mosaic(gol_mosaic, eca_mask)` - Complete rendering pipeline
+
+### compose
+
+Post-hoc backgrounds and recolouring, for patterns that are expensive to
+generate and cheap to repaint. A free-form still life is solved cell-by-cell
+with CP-SAT and costs minutes to hours, so its colours and its backdrop have
+to be choosable afterwards, from the stored pattern alone.
+
+**Functions** (all in `gol_mosaics.compose`):
+- `compose(pattern, background_mask, scheme, style, ...)` - Render a finished pattern with a colour scheme and a backdrop. `style` is one of `'none'` (transparent), `'flat'`, `'eca'`, `'agar'`, `'mosaic'`
+- `agar_background(background_mask, pitch, gap)` - A still-life block agar. The asymmetric `(3, 4)` pitch is the point: no dead cell ever sees exactly three live neighbours, whichever subset of sites is filled
+- `mosaic_background(background_mask, level, shape, density, tone, ...)` - A field of this project's own pond tiles, placed on their own lattice behind the subject
+- `filled_background(background_mask, level, fill, fill_band, fill_fade, ...)` - The same mosaic with the gap around the subject packed as tight as it goes. Returns `0` empty, `1` a tile cell, `2` a filler cell, so a renderer can paint the filler in its own colour
+- `scatter_background(background_mask, occupied, band, fade, ...)` - Loose elementary still lifes (block, tub, boat, ship, beehive, pond, loaf) placed off any lattice, which is what reaches the crevices a lattice cannot
+- `density_band(level, shape, density)` - The tiles inside a normalised density band, and the absolute fill that band really means
+- `life_safe_pattern(pattern, background_mask, field, ...)` - Merge a background into the pattern so the *whole grid* is one still life, exportable to Golly as a single object. The field is checked for clearance rather than trusted
+
+Only `'agar'` and `'mosaic'` produce real Game of Life cells; the other styles
+are paint. Every background keeps a `gap` of at least 2 cells from the subject,
+which is what makes the union provably stable: at Chebyshev distance 3 or more,
+no dead cell's 3×3 neighbourhood can contain cells from both populations, so
+each keeps the neighbour counts it was verified with.
+
+```python
+from gol_mosaics import ColorScheme, compose, filled_background, life_safe_pattern
+
+haze = ColorScheme(gol_background='#F4EDE2', gol_pixel='#2B3538',
+                   eca_background='#1B5E5E', eca_pixel='#E8D9C0',
+                   fill_pixel='#7FA8A0')
+
+# a tile mosaic behind the subject, its halo packed and tinted
+compose(pattern, ~subject_mask, haze, style='mosaic', level=6,
+        fill='auto', scale=2).save('art.png')
+
+# or as one still life, for Golly
+whole = life_safe_pattern(pattern, ~subject_mask,
+                          field=filled_background(~subject_mask, level=6))
+```
 
 ## Examples
 
@@ -407,6 +447,7 @@ game-of-life-mosaics/
 │       ├── image_processing.py # ImageProcessor (preprocessing)
 │       ├── eca.py             # ECABackground (background generation)
 │       ├── renderer.py        # MosaicRenderer (colour rendering)
+│       ├── compose.py         # Post-hoc backgrounds and recolouring
 │       └── export.py          # GollyExporter (format export)
 ├── data/                      # Pre-computed pattern solutions
 |   ├── solutions_pattern_level_1.npy

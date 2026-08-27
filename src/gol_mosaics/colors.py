@@ -6,7 +6,7 @@ used in mosaic rendering.
 """
 
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, Optional
 import numpy as np
 
 # Rejection-sampling cap for the Warhol luminance guard. High enough that a
@@ -46,6 +46,10 @@ class ColorScheme:
         gol_pixel: Foreground/alive cell colour for Game of Life mosaic
         eca_background: Background colour for Elementary Cellular Automaton overlay
         eca_pixel: Foreground colour for Elementary Cellular Automaton overlay
+        fill_pixel: Colour for filler cells — the smaller still lifes packed
+            into the gap between the subject and the mosaic (see
+            :func:`gol_mosaics.compose.filled_background`). None paints them
+            in `eca_pixel`, so a scheme that ignores filler looks unchanged.
 
     Example:
         >>> colors = ColorScheme(
@@ -62,6 +66,17 @@ class ColorScheme:
     gol_pixel: str = '#000000'
     eca_background: str = '#FFD200'
     eca_pixel: str = '#1E64C8'
+    fill_pixel: Optional[str] = None
+
+    @property
+    def fill(self) -> str:
+        """Filler colour, falling back to the ECA pixel colour.
+
+        Example:
+            >>> ColorScheme.ugent().fill
+            '#1E64C8'
+        """
+        return self.fill_pixel or self.eca_pixel
 
     @classmethod
     def ugent(cls) -> 'ColorScheme':
@@ -292,7 +307,8 @@ class ColorScheme:
         """
         Convert colour scheme to dictionary format.
 
-        Useful for compatibility or serialisation.
+        Useful for compatibility or serialisation. `fill_pixel` comes back
+        resolved rather than as None, so every value is a hex string.
 
         Returns:
             Dictionary with colour configuration
@@ -306,5 +322,6 @@ class ColorScheme:
             'gol_background': self.gol_background,
             'gol_pixel': self.gol_pixel,
             'eca_background': self.eca_background,
-            'eca_pixel': self.eca_pixel
+            'eca_pixel': self.eca_pixel,
+            'fill_pixel': self.fill
         }

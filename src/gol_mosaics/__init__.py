@@ -22,7 +22,9 @@ from .export import GollyExporter
 from .image_processing import ImageProcessor
 from .eca import ECABackground
 from .renderer import MosaicRenderer
-from .compose import compose, agar_background, life_safe_pattern
+from .compose import (compose, agar_background, density_band,
+                      filled_background, life_safe_pattern,
+                      mosaic_background, scatter_background)
 
 __all__ = [
     'MosaicGenerator',
@@ -34,5 +36,9 @@ __all__ = [
     'MosaicRenderer',
     'compose',
     'agar_background',
+    'density_band',
     'life_safe_pattern',
+    'mosaic_background',
+    'filled_background',
+    'scatter_background',
 ]

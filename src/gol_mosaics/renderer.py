@@ -109,9 +109,11 @@ class MosaicRenderer:
         - 0: Transparent (no overlay)
         - 1: ECA background colour
         - 2: ECA pixel colour
+        - 3: Fill colour (filler still lifes; falls back to the ECA pixel
+          colour when the scheme leaves `fill_pixel` unset)
 
         Args:
-            eca_mask: Array with values 0, 1, 2
+            eca_mask: Array with values 0, 1, 2, 3
 
         Returns:
             RGBA PIL Image with transparency
@@ -136,6 +138,7 @@ class MosaicRenderer:
         # Convert hex colours to RGB
         rgb1 = self._hex_to_rgb(self.color_scheme.eca_background)
         rgb2 = self._hex_to_rgb(self.color_scheme.eca_pixel)
+        rgb3 = self._hex_to_rgb(self.color_scheme.fill)
 
         # Value 1 -> eca_background, opaque
         mask1 = (eca_mask == 1)
@@ -146,6 +149,11 @@ class MosaicRenderer:
         mask2 = (eca_mask == 2)
         overlay[mask2, :3] = rgb2
         overlay[mask2, 3] = 255
+
+        # Value 3 -> fill colour, opaque
+        mask3 = (eca_mask == 3)
+        overlay[mask3, :3] = rgb3
+        overlay[mask3, 3] = 255
 
         # Value 0 stays (0,0,0,0) fully transparent
 

@@ -398,6 +398,33 @@ def test_agar_background_on_shipped_asset_is_a_still_life():
     assert verify_still_life(whole) == {"bounded": True, "toroidal": True}
 
 
+@pytest.mark.parametrize("shape", ["diamond", "square"])
+def test_mosaic_background_on_shipped_asset_is_a_still_life(shape):
+    """A tile mosaic behind a free-form subject, on real portrait geometry.
+
+    This is the pairing the art notebook is built on: the figure solved
+    cell-by-cell by CP-SAT, the field behind it made of the pond tiles the
+    rest of the repo enumerates. The whole canvas must remain one still life.
+    """
+    from gol_mosaics.compose import life_safe_pattern, mosaic_background
+    from gol_mosaics.life import is_still_life
+
+    from beyond_tiles.artifacts import ASSETS, load_pattern_asset
+    from beyond_tiles.still_image import verify_still_life
+    from beyond_tiles.targets import grey_and_mask_from_image
+
+    repo = Path(__file__).resolve().parents[1]
+    pattern = load_pattern_asset(ASSETS / "marilyn_400_pipeline.npz")
+    _, free = grey_and_mask_from_image(repo / "input/images/marilyn.png", 400)
+
+    field = mosaic_background(~free, level=3, shape=shape, seed=0)
+    assert field.any(), "a 400-cell canvas has room for level-3 tiles"
+    whole = life_safe_pattern(pattern, ~free, field=field)
+    assert whole.sum() > pattern.sum(), "the mosaic should add cells"
+    assert is_still_life(np.pad(whole, 1))
+    assert verify_still_life(whole) == {"bounded": True, "toroidal": True}
+
+
 # ---------------------------------------------------------------------------
 # convergence movies
 # ---------------------------------------------------------------------------
@@ -1079,3 +1106,35 @@ def test_snapshots_recorded_and_end_on_the_final_pattern():
     assert times == sorted(times)
     assert (result.snapshots[-1][2] == result.pattern).all()
     assert all(p.shape == result.pattern.shape for _, _, p in result.snapshots)
+
+
+# ---------------------------------------------------------------------------
+# post-hoc backgrounds against a real alpha cut
+# ---------------------------------------------------------------------------
+
+
+def test_filled_background_on_the_shipped_marilyn_asset():
+    """The clearance rule against a ragged real mask, not a synthetic circle.
+
+    Synthetic fixtures check the geometry; this checks it survives the
+    single-cell spurs and one-cell channels an alpha cut leaves behind.
+    """
+    from PIL import Image
+
+    from beyond_tiles.artifacts import load_pattern_asset
+    from beyond_tiles.still_image import verify_still_life
+    from beyond_tiles.targets import grey_and_mask_from_image
+    from gol_mosaics import filled_background, mosaic_background
+
+    root = Path(__file__).resolve().parents[1]
+    pattern = load_pattern_asset(
+        root / "experiments/beyond_tiles/assets/marilyn_400_pipeline.npz")
+    _, free = grey_and_mask_from_image(
+        Image.open(root / "input/images/marilyn.png"), size=400)
+    assert pattern[~free].sum() == 0, "the recovered mask must match the solve"
+
+    field = filled_background(~free, level=4, seed=0)
+    assert (field == 2).any(), "the halo should leave something to fill"
+    assert verify_still_life(pattern | (field != 0)) == {
+        "bounded": True, "toroidal": True}
+    assert (field != 0).sum() > mosaic_background(~free, level=4, seed=0).sum()
