@@ -5,6 +5,8 @@ CP-SAT layer is skipped when ortools is not installed, mirroring the
 pysat gating in test_nosym_tiles.py.
 """
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -371,6 +373,29 @@ def test_shipped_assets_are_still_lifes(name, size):
     assert pattern.shape == (size, size)
     assert pattern.sum() > 0
     assert is_still_life(np.pad(pattern, 1))
+
+
+def test_agar_background_on_shipped_asset_is_a_still_life():
+    """A life-safe backdrop on real portrait geometry stays stable.
+
+    The synthetic fixtures in test_compose.py check the gap rule; this one
+    checks it against a mask with the ragged edges a real alpha cut has.
+    """
+    from gol_mosaics.compose import life_safe_pattern
+    from gol_mosaics.life import is_still_life
+
+    from beyond_tiles.artifacts import ASSETS, load_pattern_asset
+    from beyond_tiles.still_image import verify_still_life
+    from beyond_tiles.targets import grey_and_mask_from_image
+
+    repo = Path(__file__).resolve().parents[1]
+    pattern = load_pattern_asset(ASSETS / "marilyn_400_pipeline.npz")
+    _, free = grey_and_mask_from_image(repo / "input/images/marilyn.png", 400)
+
+    whole = life_safe_pattern(pattern, ~free)
+    assert whole.sum() > pattern.sum(), "the agar should add cells"
+    assert is_still_life(np.pad(whole, 1))
+    assert verify_still_life(whole) == {"bounded": True, "toroidal": True}
 
 
 # ---------------------------------------------------------------------------

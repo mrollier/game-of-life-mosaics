@@ -9,6 +9,30 @@ from dataclasses import dataclass
 from typing import Dict
 import numpy as np
 
+# Rejection-sampling cap for the Warhol luminance guard. High enough that a
+# reachable gap is always found, low enough that an unreachable one still
+# returns (the best pair seen) instead of spinning.
+_MAX_DRAWS = 200
+
+
+def _luma(hex_color: str) -> float:
+    """
+    Perceived brightness of a hex colour, in 0..1 (ITU-R BT.601 luma).
+
+    Args:
+        hex_color: Hex colour string, with or without '#'
+
+    Returns:
+        Luma in 0..1, where 0 is black and 1 is white
+
+    Example:
+        >>> round(_luma('#FFFFFF'), 3)
+        1.0
+    """
+    h = hex_color.lstrip('#')
+    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255
+
 
 @dataclass(frozen=True)
 class ColorScheme:
@@ -98,7 +122,9 @@ class ColorScheme:
 
     @classmethod
     def warhol(cls, force_white: bool = False,
-               dark_on_light: bool = True) -> 'ColorScheme':
+               dark_on_light: bool = True,
+               seed: int = None,
+               min_luma_gap: float = 0.35) -> 'ColorScheme':
         """
         Warhol-inspired colour scheme.
 
@@ -107,14 +133,24 @@ class ColorScheme:
         Args:
             force_white: If True, forces the Game of Life background to be white (default: False)
             dark_on_light: If True, uses dark colours on a light background; if False, just picks randomly from the palette (default: True)
+            seed: Seed for the colour draw. None (default) gives a different
+                scheme on every call; an integer makes the scheme reproducible.
+            min_luma_gap: Minimum brightness difference (0..1) between the two
+                colours of each pair. Pairs that are too close are redrawn.
+                Free-form still lifes carry tone as local live-cell density, so
+                a low-contrast pair erases the picture rather than merely
+                recolouring it. 0 disables the guard.
 
         Returns:
             ColorScheme with Warhol-inspired colours
-        
+
         Example:
             >>> colors = ColorScheme.warhol()
             >>> colors.gol_pixel  # Bright magenta
             '#FF00FF'
+            >>> # Reproducible: the same seed always gives the same scheme
+            >>> ColorScheme.warhol(seed=7) == ColorScheme.warhol(seed=7)
+            True
         """
 
         # Warhol-inspired colour palette with bright, contrasting colours
@@ -179,26 +215,47 @@ class ColorScheme:
         warhol_colors = {**warhol_light_colors, **warhol_dark_colors}
 
         # Prepare random generator
-        rng = np.random.default_rng()
+        rng = np.random.default_rng(seed)
 
-        # Randomly select colours based on the dark_on_light flag
-        if not dark_on_light:
-            gol_colors = rng.choice(list(warhol_colors.values()), size=2, replace=False)
-            gol_background = gol_colors[0]
-            gol_pixel = gol_colors[1]
-        else:
-            # Force dark pixels on light background
-            gol_pixel = rng.choice(list(warhol_dark_colors.values()))
-            gol_background = rng.choice(list(warhol_light_colors.values()))
+        all_values = list(warhol_colors.values())
+        dark_values = list(warhol_dark_colors.values())
+        light_values = list(warhol_light_colors.values())
 
-        # Select two distinct ECA colours
-        eca_colors = rng.choice(list(warhol_colors.values()), size=2, replace=False)
-        eca_background = eca_colors[0]
-        eca_pixel = eca_colors[1]
+        def draw_gol():
+            """One (background, pixel) candidate for the GoL layer."""
+            if dark_on_light:
+                # Force dark pixels on light background
+                return str(rng.choice(light_values)), str(rng.choice(dark_values))
+            pair = rng.choice(all_values, size=2, replace=False)
+            return str(pair[0]), str(pair[1])
+
+        def draw_eca():
+            """One (background, pixel) candidate for the ECA layer."""
+            pair = rng.choice(all_values, size=2, replace=False)
+            return str(pair[0]), str(pair[1])
+
+        def pick(draw):
+            """Draw until the pair is far enough apart in brightness.
+
+            Falls back to the widest pair seen rather than looping forever, so
+            an unreachable min_luma_gap degrades instead of hanging.
+            """
+            best, best_gap = None, -1.0
+            for _ in range(_MAX_DRAWS):
+                background, pixel = draw()
+                gap = abs(_luma(background) - _luma(pixel))
+                if gap >= min_luma_gap:
+                    return background, pixel
+                if gap > best_gap:
+                    best, best_gap = (background, pixel), gap
+            return best
+
+        gol_background, gol_pixel = pick(draw_gol)
+        eca_background, eca_pixel = pick(draw_eca)
 
         # Force white background if requested
         if force_white:
-            gol_background='#FFFFFF'
+            gol_background = '#FFFFFF'
 
         return cls(
             gol_background=gol_background,

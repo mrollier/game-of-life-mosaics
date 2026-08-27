@@ -63,6 +63,39 @@ def test_colorscheme_warhol_force_white():
         assert ColorScheme.warhol(force_white=True).gol_background == '#FFFFFF'
 
 
+def test_colorscheme_warhol_seed_is_reproducible():
+    """The same seed always gives the same scheme; no seed varies."""
+    assert ColorScheme.warhol(seed=7) == ColorScheme.warhol(seed=7)
+    assert ColorScheme.warhol(seed=7) != ColorScheme.warhol(seed=8)
+    assert ColorScheme.warhol() != ColorScheme.warhol()
+
+
+def test_colorscheme_warhol_luma_gap_respected():
+    """Both colour pairs stay far enough apart in brightness to read."""
+    for seed in range(50):
+        colors = ColorScheme.warhol(seed=seed)
+        assert abs(_luminance(colors.gol_background)
+                   - _luminance(colors.gol_pixel)) >= 0.35
+        assert abs(_luminance(colors.eca_background)
+                   - _luminance(colors.eca_pixel)) >= 0.35
+
+
+def test_colorscheme_warhol_luma_gap_can_be_disabled():
+    """min_luma_gap=0 restores the unguarded draw (some pairs land close)."""
+    gaps = [abs(_luminance(c.gol_background) - _luminance(c.gol_pixel))
+            for c in (ColorScheme.warhol(seed=s, min_luma_gap=0)
+                      for s in range(50))]
+    assert min(gaps) < 0.35
+
+
+def test_colorscheme_warhol_gap_holds_without_dark_on_light():
+    """The guard also applies when both colours come from the merged palette."""
+    for seed in range(20):
+        colors = ColorScheme.warhol(seed=seed, dark_on_light=False)
+        assert abs(_luminance(colors.gol_background)
+                   - _luminance(colors.gol_pixel)) >= 0.35
+
+
 def test_colorscheme_warhol_eca_colors_distinct():
     """The two ECA colours are always distinct (drawn without replacement)."""
     for _ in range(10):

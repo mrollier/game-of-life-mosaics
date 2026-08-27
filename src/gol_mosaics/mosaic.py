@@ -13,6 +13,7 @@ from scipy.ndimage import binary_fill_holes, label
 
 from .patterns import PatternLibrary
 from .colors import ColorScheme
+from .compose import compose
 from .image_processing import ImageProcessor
 from .eca import ECABackground
 from .renderer import MosaicRenderer
@@ -627,25 +628,17 @@ class MosaicGenerator:
         Raises:
             ValueError: If supersample doesn't divide dimensions evenly
         """
-        height, width = gol_mosaic.shape
-
-        if no_eca:
-            eca_pattern = np.zeros((height, width), dtype=np.uint8)
-
-        else:
-            # Generate ECA pattern. Any positive supersample works: generate()
-            # crops the upsampled pattern to the exact mosaic size, so it need
-            # not divide the width or height.
-            eca_pattern = self.eca_generator.generate(
-                width=width,
-                height=height,
-                supersample=supersample
-            )
-
-        # Create ECA mask: 0=transparent, 1=eca_background, 2=eca_pixel
-        eca_mask = transparency_mask * (eca_pattern + transparency_mask)
-
-        return self.renderer.render_full_mosaic(gol_mosaic, eca_mask)
+        # Any positive supersample works: compose() crops the upsampled ECA
+        # pattern to the exact mosaic size, so it need not divide the width
+        # or height. no_eca leaves the flat background colour behind.
+        return compose(
+            gol_mosaic,
+            transparency_mask,
+            self.color_scheme,
+            style='flat' if no_eca else 'eca',
+            rule=self.eca_rule,
+            supersample=supersample
+        )
 
     def _auto_select_grid_size(self) -> int:
         """Randomly select a grid size from predefined options."""
