@@ -627,7 +627,95 @@ density fidelity than the 400² flagship, on an 8× larger canvas, in
   A one-off cross-check script existed for the record and was removed
   unrun during cleanup; the argument stands on its own.
 
-## 6. Out of scope
+## 6. Post-hoc backgrounds: filling the halo (2026-08-27)
+
+A finished still life is expensive; its backdrop is not. `gol_mosaics.compose`
+therefore paints one on afterwards, from the stored pattern alone, and one of
+its styles is this project's own tile mosaic — the figure solved cell-by-cell,
+sitting on a field of the pond tiles the rest of the repository is built from.
+
+`mosaic_background` seats a tile only where its whole `6*level` box fits with
+`gap` cells of margin. That box rule is what makes the union a still life, but
+it also means the distance from the figure to the nearest tile is set by where
+the lattice happens to fall. The halo is not one width — it swings, and the
+swing is what reads as untidy.
+
+Measured as the Chebyshev distance from each silhouette cell to the nearest
+background cell:
+
+| scene | plain mean | plain max | filled mean | filled max | background cells |
+|---|---|---|---|---|---|
+| banner 1 (800×200), L3 | 12.2 | 46 | 4.8 | 11 | 3,012 → 5,439 |
+| banner 2 (800×200), L2 | 9.2 | 36 | 4.5 | 7 | 25,296 → 26,013 |
+| banner 2, L4 | 15.0 | 54 | 5.0 | 9 | 16,796 → 21,006 |
+| banner 2, L6 | 25.2 | 73 | 4.7 | 8 | 12,304 → 18,428 |
+| Marilyn (400²), L5 | 69.5 | 240 | 5.0 | 12 | 2,096 → 6,799 |
+
+Marilyn is the extreme because a portrait is full of concavities no large tile
+reaches at all; a landscape silhouette is kinder.
+
+![filling the halo](figures/linkedin_halo_filling.png)
+
+*Banner 2 at level 6, plain above and filled below. Filler cells carry their
+own colour, so the smaller tiles recede into haze as they approach the ridge.*
+
+### The construction
+
+`filled_background` runs the same generator again at smaller levels and
+finishes with `scatter_background`. **No new theorem is needed.** Two still
+lifes whose live cells are at Chebyshev distance ≥ 3 union to a still life: a
+live cell of one sees no cell of the other among its eight neighbours, and if a
+dead cell had a neighbour in each, those two would be at distance ≤ 2. Passing
+each pass `background_mask & ~placed` makes the existing box rule demand
+exactly that clearance against everything already down — the same argument as
+the subject, one population wider.
+
+Facts worth not re-deriving:
+
+- **Diamond level 1 *is* the pond** (6×6 box, 8 cells, a single tile in the
+  bank), and `agar_background` is the four-cell square. "Fill with ponds and
+  blocks" was already expressible; what was missing was the composition.
+- **The cascade's middle is nearly a no-op.** From level 4 on a banner sky:
+  L4 +16,796, L3 +44, L2 +176, L1 +3,432, scatter +1,188. Once the large tiles
+  are down their cells are spread across the whole field and almost nowhere
+  still fits an intermediate box. The work happens at the two ends.
+- **`scatter_background` is the part that matters**, because it is on no
+  lattice. Alone, on top of a plain level-4 mosaic, it reaches the same halo
+  as the whole cascade plus a block agar.
+- **Filler levels must draw from the full density band.** `PatternLibrary`
+  normalises density min–max *per level*, and the level-1 bank holds one tile,
+  so any narrower band selects nothing and raises.
+- **Lattice-phase alignment is a measured dead end.** 36 offsets swept on
+  banner 2 at level 4: mean halo 13.65–16.5, maximum never below 38. The
+  raggedness is silhouette against tile size, not phase — an `offset` knob
+  would buy nothing.
+- **The floor is `gap + 1` = 3 cells.** Flush contact would mean re-solving a
+  boundary band with CP-SAT, which is a different project.
+- **Block agar as the fine filler** works and is provably safe, but its regular
+  weave reads as a second wallpaper competing with the tiles. Rejected on the
+  render, not on principle.
+
+### Rendering the filler apart
+
+`filled_background` numbers its output (1 main mosaic, 2 filler) rather than
+returning a plain mask. `compose` already builds its layer as
+`backdrop * (field + backdrop)`, which maps those to states 2 and 3, so the
+compositing arithmetic did not change at all — only `MosaicRenderer` gained a
+branch and `ColorScheme` an optional `fill_pixel`. Unset, it falls back to
+`eca_pixel` and every existing scheme renders exactly as before.
+
+### Reproduction
+
+```bash
+python experiments/beyond_tiles/linkedin_banners.py   # ~40 s, no solver
+```
+
+Fifty banner renders at LinkedIn's 1584×396, four contact sheets and the
+figure above, all from the committed `assets/banner{1,2}_800x200_pipeline.npz`.
+The renders themselves are gitignored (~16 MB, regenerable); the chosen one is
+kept as `figures/linkedin_banner_filled_l6.png`.
+
+## 7. Out of scope
 
 pysat/MaxSAT cross-check of the encoding; oscillators (period > 1);
 anti-banding aesthetic constraints; non-square canvases; app integration.

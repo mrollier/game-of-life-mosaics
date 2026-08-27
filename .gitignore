@@ -81,6 +81,12 @@ paper/
 # Beyond-tiles spike run outputs (curated figures live in experiments/beyond_tiles/figures/)
 experiments/beyond_tiles/results/
 
+# LinkedIn banner variation set: 50 renders and four contact sheets, ~16 MB and
+# regenerated in under a minute by experiments/beyond_tiles/linkedin_banners.py
+# from the committed .npz assets. The chosen render and the before/after figure
+# are kept in experiments/beyond_tiles/figures/ instead.
+output/images/linkedin/
+
 # Workstation search artifacts (checkpoints, local oracle copy, big outputs)
 workstation/level6_search/work/
 workstation/level6_search/reference/
