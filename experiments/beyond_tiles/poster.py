@@ -93,6 +93,9 @@ def main() -> None:
                          "2 s is enough for light ones)")
     ap.add_argument("--patch-windows", type=int, default=5)
     ap.add_argument("--polish-procs", type=int, default=4)
+    ap.add_argument("--max-diag-run", type=int, default=5,
+                    help="longest solid diagonal chain of live cells; 0 lifts "
+                         "the cap and lets the solver draw pencil lines again")
     args = ap.parse_args()
 
     if args.width % 8 or args.height % 8:
@@ -100,7 +103,7 @@ def main() -> None:
 
     from beyond_tiles.decompose import plan_strips, solve_strips
     from beyond_tiles.lns import LnsConfig, improve, window_devs
-    from beyond_tiles.metrics import deviation_stats
+    from beyond_tiles.metrics import deviation_stats, max_diagonal_run
     from beyond_tiles.still_image import SpikeConfig, verify_still_life
     from beyond_tiles.targets import cell_targets, window_slices, window_targets
 
@@ -119,8 +122,10 @@ def main() -> None:
     log(f"{len(kept):,} windows, total live-cell target {int(targets.sum()):,}")
 
     plan = plan_strips(args.height, 8, strip_rows=args.strip_rows, gap=2)
+    max_diag_run = args.max_diag_run or None
     cfg = SpikeConfig(k=8, stride=8, d_max=args.dmax, seed=args.seed,
-                      time_limit_s=args.strip_time, workers=args.strip_workers)
+                      time_limit_s=args.strip_time, workers=args.strip_workers,
+                      max_diag_run=max_diag_run)
     log(f"solving {len(plan.spans)} strips "
         f"({args.strip_procs} procs x {args.strip_workers} workers)...")
     t0 = time.perf_counter()
@@ -138,7 +143,8 @@ def main() -> None:
         lcfg = LnsConfig(patch_windows=args.patch_windows,
                          patch_time_s=args.patch_time,
                          budget_s=args.polish_budget,
-                         n_procs=args.polish_procs, seed=args.seed + rnd)
+                         n_procs=args.polish_procs, seed=args.seed + rnd,
+                         max_diag_run=max_diag_run)
         t0 = time.perf_counter()
         res = improve(pattern, free, kept, targets, lcfg,
                       log=lambda *a, **k: None)
@@ -160,6 +166,7 @@ def main() -> None:
     ver = verify_still_life(pattern)
     assert ver["bounded"] and ver["toroidal"], f"verification failed: {ver}"
     stats = deviation_stats(pattern, cell_t, free, kept)
+    longest_diag = max_diagonal_run(pattern)
     report = {
         "image": args.image,
         "grid": [args.height, args.width],
@@ -172,6 +179,7 @@ def main() -> None:
         "objective": obj,
         "deviation": stats,
         "verify": ver,
+        "max_diagonal_run": longest_diag,
         "live_cells": int(pattern.sum()),
     }
     (out / "report.json").write_text(json.dumps(report, indent=2))
@@ -181,6 +189,7 @@ def main() -> None:
     MosaicRenderer(ColorScheme.ugent()).render_gol_mosaic(pattern).save(
         out / "render.png")
     log(f"ALL DONE: verify {ver}, {int(pattern.sum()):,} live cells, "
+        f"longest diagonal chain {longest_diag}, "
         f"MAD {stats['mad']:.4f} (darkest quartile "
         f"{stats['mad_darkest_quartile']:.4f}, Pearson {stats['pearson']:.4f}); "
         f"saved to {out}")

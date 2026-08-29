@@ -88,6 +88,42 @@ def spectral(pattern: np.ndarray, n_bins: int = 40) -> Dict[str, list]:
     return {"radius": centers.tolist(), "power": prof.tolist()}
 
 
+def max_run(pattern: np.ndarray, di: int, dj: int) -> int:
+    """Length of the longest chain of live cells stepping by (di, dj).
+
+    Shift-and-AND: after n steps `chain` marks the start of every run of
+    n+1 cells, so the loop ends the first time no run survives.
+    """
+    live = np.asarray(pattern, dtype=bool)
+    if not live.any():
+        return 0
+    chain, n = live, 1
+    while True:
+        shifted = np.zeros_like(live)
+        h, w = live.shape
+        si, sj = n * di, n * dj
+        if abs(si) >= h or abs(sj) >= w:
+            return n
+        shifted[max(0, -si) : h - max(0, si), max(0, -sj) : w - max(0, sj)] = live[
+            max(0, si) : h - max(0, -si), max(0, sj) : w - max(0, -sj)
+        ]
+        chain = chain & shifted
+        if not chain.any():
+            return n
+        n += 1
+
+
+def max_diagonal_run(pattern: np.ndarray) -> int:
+    """Longest solid diagonal chain, over both diagonal directions.
+
+    The texture metric behind `SpikeConfig.max_diag_run`: a diagonal chain
+    is self-supporting (every interior cell takes its 2 live neighbours
+    from the chain itself), so unlike a horizontal or vertical run it can
+    float across empty background and read as a drawn line.
+    """
+    return max(max_run(pattern, 1, 1), max_run(pattern, 1, -1))
+
+
 def deviation_stats(
     pattern: np.ndarray,
     cell_t: np.ndarray,

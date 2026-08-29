@@ -21,6 +21,51 @@ from beyond_tiles.targets import Window, cell_targets, window_slices, window_tar
 # Live-neighbour counts a DEAD cell may have (everything except birth on 3).
 _DEAD_OK = cp_model.Domain.FromIntervals([[0, 2], [4, 8]])
 
+_DIAGONALS = ((1, 1), (1, -1))
+
+
+def forbid_diagonal_runs(model, literal_at, shape, max_run: int) -> int:
+    """Forbid `max_run + 1` consecutive live cells along either diagonal.
+
+    A diagonal chain is the one straight structure that is self-supporting:
+    every interior cell takes both of its live neighbours from the chain
+    itself, so it stays a still life while crossing empty background and
+    reads as a drawn pencil line. Horizontal and vertical runs need cells
+    above or below to survive, so they only ever occur inside dense
+    texture, and are left alone.
+
+    `literal_at(i, j)` returns the cell's BoolVar, `True` if the cell is
+    frozen live, or `None` if it is frozen dead. A run containing a frozen
+    dead cell is already broken and needs no clause; a run that is entirely
+    frozen live exists already and cannot be broken from inside this model,
+    so it gets none either — without that case an LNS patch next to a
+    pre-existing chain would come back infeasible.
+
+    Returns the number of clauses added.
+    """
+    h, w = shape
+    n = max_run + 1
+    added = 0
+    for di, dj in _DIAGONALS:
+        for i in range(h):
+            if not 0 <= i + (n - 1) * di < h:
+                continue
+            for j in range(w):
+                if not 0 <= j + (n - 1) * dj < w:
+                    continue
+                lits = []
+                for k in range(n):
+                    lit = literal_at(i + k * di, j + k * dj)
+                    if lit is None:
+                        break
+                    if lit is not True:
+                        lits.append(lit)
+                else:
+                    if lits:
+                        model.AddBoolOr([lit.Not() for lit in lits])
+                        added += 1
+    return added
+
 
 @dataclass
 class SpikeConfig:
@@ -41,6 +86,7 @@ class SpikeConfig:
     num_violation_ls: int = 0  # Feasibility-Jump local-search workers
     symmetry_level: Optional[int] = None  # None = CP-SAT default
     max_det_time: Optional[float] = None  # deterministic-time cap (repro A/Bs)
+    max_diag_run: Optional[int] = 5  # cap on solid diagonal chains; None = off
     hint_mode: str = "none"  # "none" | "agar" (constructive block-lattice seed)
     repair_hint: bool = True
     hint_conflict_limit: int = 100_000  # CP-SAT default of 10 is useless here
@@ -128,6 +174,9 @@ def build_model(
 ) -> ModelBundle:
     """Encode stability (hard) + window-density deviation (objective).
 
+    `cfg.max_diag_run` adds a second family of hard constraints capping
+    solid diagonal chains — see :func:`forbid_diagonal_runs`.
+
     `relax_top` / `relax_bottom` drop every stability constraint touching
     the first/last interior row (including the adjacent ring row). That
     is the strip *relaxation* used for decomposition lower bounds: the
@@ -206,6 +255,14 @@ def build_model(
         model.Add(dev >= int(t) - live - cfg.slack)
         devs.append(dev)
     model.Minimize(cp_model.LinearExpr.Sum(devs))
+
+    if cfg.max_diag_run is not None:
+        forbid_diagonal_runs(
+            model,
+            lambda i, j: None if fixed_rows[i + 1][j + 1] else x[i + 1][j + 1],
+            (h, w),
+            cfg.max_diag_run,
+        )
 
     return ModelBundle(
         model=model,

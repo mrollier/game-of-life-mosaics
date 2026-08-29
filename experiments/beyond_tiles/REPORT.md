@@ -715,7 +715,106 @@ figure above, all from the committed `assets/banner{1,2}_800x200_pipeline.npz`.
 The renders themselves are gitignored (~16 MB, regenerable); the chosen one is
 kept as `figures/linkedin_banner_filled_l6.png`.
 
-## 7. Out of scope
+## 7. Killing the diagonal trails (2026-08-29)
+
+Every shipped free-form pattern is a correct still life — each live cell has
+exactly 2 or 3 live neighbours, verified. The complaint here is purely
+aesthetic: the texture is organic everywhere except for a handful of long,
+perfectly straight **diagonal chains** that cut across sparse regions and read
+as pencil lines.
+
+Measured with `metrics.max_run` (longest solid chain of live cells stepping by
+`(di, dj)`):
+
+| artefact | ↘ | ↙ | horizontal | vertical | live cells in a ≥6 diagonal chain |
+|---|---|---|---|---|---|
+| john 1416×2000 | **25** | 17 | 16 | 13 | 0.58 % |
+| marilyn 1000² | 11 | 13 | 14 | 16 | 0.35 % |
+| marilyn 400² | 7 | 8 | 10 | 10 | 0.42 % |
+| banner1 800×200 | 12 | 9 | 10 | 9 | 0.64 % |
+| banner2 800×200 (old) | 12 | 9 | 9 | 10 | 0.50 % |
+
+### Why the constraint is diagonal-only
+
+A diagonal chain is the one straight structure that is *self-supporting*: every
+interior cell takes both of its live neighbours from the chain itself, so it is
+stable while floating through empty background, and the eye reads it as a drawn
+line. A horizontal or vertical run cannot stand alone — it needs cells above or
+below — so long orthogonal runs only ever occur buried inside dense texture,
+where they read as texture. The table bears that out: the orthogonal maxima are
+comparable to the diagonal ones and nobody had ever noticed them. Capping all
+four directions would pay clause count for no visible gain, so only the two
+diagonals are constrained.
+
+### Why the solver draws them
+
+The objective is per-window absolute deviation and nothing else, so among
+equal-deviation patterns CP-SAT returns whatever search reached first.
+Extending a diagonal is the cheapest possible repair — one decision, no
+coordination with neighbouring cells — whereas seating a new block is four
+coordinated decisions. The trails are therefore a search artifact, not a
+density necessity, and the prediction that follows is that forbidding them
+costs nothing at convergence.
+
+### The constraint and its cost
+
+`still_image.forbid_diagonal_runs` adds, for each diagonal direction and each
+start cell, one clause saying at least one of `max_run + 1` consecutive cells
+is dead. Three cases matter when some of those cells are not variables: a
+frozen *dead* cell already satisfies the clause and it is skipped; frozen
+*live* cells drop out and the clause covers the remaining free literals; a run
+that is entirely frozen live already exists and cannot be broken from inside
+that sub-model, so it gets no clause — without that case an LNS patch adjacent
+to a pre-existing trail comes back infeasible. `SpikeConfig.max_diag_run` and
+`LnsConfig.max_diag_run` both default to 5, and `poster.py --max-diag-run 0`
+lifts the cap. `decompose.solve_strips` needed no change: it calls
+`build_model`, and its two forced-dead separator rows mean no run crosses a
+strip seam.
+
+Pilot on marilyn 200² (k=8, stride=8, d_max 0.45, 150 s limit):
+
+| cap | objective | longest diagonal chain |
+|---|---|---|
+| none | 7 | 6 |
+| 5 | 8 | 5 |
+
+57 k extra clauses, +0.3 s build, no measurable change in solve time. (At a
+60 s limit the objective swung 59–485 across caps — pure search noise, which is
+why the 150 s numbers are the ones that mean anything.)
+
+### banner2 re-solved
+
+banner2 is the one artefact regenerated, because its source image
+`input/images/linkedin-background-2.png` was itself updated the same day and
+the committed asset was stale regardless. Identical arguments, so the two runs
+differ in the source image *and* the cap — this is not a clean A/B of the cap
+alone.
+
+| | before | after |
+|---|---|---|
+| longest ↘ / ↙ chain | 12 / 9 | **5 / 5** |
+| longest horizontal / vertical run | 9 / 10 | 10 / 7 |
+| live cells in a ≥6 diagonal chain | 0.50 % | 0 % |
+| live cells | 15 367 | 15 507 |
+| objective | 0 | 0 |
+| MAD | 0.00597 | 0.00516 |
+| Pearson | 0.9832 | 0.9927 |
+| strips | 181 s, 3/5 OPTIMAL | 128 s, 5/5 OPTIMAL |
+| polish | 60 s | 26 s |
+
+Nothing degraded. The whack-a-mole worry — that the solver would answer a
+diagonal cap by drawing orthogonal lines instead — did not materialise: the
+longest horizontal run moved 9 → 10 and the longest vertical 10 → 7, and the
+one 10-cell horizontal run sits at local density 0.273 against a global 0.097,
+i.e. buried in texture exactly as the argument above predicts, not bare on the
+background.
+
+banner1 and the marilyn and john assets were deliberately **not** re-solved and
+still contain their trails. The mixture is intentional, not a bug: re-solving
+the 1416×2000 poster costs hours and its trails are part of the artefact that
+the report above documents.
+
+## 8. Out of scope
 
 pysat/MaxSAT cross-check of the encoding; oscillators (period > 1);
 anti-banding aesthetic constraints; non-square canvases; app integration.

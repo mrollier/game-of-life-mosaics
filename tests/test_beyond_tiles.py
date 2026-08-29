@@ -223,6 +223,94 @@ def test_ring_no_birth_regression():
     assert is_still_life(np.pad(result.pattern, 1))
 
 
+def test_forbid_diagonal_runs_caps_the_chain():
+    # Maximising live cells with no cap fills the grid, whose diagonals run
+    # the full 20 cells — so the assertion below fails if the helper is a
+    # no-op, without needing the stability constraints to be present.
+    si = _solver()
+    from ortools.sat.python import cp_model
+
+    from beyond_tiles.metrics import max_diagonal_run
+
+    n, cap = 20, 4
+    model = cp_model.CpModel()
+    x = [[model.NewBoolVar("") for _ in range(n)] for _ in range(n)]
+    assert si.forbid_diagonal_runs(model, lambda i, j: x[i][j], (n, n), cap) > 0
+    model.Maximize(sum(x[i][j] for i in range(n) for j in range(n)))
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = 10.0
+    assert solver.Solve(model) in (cp_model.OPTIMAL, cp_model.FEASIBLE)
+    pattern = np.array(
+        [[solver.Value(x[i][j]) for j in range(n)] for i in range(n)], dtype=np.uint8
+    )
+    assert pattern.any()
+    assert max_diagonal_run(pattern) <= cap
+
+
+def test_forbid_diagonal_runs_frozen_cells():
+    si = _solver()
+    from ortools.sat.python import cp_model
+
+    n, cap = 12, 3
+    # Every cell frozen live: the chains already exist and cannot be broken
+    # from inside this model, so it must stay silent rather than emit an
+    # unsatisfiable clause (an LNS patch beside a pre-existing chain).
+    assert (
+        si.forbid_diagonal_runs(cp_model.CpModel(), lambda i, j: True, (n, n), cap) == 0
+    )
+    # Every cell frozen dead: nothing to forbid.
+    assert (
+        si.forbid_diagonal_runs(cp_model.CpModel(), lambda i, j: None, (n, n), cap) == 0
+    )
+    # Mixed: the clause is emitted over the free cells alone, and with three
+    # of the four cells of every run frozen live, each such clause pins its
+    # one free cell dead.
+    model = cp_model.CpModel()
+    x = [[model.NewBoolVar("") for _ in range(n)] for _ in range(n)]
+    free = np.zeros((n, n), dtype=bool)
+    free[::4, ::4] = True
+    si.forbid_diagonal_runs(
+        model,
+        lambda i, j: x[i][j] if free[i, j] else True,
+        (n, n),
+        cap,
+    )
+    model.Maximize(sum(x[i][j] for i in range(n) for j in range(n)))
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = 10.0
+    assert solver.Solve(model) in (cp_model.OPTIMAL, cp_model.FEASIBLE)
+    assert solver.Value(x[0][0]) == 0
+
+
+def test_solve_image_respects_the_diagonal_cap():
+    si = _solver()
+    from beyond_tiles.metrics import max_diagonal_run
+
+    grey = uniform_grey(20, 0)  # black -> the densest targets available
+    free = np.ones((20, 20), dtype=bool)
+    cfg = _test_config(si, k=8, stride=8, time_limit_s=20.0, max_diag_run=3)
+    result = si.solve_image(grey, free, cfg)
+    checks = si.verify_still_life(result.pattern)
+    assert checks["bounded"] and checks["toroidal"]
+    assert result.pattern.any()
+    assert max_diagonal_run(result.pattern) <= 3
+
+
+def test_diagonal_cap_reaches_the_model_through_the_config():
+    si = _solver()
+    from beyond_tiles.targets import cell_targets
+
+    cell_t = cell_targets(uniform_grey(20, 0), 0.45)
+    free = np.ones((20, 20), dtype=bool)
+
+    def n_constraints(cap):
+        cfg = _test_config(si, k=8, stride=8, max_diag_run=cap)
+        return len(si.build_model(cell_t, free, cfg).model.Proto().constraints)
+
+    # A tighter cap fits more runs on the grid, so it adds more clauses.
+    assert n_constraints(None) < n_constraints(5) < n_constraints(3)
+
+
 def test_deviation_stats_hand_computed():
     # Two 8x8 windows side by side; left achieves 0.25 vs target 0.20,
     # right achieves 0.0 vs target 0.10.
@@ -554,7 +642,12 @@ def test_reported_objective_matches_pattern():
         window_free = free[subgrid_i, subgrid_j]
         live = int(result.pattern[subgrid_i, subgrid_j][window_free].sum())
         recomputed += abs(live - int(t))
-    assert recomputed == result.objective
+    # CP-SAT reports the sum of the `dev` variables, and those are only
+    # lower-bounded by |live - target|. A solution it never proved optimal
+    # can leave one of them slack, so equality holds only at optimality.
+    assert recomputed <= result.objective
+    if result.status == "OPTIMAL":
+        assert recomputed == result.objective
 
 
 def test_save_run_uses_result_windows(tmp_path):
@@ -698,6 +791,35 @@ def test_lns_improves_seed_and_stays_still_life():
     checks = si.verify_still_life(res.pattern)
     assert checks["bounded"] and checks["toroidal"]
     assert res.pattern[~free].sum() == 0
+
+
+def test_lns_repairs_respect_the_diagonal_cap():
+    si = _solver()
+    from beyond_tiles.lns import LnsConfig, improve
+    from beyond_tiles.metrics import max_diagonal_run
+    from beyond_tiles.seeds import build_seed
+    from beyond_tiles.targets import cell_targets, window_targets
+
+    grey = uniform_grey(24, 0)  # black -> the patch solver has to fill densely
+    free = np.ones((24, 24), dtype=bool)
+    cell_t = cell_targets(grey, 0.45)
+    targets, kept = window_targets(
+        cell_t, free, window_slices((24, 24), k=8, stride=8)
+    )
+    seed = build_seed(free, kept, targets)
+
+    lcfg = LnsConfig(
+        patch_windows=2,
+        patch_time_s=2.0,
+        budget_s=30.0,
+        n_procs=1,
+        seed=0,
+        max_diag_run=3,
+    )
+    res = improve(seed, free, kept, targets, lcfg, log=lambda *_: None)
+    checks = si.verify_still_life(res.pattern)
+    assert checks["bounded"] and checks["toroidal"]
+    assert max_diagonal_run(res.pattern) <= 3
 
 
 def test_lns_rejects_overlapping_windows():

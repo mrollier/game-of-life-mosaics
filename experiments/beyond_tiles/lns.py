@@ -36,6 +36,7 @@ class LnsConfig:
     n_procs: int = 4  # the M4 has 4 performance cores
     seed: int = 0
     slack: int = 0
+    max_diag_run: Optional[int] = 5  # match SpikeConfig, or repairs re-draw lines
 
 
 @dataclass
@@ -210,6 +211,18 @@ def _solve_patch_task(payload: dict) -> Optional[np.ndarray]:
         devs.append(dev)
     model.Minimize(cp_model.LinearExpr.Sum(devs))
 
+    if payload["max_diag_run"] is not None:
+        from beyond_tiles.still_image import forbid_diagonal_runs
+
+        # Frozen live cells become `True` so a run straddling the patch
+        # boundary is still broken by the free cells it does contain.
+        forbid_diagonal_runs(
+            model,
+            lambda i, j: x[(i, j)] if (i, j) in x else (True if region[i, j] else None),
+            region.shape,
+            payload["max_diag_run"],
+        )
+
     for (i, j), var in x.items():
         model.AddHint(var, int(region[i, j]))
 
@@ -297,6 +310,7 @@ def improve(
                     free=rfree,
                     windows=win_boxes,
                     slack=lcfg.slack,
+                    max_diag_run=lcfg.max_diag_run,
                     time_s=lcfg.patch_time_s,
                     seed=lcfg.seed,
                     box=(i0, i1, j0, j1),
