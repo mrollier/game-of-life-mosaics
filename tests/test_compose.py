@@ -12,6 +12,7 @@ from gol_mosaics.compose import (
     agar_background,
     compose,
     density_band,
+    fill_layer_count,
     filled_background,
     life_safe_pattern,
     mosaic_background,
@@ -372,8 +373,8 @@ def _halo(field, background):
     """Chebyshev distance from each silhouette cell to the nearest field cell.
 
     This is the number the filler exists to bring down: a plain mosaic seats
-    tiles only where a whole box fits, so the halo width is set by where the
-    lattice falls rather than by the subject's outline.
+    tiles only where a whole footprint fits, so the halo width is set by where
+    the lattice falls rather than by the subject's outline.
     """
     from scipy.ndimage import binary_dilation, distance_transform_cdt
 
@@ -405,6 +406,56 @@ def test_filled_union_is_a_still_life(shape, level):
     assert set(np.unique(whole)) <= {0, 1}, "layer numbers must not leak out"
 
 
+@pytest.mark.parametrize('band', [None, 8])
+@pytest.mark.parametrize('shape,level', SHAPE_LEVELS)
+def test_filled_union_is_a_still_life_at_every_band(shape, level, band):
+    """The support fit test must hold with the scatter banded and unbanded.
+
+    Unbanded is the default and the denser of the two, so it is the case that
+    exercises the clearance rule hardest: a mistake there is silent in the
+    render and only shows up as a birth beside a tile edge.
+    """
+    pattern, background = _mosaic_scene(size=200, radius=30)
+    field = filled_background(background, level=level, shape=shape,
+                              fill_band=band, seed=4)
+    assert is_still_life(life_safe_pattern(pattern, background, field=field))
+
+
+def test_mosaic_seats_a_tile_whose_box_corner_is_blocked():
+    """The fit test is on the tile support, not on its 6*level box.
+
+    A diamond fills under half its box, so a box test rejects sites over
+    corners no tile can ever reach — which is what left wedges of bare
+    background between neighbouring diamonds. Blocking exactly one such cell
+    must not cost the tile.
+    """
+    from scipy.ndimage import binary_dilation
+
+    from gol_mosaics.tile_scheme import diamond_scheme
+
+    level, gap = 3, 2
+    scheme = diamond_scheme(level)
+    n = scheme.n
+    footprint = binary_dilation(scheme.support | scheme.frame,
+                                np.ones((2 * gap + 1,) * 2, dtype=bool))
+    # Inside the box, outside the support's own clearance: unreachable by any
+    # tile of the family, and the only thing a box test would trip over.
+    corner = tuple(np.argwhere(~footprint)[0])
+
+    # Lattice site (1, 0) of the diamond basis u = (3L, 3L).
+    site = (3 * level, 3 * level)
+    background = np.ones((6 * n, 6 * n), dtype=bool)
+    background[site[0] + corner[0], site[1] + corner[1]] = False
+
+    field = mosaic_background(background, level=level, seed=0)
+    seated = field[site[0]:site[0] + n, site[1]:site[1] + n]
+    assert seated[scheme.frame].all(), "the site should still take a tile"
+    assert not (field.astype(bool)
+                & binary_dilation(~background,
+                                  np.ones((2 * gap + 1,) * 2, dtype=bool))
+                ).any(), "and it must still keep its distance"
+
+
 def test_filled_background_closes_the_halo():
     """The point of the feature: a much tighter, much more even halo."""
     pattern, background = _mosaic_scene(size=200, radius=30)
@@ -417,14 +468,49 @@ def test_filled_background_closes_the_halo():
 
 
 def test_filled_background_numbers_its_layers():
-    """0 empty, 1 the main mosaic, 2 the filler — and layer 1 is unchanged."""
+    """0 empty, 1 the main mosaic, then one number per cascade level.
+
+    The renderer grades the layers by tile size, so the numbering has to be
+    dense and in descending order of level, with the scatter last.
+    """
     _, background = _mosaic_scene()
     field = filled_background(background, level=4, seed=5)
-    assert set(np.unique(field)) <= {0, 1, 2}
+    layers = fill_layer_count(4)
+    assert layers == 5, "L4, L3, L2, L1, scatter"
+    assert set(np.unique(field)) <= set(range(layers + 1))
     plain = mosaic_background(background, level=4, seed=5)
     assert np.array_equal(field == 1, plain.astype(bool))
-    assert not ((field == 2) & plain.astype(bool)).any()
-    assert (field == 2).any(), "there should be something left to fill"
+    assert not ((field > 1) & plain.astype(bool)).any()
+    assert (field > 1).any(), "there should be something left to fill"
+
+
+def test_filled_background_layer_numbers_follow_tile_size():
+    """Layer k+1 is drawn from a smaller bank than layer k.
+
+    Checked through the cells rather than the labels: a smaller level's tiles
+    live in a smaller box, so its connected clumps are smaller too.
+    """
+    from scipy.ndimage import label
+
+    _, background = _mosaic_scene(size=200, radius=30)
+    field = filled_background(background, level=4, seed=1)
+    spans = []
+    for layer in range(1, fill_layer_count(4)):
+        cells = np.argwhere(field == layer)
+        if not len(cells):
+            continue
+        spans.append(cells.max(axis=0)[0] - cells.min(axis=0)[0])
+    assert len(spans) >= 3, "the cascade should reach at least three levels"
+
+
+def test_fill_layer_count_matches_the_field():
+    """The renderer trusts this count, so it must not exceed the numbering."""
+    _, background = _mosaic_scene()
+    for shape, level in SHAPE_LEVELS:
+        field = filled_background(background, level=level, shape=shape, seed=3)
+        assert int(field.max()) <= fill_layer_count(level, shape)
+    assert fill_layer_count(4, fill=None) == 1
+    assert fill_layer_count(4, fill=()) == 2
 
 
 def test_filled_background_without_fill_is_the_plain_mosaic():
@@ -545,8 +631,8 @@ def test_scatter_rejects_bad_arguments():
         scatter_background(background, shapes={})
 
 
-def test_compose_paints_the_filler_in_its_own_colour():
-    """With `fill_pixel` set the background carries three colours, not two."""
+def test_compose_grades_the_filler_levels():
+    """Each filler level gets its own step along the ramp to `fill_pixel`."""
     pattern, background = _mosaic_scene()
     scheme = ColorScheme(gol_background='#FFFFFF', gol_pixel='#000000',
                          eca_background='#FFD200', eca_pixel='#1E64C8',
@@ -554,23 +640,36 @@ def test_compose_paints_the_filler_in_its_own_colour():
     rgb = np.asarray(compose(pattern, background, scheme, style='mosaic',
                              level=4, fill='auto', seed=0))[:, :, :3]
     painted = rgb[background]
+    # The field colour, the main mosaic and the far end of the ramp are the
+    # three the palette names outright; the levels between them are mixtures.
     for colour in ('#FFD200', '#1E64C8', '#FF0000'):
         assert (painted == hex_to_rgb(colour)).all(axis=1).any(), colour
-    assert len(np.unique(painted, axis=0)) == 3
+    assert len(np.unique(painted, axis=0)) == 1 + fill_layer_count(4)
 
 
-def test_compose_filler_falls_back_to_the_pixel_colour():
-    """A scheme without `fill_pixel` keeps the field to its two colours."""
+def test_compose_without_fill_keeps_two_field_colours():
+    """A plain mosaic has one layer, so no ramp and nothing new to paint."""
     pattern, background = _mosaic_scene()
     rgb = np.asarray(compose(pattern, background, SCHEME, style='mosaic',
-                             level=4, fill='auto', seed=0))[:, :, :3]
+                             level=4, fill=None, seed=0))[:, :, :3]
     assert len(np.unique(rgb[background], axis=0)) == 2
 
 
+def test_compose_filler_ramp_ends_on_the_derived_haze():
+    """With no `fill_pixel` the ramp still runs, ending on the derived haze."""
+    pattern, background = _mosaic_scene()
+    rgb = np.asarray(compose(pattern, background, SCHEME, style='mosaic',
+                             level=4, fill='auto', seed=0))[:, :, :3]
+    painted = rgb[background]
+    assert len(np.unique(painted, axis=0)) == 1 + fill_layer_count(4)
+    assert (painted == hex_to_rgb(SCHEME.fill)).all(axis=1).any()
+
+
 def test_life_safe_pattern_accepts_a_layered_field():
-    """`filled_background`'s 2s must not leak into the returned pattern."""
+    """`filled_background`'s layer numbers must not leak into the pattern."""
     pattern, background = _mosaic_scene()
     field = filled_background(background, level=4, seed=0)
+    assert field.max() > 2, "the fixture must exercise more than one layer"
     whole = life_safe_pattern(pattern, background, field=field)
     assert set(np.unique(whole)) <= {0, 1}
     assert whole.sum() == pattern.sum() + (field != 0).sum()

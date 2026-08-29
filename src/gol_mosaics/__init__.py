@@ -23,7 +23,7 @@ from .image_processing import ImageProcessor
 from .eca import ECABackground
 from .renderer import MosaicRenderer
 from .compose import (compose, agar_background, density_band,
-                      filled_background, life_safe_pattern,
+                      fill_layer_count, filled_background, life_safe_pattern,
                       mosaic_background, scatter_background)
 
 __all__ = [
@@ -40,5 +40,6 @@ __all__ = [
     'life_safe_pattern',
     'mosaic_background',
     'filled_background',
+    'fill_layer_count',
     'scatter_background',
 ]

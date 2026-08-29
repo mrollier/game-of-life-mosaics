@@ -34,6 +34,33 @@ def _luma(hex_color: str) -> float:
     return (0.299 * r + 0.587 * g + 0.114 * b) / 255
 
 
+def mix(first: str, second: str, weight: float) -> str:
+    """
+    Linear RGB blend of two hex colours.
+
+    Args:
+        first: Hex colour at weight 0
+        second: Hex colour at weight 1
+        weight: Blend position in 0..1
+
+    Returns:
+        Hex colour string, uppercase, with a leading '#'
+
+    Example:
+        >>> mix('#000000', '#FFFFFF', 0.5)
+        '#808080'
+    """
+    a, b = (np.array([int(c.lstrip('#')[i:i + 2], 16) for i in (0, 2, 4)],
+                     dtype=float) for c in (first, second))
+    return '#%02X%02X%02X' % tuple(np.round(a + weight * (b - a)).astype(int))
+
+
+#: How far a scheme with no `fill_pixel` pulls its filler colour from
+#: `eca_pixel` towards `eca_background`. Far enough that the smallest still
+#: lifes read as haze, short of vanishing into the field.
+HAZE = 0.75
+
+
 @dataclass(frozen=True)
 class ColorScheme:
     """
@@ -46,10 +73,11 @@ class ColorScheme:
         gol_pixel: Foreground/alive cell colour for Game of Life mosaic
         eca_background: Background colour for Elementary Cellular Automaton overlay
         eca_pixel: Foreground colour for Elementary Cellular Automaton overlay
-        fill_pixel: Colour for filler cells — the smaller still lifes packed
-            into the gap between the subject and the mosaic (see
-            :func:`gol_mosaics.compose.filled_background`). None paints them
-            in `eca_pixel`, so a scheme that ignores filler looks unchanged.
+        fill_pixel: Far end of the filler ramp — the colour of the loose
+            still lifes, which the smaller tile levels step towards from
+            `eca_pixel` (see :func:`gol_mosaics.compose.filled_background`).
+            None derives a haze three quarters of the way from `eca_pixel`
+            to `eca_background`.
 
     Example:
         >>> colors = ColorScheme(
@@ -70,13 +98,19 @@ class ColorScheme:
 
     @property
     def fill(self) -> str:
-        """Filler colour, falling back to the ECA pixel colour.
+        """Far end of the filler ramp, derived when `fill_pixel` is unset.
+
+        The derived colour is :data:`HAZE` of the way from `eca_pixel` to
+        `eca_background`, so a cascade of ever smaller tiles fades into the
+        field instead of stopping on one flat colour.
 
         Example:
             >>> ColorScheme.ugent().fill
-            '#1E64C8'
+            '#C7B632'
         """
-        return self.fill_pixel or self.eca_pixel
+        if self.fill_pixel:
+            return self.fill_pixel
+        return mix(self.eca_pixel, self.eca_background, HAZE)
 
     @classmethod
     def ugent(cls) -> 'ColorScheme':

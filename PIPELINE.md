@@ -226,7 +226,8 @@ does — see stage 7.)
    - `render_gol_mosaic` → base RGBA, **fully opaque**: `0→gol_background`,
      `1→gol_pixel`.
    - `render_eca_overlay` → overlay RGBA: `eca_mask 0 → transparent`,
-     `1 → eca_background`, `2 → eca_pixel`.
+     `1 → eca_background`, `2 → eca_pixel`, `3` and up → the filler levels of
+     `filled_background`, graded from `eca_pixel` to the scheme's `fill`.
    - `Image.alpha_composite(base, overlay)`: the ECA shows over the background
      region; the subject region (overlay transparent) shows the GoL mosaic
      underneath.

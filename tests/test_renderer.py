@@ -4,6 +4,7 @@ import pytest
 import numpy as np
 from PIL import Image
 from gol_mosaics import ColorScheme, MosaicRenderer
+from gol_mosaics.renderer import hex_to_rgb
 
 
 @pytest.fixture
@@ -95,12 +96,33 @@ def test_render_full_mosaic_matches_manual_pipeline(renderer):
 
 
 def test_render_eca_overlay_paints_the_fill_state(renderer):
-    """State 3 is the filler, and falls back to the ECA pixel colour."""
+    """A lone filler state lands on the fill colour, ramp or no ramp."""
     overlay = np.asarray(renderer.render_eca_overlay(np.array([[2, 3]])))
-    assert tuple(overlay[0, 0]) == tuple(overlay[0, 1]), "no fill_pixel set"
+    assert tuple(overlay[0, 1])[:3] == hex_to_rgb(renderer.color_scheme.fill)
 
     tinted = MosaicRenderer(ColorScheme(eca_pixel='#1E64C8',
                                         fill_pixel='#FF0000'))
     painted = np.asarray(tinted.render_eca_overlay(np.array([[2, 3]])))
     assert tuple(painted[0, 0]) == (30, 100, 200, 255)
     assert tuple(painted[0, 1]) == (255, 0, 0, 255)
+
+
+def test_render_eca_overlay_ramps_the_filler_levels():
+    """Filler states walk from the ECA pixel colour to the fill colour."""
+    tinted = MosaicRenderer(ColorScheme(eca_pixel='#000000',
+                                        fill_pixel='#FFFFFF'))
+    row = np.arange(2, 8).reshape(1, 6)
+    painted = np.asarray(tinted.render_eca_overlay(row, layers=6))[0, :, 0]
+    assert list(painted) == [0, 51, 102, 153, 204, 255]
+    assert (np.diff(painted.astype(int)) > 0).all(), "the ramp must be monotone"
+
+
+def test_render_eca_overlay_ramp_ignores_an_empty_top_layer():
+    """`layers` is trusted over the mask, so a missing layer cannot shorten it."""
+    tinted = MosaicRenderer(ColorScheme(eca_pixel='#000000',
+                                        fill_pixel='#FFFFFF'))
+    full = np.asarray(tinted.render_eca_overlay(
+        np.array([[3, 4, 5]]), layers=4))[0, :, 0]
+    short = np.asarray(tinted.render_eca_overlay(
+        np.array([[3, 4]]), layers=4))[0, :, 0]
+    assert list(short) == list(full[:2])

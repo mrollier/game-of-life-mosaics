@@ -7,9 +7,9 @@ numpy arrays to coloured PIL Images.
 
 import numpy as np
 from PIL import Image
-from typing import Dict
+from typing import Dict, Optional
 
-from .colors import ColorScheme
+from .colors import ColorScheme, mix
 
 
 def hex_to_rgb(hex_color: str) -> tuple:
@@ -101,19 +101,26 @@ class MosaicRenderer:
 
         return Image.fromarray(rgba_array, mode='RGBA')
 
-    def render_eca_overlay(self, eca_mask: np.ndarray) -> Image.Image:
+    def render_eca_overlay(self,
+                           eca_mask: np.ndarray,
+                           layers: Optional[int] = None) -> Image.Image:
         """
         Render ECA pattern as RGBA overlay.
 
         The eca_mask should have values:
         - 0: Transparent (no overlay)
         - 1: ECA background colour
-        - 2: ECA pixel colour
-        - 3: Fill colour (filler still lifes; falls back to the ECA pixel
-          colour when the scheme leaves `fill_pixel` unset)
+        - 2: ECA pixel colour — the main mosaic
+        - 3 and up: the filler layers of :func:`filled_background`, painted
+          along a linear ramp from the ECA pixel colour to the scheme's
+          `fill` colour. A single filler layer lands on `fill` exactly, so a
+          hand-built 0-3 mask renders as it always did.
 
         Args:
-            eca_mask: Array with values 0, 1, 2, 3
+            eca_mask: Array with values 0, 1, 2, 3, ...
+            layers: How many layers the field has, main mosaic included, so
+                the ramp spans the same range even when the last layer placed
+                nothing. None reads it back from the mask.
 
         Returns:
             RGBA PIL Image with transparency
@@ -138,7 +145,6 @@ class MosaicRenderer:
         # Convert hex colours to RGB
         rgb1 = self._hex_to_rgb(self.color_scheme.eca_background)
         rgb2 = self._hex_to_rgb(self.color_scheme.eca_pixel)
-        rgb3 = self._hex_to_rgb(self.color_scheme.fill)
 
         # Value 1 -> eca_background, opaque
         mask1 = (eca_mask == 1)
@@ -150,10 +156,15 @@ class MosaicRenderer:
         overlay[mask2, :3] = rgb2
         overlay[mask2, 3] = 255
 
-        # Value 3 -> fill colour, opaque
-        mask3 = (eca_mask == 3)
-        overlay[mask3, :3] = rgb3
-        overlay[mask3, 3] = 255
+        # Values 3.. -> the filler ramp, one step per layer, opaque
+        top = int(eca_mask.max()) if layers is None else layers + 1
+        for value in range(3, top + 1):
+            fraction = (value - 2) / max(top - 2, 1)
+            painted = (eca_mask == value)
+            overlay[painted, :3] = self._hex_to_rgb(
+                mix(self.color_scheme.eca_pixel, self.color_scheme.fill,
+                    fraction))
+            overlay[painted, 3] = 255
 
         # Value 0 stays (0,0,0,0) fully transparent
 
@@ -221,7 +232,8 @@ class MosaicRenderer:
 
     def render_full_mosaic(self,
                           gol_mosaic: np.ndarray,
-                          eca_mask: np.ndarray) -> Image.Image:
+                          eca_mask: np.ndarray,
+                          layers: Optional[int] = None) -> Image.Image:
         """
         Render complete mosaic with GoL pattern and ECA overlay.
 
@@ -230,7 +242,9 @@ class MosaicRenderer:
 
         Args:
             gol_mosaic: Binary GoL pattern array
-            eca_mask: ECA overlay mask (values 0, 1, 2)
+            eca_mask: ECA overlay mask (values 0, 1, 2, ...)
+            layers: Field layer count for the filler ramp, see
+                :meth:`render_eca_overlay`
 
         Returns:
             Final composited RGBA image
@@ -240,7 +254,7 @@ class MosaicRenderer:
             >>> img.save('final.png')
         """
         base = self.render_gol_mosaic(gol_mosaic)
-        overlay = self.render_eca_overlay(eca_mask)
+        overlay = self.render_eca_overlay(eca_mask, layers=layers)
         return self.composite(base, overlay)
 
     def __repr__(self) -> str:

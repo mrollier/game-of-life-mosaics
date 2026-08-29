@@ -814,7 +814,126 @@ still contain their trails. The mixture is intentional, not a bug: re-solving
 the 1416×2000 poster costs hours and its trails are part of the artefact that
 the report above documents.
 
-## 8. Out of scope
+## 8. Packing the background: the fit test and the colour ramp (2026-08-29)
+
+Section 6 closed the halo between the subject and the mosaic. It left two
+things it did not name. The sky still carried wedges of bare field colour,
+worst around the largest diamonds, and every filler cell — a level-5 tile and
+a loose block alike — was painted the same third colour, so the cascade that
+did the work was invisible in the render.
+
+### The bare wedges were the fit test, not the cascade
+
+`mosaic_background` seated a tile only where the whole `6*level` box plus the
+gap was clear. But `tile_scheme.assemble` writes only cells inside the tile's
+**support** — the inscribed diamond — and that is 46% of the box at level 6:
+
+| level | 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|
+| diamond support / box | 0.33 | 0.39 | 0.42 | 0.44 | 0.45 | 0.46 |
+| square support / box | — | — | 0.79 | 0.84 | 0.87 | — |
+
+So the box test was more than twice as strict as the still-life argument
+needs, and it rejected sites over box corners that no tile of the family can
+ever reach. The wedges were those corners.
+
+Testing the support instead is the same theorem on a tighter mask. `assemble`
+writes no live cell outside `support | frame`, so requiring
+`dilate(support, gap)` to be clear of the subject, of every population
+already placed and of the grid border gives exactly the Chebyshev clearance
+of `gap + 1` the union argument needs. Nothing else changed: the lattice, the
+tone and density draw, the interlock between same-level neighbours and the
+`assemble` call are all as they were.
+
+One trap, worth writing down because it cost an hour. `scheme.support` runs
+to the box's interior ring, so `binary_dilation(support, ...)` is **clipped**
+at the array edge and the outermost cell of clearance never gets tested. The
+result is still a valid-looking mosaic whose union with the subject is not a
+still life, and the symptom — a birth two cells from a tile edge — points
+nowhere near the cause. The support has to be padded by `gap` before it is
+dilated. `is_still_life` on each cascade layer in turn is what found it.
+
+### Measured
+
+Level as given, seed 0, `gap = 2`, halo measured as in section 6 (Chebyshev
+distance from each silhouette cell to the nearest field cell):
+
+| scene | L | plain, box rule | plain, support rule | filled | halo plain | halo filled |
+|---|---|---|---|---|---|---|
+| banner 1 (800×200) | 3 | 2,992 | 3,688 | 6,178 | 9.0 / 37 | 4.3 / 11 |
+| banner 2 (800×200) | 2 | 24,632 | 25,624 | 27,129 | 6.1 / 12 | 4.4 / 7 |
+| banner 2 (800×200) | 4 | 16,780 | 18,132 | 22,963 | 9.5 / 26 | 4.4 / 7 |
+| banner 2 (800×200) | 6 | 11,792 | 14,916 | 22,368 | 15.2 / 55 | 4.4 / 7 |
+| Marilyn (400²) | 5 | 2,216 | 3,300 | 8,736 | 34.6 / 121 | 4.6 / 12 |
+| Marilyn (1000²) | 5 | 44,196 | 48,488 | 68,131 | 16.6 / 91 | 4.5 / 20 |
+
+The largest tiles gain most — +49% on Marilyn at 400², where a portrait's
+concavities are exactly where a box test fails. `figures/linkedin_fit_rule.png`
+is the picture: banner 2 at level 6, both panels plain mosaics, so the only
+difference on show is which sites the test accepts.
+
+### The middle of the cascade was empty
+
+The more useful consequence is on the cascade itself. Under the box rule a
+smaller tile also needed its whole box clear of everything already placed,
+and the big diamonds' boxes overlap almost everything, so the middle levels
+seated nothing at all. Cells per layer on banner 2 at level 6:
+
+| rule | L6 | L5 | L4 | L3 | L2 | L1 | scatter |
+|---|---|---|---|---|---|---|---|
+| box | 12,040 | 116 | **0** | 216 | 4,128 | 1,232 | 2,388 |
+| support | 14,916 | 156 | 196 | 2,112 | 1,104 | 3,560 | 324 |
+
+On a 1416×2000 poster the box rule seated nothing at levels 5, 4 **and** 3.
+Section 6 recorded this as "the cascade's middle is nearly a no-op" and read
+it as a property of the geometry; it was a property of the fit test. Every
+rung now carries cells, which is what makes grading them by size mean
+anything.
+
+### The ramp
+
+`filled_background` now numbers every layer instead of flattening them to
+one: `1` the main mosaic, `2 …` the cascade largest-first, and the scatter
+last — which keeps its number whether or not it placed anything, so the ramp
+cannot shift when a layer comes up empty. `field != 0` is still the pattern,
+so `life_safe_pattern` and every Golly export are untouched.
+
+`MosaicRenderer.render_eca_overlay` spreads those layers along a linear RGB
+ramp from `eca_pixel` to the scheme's `fill`. A scheme that sets no
+`fill_pixel` used to fall back to `eca_pixel`, which would make the ramp flat;
+it now derives a haze three quarters of the way from `eca_pixel` to
+`eca_background`, so every scheme grades. A field with a single filler layer
+lands on `fill` exactly, so a hand-built 0–3 mask renders as it always did.
+
+### Two smaller changes that came with it
+
+**`fill_band` now defaults to `None`.** The band existed so the loose still
+lifes read as a fringe, but it was also why the sky away from the ridgeline
+kept its bare patches. With the support rule the scatter has far less to do
+anyway — 324 cells instead of 2,388 on banner 2 at level 6 — so the fringe it
+used to draw is no longer the point. `banner1-filled-l3-band` and
+`banner2-filled-l4-band` in the study set keep the banded version for
+comparison.
+
+**`scatter_background` prefilters its candidates.** It walked every
+background cell: 1,044,896 of them on a poster, for about a thousand
+placements, and 3.0 s. An erosion by the smallest shape's box
+(`2 + 2 * gap` on a side) cuts that to 2,096 candidates in 0.014 s, exact
+against a brute-force anchor scan. Whole-fill times now: 0.04–0.06 s on a
+800×200 banner, 0.23 s on Marilyn at 1000², 1.37 s on a 1416×2000 poster at
+level 6.
+
+### Reproduction
+
+```bash
+python experiments/beyond_tiles/linkedin_banners.py   # ~40 s, no solver
+```
+
+No CP-SAT run: every pattern is the one already committed, and this section
+changes only how the background is packed and painted. `box_rule_field` in
+that script keeps the superseded rule alive for the comparison figure.
+
+## 9. Out of scope
 
 pysat/MaxSAT cross-check of the encoding; oscillators (period > 1);
 anti-banding aesthetic constraints; non-square canvases; app integration.

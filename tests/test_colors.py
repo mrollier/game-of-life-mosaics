@@ -1,7 +1,7 @@
 """Tests for ColorScheme class."""
 
 import pytest
-from gol_mosaics.colors import ColorScheme
+from gol_mosaics.colors import HAZE, ColorScheme, mix
 
 
 def test_colorscheme_ugent():
@@ -115,16 +115,24 @@ def test_colorscheme_to_dict():
     assert 'fill_pixel' in d
 
 
-def test_colorscheme_fill_falls_back_to_the_pixel_colour():
-    """A scheme that ignores filler renders exactly as it always did."""
-    assert ColorScheme.ugent().fill == ColorScheme.ugent().eca_pixel
-    assert ColorScheme(eca_pixel='#123456').fill == '#123456'
+def test_colorscheme_fill_derives_a_haze():
+    """Without `fill_pixel` the ramp still has a far end to run to."""
     assert ColorScheme(eca_pixel='#123456', fill_pixel='#ABCDEF').fill == '#ABCDEF'
+    scheme = ColorScheme(eca_pixel='#000000', eca_background='#FFFFFF')
+    assert scheme.fill == mix('#000000', '#FFFFFF', HAZE)
+    assert scheme.fill != scheme.eca_pixel, "a flat ramp would grade nothing"
+
+
+def test_colorscheme_mix_interpolates_in_rgb():
+    assert mix('#000000', '#FFFFFF', 0.0) == '#000000'
+    assert mix('#000000', '#FFFFFF', 1.0) == '#FFFFFF'
+    assert mix('#000000', '#FFFFFF', 0.5) == '#808080'
 
 
 def test_colorscheme_to_dict_resolves_the_fill_colour():
     """to_dict promises hex strings, so it must not hand back None."""
-    assert ColorScheme.ugent().to_dict()['fill_pixel'] == '#1E64C8'
+    assert ColorScheme.ugent().to_dict()['fill_pixel'] == ColorScheme.ugent().fill
+    assert ColorScheme.ugent().to_dict()['fill_pixel'].startswith('#')
 
 
 def test_colorscheme_immutable():

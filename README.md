@@ -310,7 +310,7 @@ Immutable colour configuration (dataclass).
 - `gol_pixel` - Foreground colour for GoL patterns
 - `eca_background` - Background colour for ECA overlay
 - `eca_pixel` - Foreground colour for ECA overlay
-- `fill_pixel` - Colour for filler cells (see `compose`); `None` falls back to `eca_pixel`, so a scheme that ignores filler renders unchanged
+- `fill_pixel` - Far end of the filler ramp (see `compose`); `None` derives a haze three quarters of the way from `eca_pixel` to `eca_background`, so the cascade fades into the field
 - `fill` (property) - The resolved filler colour
 
 ### GollyExporter
@@ -361,9 +361,9 @@ MosaicRenderer(color_scheme)
 
 **Methods:**
 - `render_gol_mosaic(mosaic)` - Render GoL pattern with colours
-- `render_eca_overlay(eca_mask)` - Render ECA overlay with transparency (`0` transparent, `1` field background, `2` field pixel, `3` filler)
+- `render_eca_overlay(eca_mask, layers)` - Render ECA overlay with transparency (`0` transparent, `1` field background, `2` field pixel, `3` and up the filler levels, graded along a ramp from `eca_pixel` to the scheme's `fill`)
 - `composite(base, overlay)` - Alpha-composite images
-- `render_full_mosaic(gol_mosaic, eca_mask)` - Complete rendering pipeline
+- `render_full_mosaic(gol_mosaic, eca_mask, layers)` - Complete rendering pipeline
 
 ### compose
 
@@ -375,9 +375,10 @@ to be choosable afterwards, from the stored pattern alone.
 **Functions** (all in `gol_mosaics.compose`):
 - `compose(pattern, background_mask, scheme, style, ...)` - Render a finished pattern with a colour scheme and a backdrop. `style` is one of `'none'` (transparent), `'flat'`, `'eca'`, `'agar'`, `'mosaic'`
 - `agar_background(background_mask, pitch, gap)` - A still-life block agar. The asymmetric `(3, 4)` pitch is the point: no dead cell ever sees exactly three live neighbours, whichever subset of sites is filled
-- `mosaic_background(background_mask, level, shape, density, tone, ...)` - A field of this project's own pond tiles, placed on their own lattice behind the subject
-- `filled_background(background_mask, level, fill, fill_band, fill_fade, ...)` - The same mosaic with the gap around the subject packed as tight as it goes. Returns `0` empty, `1` a tile cell, `2` a filler cell, so a renderer can paint the filler in its own colour
+- `mosaic_background(background_mask, level, shape, density, tone, ...)` - A field of this project's own pond tiles, placed on their own lattice behind the subject. A site is kept when the tile's own footprint, dilated by `gap`, is clear — not its whole `6*level` box, which a diamond fills less than half of
+- `filled_background(background_mask, level, fill, fill_band, fill_fade, ...)` - The same mosaic with the gap around the subject packed as tight as it goes, cascading through every smaller level and finishing with loose still lifes. Returns one number per layer — `0` empty, `1` a main-mosaic cell, then the cascade largest-first and the scatter last — so a renderer can grade them by tile size
 - `scatter_background(background_mask, occupied, band, fade, ...)` - Loose elementary still lifes (block, tub, boat, ship, beehive, pond, loaf) placed off any lattice, which is what reaches the crevices a lattice cannot
+- `fill_layer_count(level, shape, fill)` - How many layers `filled_background` numbers, so a renderer can size its ramp without reading the field back
 - `density_band(level, shape, density)` - The tiles inside a normalised density band, and the absolute fill that band really means
 - `life_safe_pattern(pattern, background_mask, field, ...)` - Merge a background into the pattern so the *whole grid* is one still life, exportable to Golly as a single object. The field is checked for clearance rather than trusted
 

@@ -6,9 +6,10 @@ regenerate, but a free-form still life is solved cell-by-cell with CP-SAT and
 costs minutes to hours — so its colours and its backdrop have to be choosable
 afterwards, from the stored pattern alone.
 
-The backdrop is drawn from a tri-state layer (0 = subject, 1 = field
-background, 2 = field pixel) that `MosaicRenderer.render_full_mosaic` already
-knows how to paint. Four styles are available:
+The backdrop is drawn from a layer stack (0 = subject, 1 = field background,
+2 = field pixel, 3 and up for the filler levels) that
+`MosaicRenderer.render_full_mosaic` already knows how to paint. Four styles
+are available:
 
 - ``'none'``  transparent, so the piece can be placed on any canvas
 - ``'flat'``  a solid fill
@@ -16,12 +17,14 @@ knows how to paint. Four styles are available:
 - ``'agar'``  a still-life block agar
 - ``'mosaic'`` a field of this project's own pond tiles
 
-A plain mosaic leaves a ragged halo: a tile is seated only where its whole box
-fits, so the distance from the subject to the nearest tile is whatever the
-lattice happens to allow — on a 800x200 banner, up to 73 cells for level 6.
-``'mosaic'`` therefore takes a ``fill`` argument that packs that gap with
-progressively smaller tiles and then with loose elementary still lifes, which
-cuts the worst halo to single digits. See :func:`filled_background`.
+A plain mosaic leaves a ragged halo: a tile is seated only where its whole
+footprint fits, so the distance from the subject to the nearest tile is
+whatever the lattice happens to allow — on a 800x200 banner, up to 55 cells
+for level 6. ``'mosaic'`` therefore takes a ``fill`` argument that packs that
+gap with progressively smaller tiles and then with loose elementary still
+lifes, which cuts the worst halo to single digits. Each of those levels is
+numbered separately so the renderer can grade them by size. See
+:func:`filled_background`.
 
 Only ``'agar'`` and ``'mosaic'`` produce real Game of Life cells. The other
 three are paint: they never enter a Golly export, and the pattern stays
@@ -267,17 +270,20 @@ def mosaic_background(background_mask: np.ndarray,
     is built from the tile bank. No solving happens here.
 
     Tiles are `6 * level` cells wide and adjacent tiles *overlap*, so the
-    safety rule cannot be about individual cells — it is about whole tile
-    boxes. A lattice site is used only when its entire box, plus `gap` cells
-    of margin, is background and inside the grid. Every mosaic cell then lies
-    at Chebyshev distance `gap + 1` or more from any subject cell, so no dead
-    cell's 3x3 neighbourhood contains both populations: each keeps the
-    neighbour counts it was verified with and the union is a still life. The
-    same argument as :func:`agar_background`, one shape larger.
+    safety rule cannot be about individual cells of one tile — it is about the
+    tile's whole *support*, the set of cells any tile of the family may fill.
+    A lattice site is used only when the support, dilated by `gap`, is
+    background and inside the grid. Every mosaic cell then lies at Chebyshev
+    distance `gap + 1` or more from any subject cell, so no dead cell's 3x3
+    neighbourhood contains both populations: each keeps the neighbour counts
+    it was verified with and the union is a still life. The same argument as
+    :func:`agar_background`, one shape larger.
 
-    The price is a dead halo of up to `6 * level` cells around the subject.
-    That margin is deliberate — it reads as a matte separating the figure from
-    a busy field.
+    Testing the support rather than the `6 * level` bounding box matters: the
+    diamonds fill only 46% of their box at level 6, so a box test rejects
+    sites over corners that no tile can ever reach, and leaves wedges of bare
+    background between neighbouring diamonds. Square tiles fill 87% of theirs,
+    so there the two rules nearly coincide.
 
     The tile lattice does not have to divide the grid. Sites that do not fit
     simply go unused, which is safe because every subset of the frame lattice
@@ -314,6 +320,8 @@ def mosaic_background(background_mask: np.ndarray,
         >>> is_still_life(pattern | field)
         True
     """
+    from scipy.ndimage import binary_dilation
+
     from .patterns import PatternLibrary
     from .tile_scheme import assemble, diamond_scheme, pond_square_scheme
 
@@ -342,6 +350,25 @@ def mosaic_background(background_mask: np.ndarray,
     n = scheme.n
     (u_i, u_j), (v_i, v_j) = scheme.u, scheme.v
 
+    # `assemble` writes only inside the support, so that — dilated by `gap` —
+    # is the whole footprint a site has to keep clear. Pad before dilating:
+    # the support runs to the box's interior ring, and an unpadded dilation is
+    # clipped there, leaving the outermost cell of clearance untested. That
+    # failure is silent in the render and shows up as a birth beside a tile
+    # edge, nowhere near the line that caused it.
+    support = scheme.support | scheme.frame
+    padded = np.zeros((n + 2 * gap, n + 2 * gap), dtype=bool)
+    padded[gap:gap + n, gap:gap + n] = support
+    offsets = np.argwhere(
+        binary_dilation(padded, np.ones((2 * gap + 1,) * 2, dtype=bool))) - gap
+    off_i, off_j = offsets[:, 0], offsets[:, 1]
+
+    # Everything off the grid counts as blocked, which enforces the border
+    # rule for free: a footprint reaching the edge simply fails the test.
+    edge = 2 * n
+    blocked = np.ones((height + 2 * edge, width + 2 * edge), dtype=bool)
+    blocked[edge:edge + height, edge:edge + width] = ~mask
+
     # Lattice sites (a, b) sit at a*u + b*v. Invert the basis and map the
     # canvas corners back to get a tight (a, b) rectangle; a loose symmetric
     # range would make `assemble` allocate a scratch grid of ~100 MB at
@@ -356,20 +383,16 @@ def mosaic_background(background_mask: np.ndarray,
 
     index_grid = np.full((a_hi - a_lo + 1, b_hi - b_lo + 1), -1, dtype=np.int64)
     rows, cols, corner_i, corner_j = [], [], [], []
-    # Per-site loop; the cheap integer bounds test rejects most sites before
-    # any slicing, so a 1416x2000 poster costs under 0.1 s.
+    # Per-site loop; the cheap integer bounds test rejects the sites that lie
+    # wholly off the canvas before any indexing, so a 1416x2000 poster costs
+    # well under a second even at level 6.
     for a in range(a_lo, a_hi + 1):
         for b in range(b_lo, b_hi + 1):
             ci = a * u_i + b * v_i
             cj = a * u_j + b * v_j
-            # Bounds before slicing. A negative start must not reach the
-            # indexing: numpy would wrap it silently and .all() could then
-            # pass on a box running off the edge.
-            if ci - gap < 0 or cj - gap < 0:
+            if not (-n <= ci <= height and -n <= cj <= width):
                 continue
-            if ci + n + gap > height or cj + n + gap > width:
-                continue
-            if mask[ci - gap:ci + n + gap, cj - gap:cj + n + gap].all():
+            if not blocked[ci + edge + off_i, cj + edge + off_j].any():
                 rows.append(a - a_lo)
                 cols.append(b - b_lo)
                 corner_i.append(ci)
@@ -514,6 +537,8 @@ def scatter_background(background_mask: np.ndarray,
                              for t in shapes.values())
                 for flip in (False, True) for k in range(4)]
 
+    from scipy.ndimage import binary_erosion
+
     height, width = mask.shape
     room = mask & ~taken
     distance = _subject_distance(mask)
@@ -522,6 +547,16 @@ def scatter_background(background_mask: np.ndarray,
     graded = band is not None and not mask.all()
     if graded:
         room &= distance <= band
+
+    # Drop the anchors where even the smallest shape cannot fit, before
+    # building the candidate list. The 2x2 block needs a clear `2 + 2 * gap`
+    # box; scipy's border_value of 0 rejects a box running off the grid,
+    # which is the same call the loop's own bounds tests make. Without this
+    # an unbanded scatter walks every background cell — over a million of
+    # them on a 1416x2000 poster, for a thousand-odd placements.
+    side = BLOCK + 2 * gap
+    room &= binary_erosion(room, np.ones((side, side), dtype=bool),
+                           origin=(-(side // 2 - gap),) * 2)
 
     candidates = np.argwhere(room)
     field = np.zeros((height, width), dtype=np.uint8)
@@ -587,7 +622,7 @@ def filled_background(background_mask: np.ndarray,
                       tone: Optional[str] = None,
                       tone_angle: float = 0.0,
                       fill: Optional[object] = 'auto',
-                      fill_band: Optional[int] = 18,
+                      fill_band: Optional[int] = None,
                       fill_fade: bool = True,
                       gap: int = 2,
                       seed: Optional[int] = None) -> np.ndarray:
@@ -603,7 +638,7 @@ def filled_background(background_mask: np.ndarray,
     This runs the same generator again at smaller levels, each pass seeing
     only what the previous ones left, and finishes with
     :func:`scatter_background` for the crevices no lattice reaches. On the
-    same banner that brings the worst halo to 9 cells. It cannot go below
+    same banner that brings the worst halo to 7 cells. It cannot go below
     `gap + 1`: that clearance is what makes the union a still life.
 
     Filler levels always draw from the full density band and ignore `tone`.
@@ -624,16 +659,19 @@ def filled_background(background_mask: np.ndarray,
             and then scatters; a sequence names the levels to use; `()`
             scatters only; None returns the plain mosaic
         fill_band: Scatter only within this distance of the subject, see
-            :func:`scatter_background`
+            :func:`scatter_background`. None, the default, scatters wherever
+            a shape fits
         fill_fade: Thin the scatter towards the far edge of that band
         gap: Cells of clearance required around every box (default 2)
         seed: Seed for the draws; each layer offsets it, so a composition is
             reproducible as a whole
 
     Returns:
-        uint8 array of the same shape: 0 empty, 1 a main-mosaic cell, 2 a
-        filler cell. `field != 0` is the pattern; the distinction exists so a
-        renderer can paint the filler in its own colour.
+        uint8 array of the same shape, one number per layer: 0 empty, 1 a
+        main-mosaic cell, 2 the first cascade level, and so on down to
+        `len(levels) + 2` for the scatter — which keeps that number whether or
+        not it placed anything. `field != 0` is the pattern; the numbering
+        exists so a renderer can grade the layers by tile size.
 
     Raises:
         ValueError: Whatever :func:`mosaic_background` and
@@ -652,35 +690,27 @@ def filled_background(background_mask: np.ndarray,
     if fill is None:
         return tiles
 
-    if fill == 'auto':
-        levels = _fill_levels(level, shape)
-    elif isinstance(fill, str):
-        raise ValueError(
-            f"Unknown fill {fill!r}, expected 'auto', None or a sequence of "
-            f"levels"
-        )
-    else:
-        levels = tuple(int(lvl) for lvl in fill)
+    levels = _resolve_fill_levels(level, shape, fill)
 
+    field = tiles.astype(np.uint8)
     placed = tiles.astype(bool)
-    filler = np.zeros(mask.shape, dtype=bool)
     for step, small in enumerate(levels, start=1):
-        # Handing each pass `mask & ~placed` is the whole trick: the box rule
-        # then demands the box plus `gap` be free of every cell already down,
-        # which is exactly the clearance the still-life argument needs.
+        # Handing each pass `mask & ~placed` is the whole trick: the support
+        # rule then demands the footprint plus `gap` be free of every cell
+        # already down, which is exactly the clearance the argument needs.
         layer = mosaic_background(mask & ~placed, level=small, shape=shape,
                                   gap=gap,
                                   seed=None if seed is None else seed + step)
-        filler |= layer.astype(bool)
-        placed |= layer.astype(bool)
+        fresh = layer.astype(bool) & ~placed
+        field[fresh] = step + 1
+        placed |= fresh
 
     loose = scatter_background(
         mask, occupied=placed, gap=gap, band=fill_band, fade=fill_fade,
         seed=None if seed is None else seed + len(levels) + 1)
-    filler |= loose.astype(bool)
-
-    field = tiles.astype(np.uint8)
-    field[filler] = 2
+    # The scatter keeps its number whether or not it placed anything, so the
+    # renderer's ramp spans the same range every time.
+    field[loose.astype(bool)] = len(levels) + 2
     return field
 
 
@@ -693,6 +723,44 @@ def _fill_levels(level: int, shape: str) -> Tuple[int, ...]:
     if shape == 'square':
         return tuple(small for small in (4, 3) if small < level)
     return tuple(range(level - 1, 0, -1))
+
+
+def _resolve_fill_levels(level: int,
+                         shape: str,
+                         fill: Optional[object]) -> Optional[Tuple[int, ...]]:
+    """The cascade's levels, largest first, or None for no cascade at all.
+
+    Shared by :func:`filled_background` and :func:`compose` so both agree on
+    how many layers a field has — the renderer's colour ramp is spread over
+    that count, and recovering it from the field itself would go wrong on a
+    layer that happened to place nothing.
+    """
+    if fill is None:
+        return None
+    if fill == 'auto':
+        return _fill_levels(level, shape)
+    if isinstance(fill, str):
+        raise ValueError(
+            f"Unknown fill {fill!r}, expected 'auto', None or a sequence of "
+            f"levels"
+        )
+    return tuple(int(small) for small in fill)
+
+
+def fill_layer_count(level: int,
+                     shape: str = 'diamond',
+                     fill: Optional[object] = 'auto') -> int:
+    """How many layers :func:`filled_background` numbers, cascade included.
+
+    1 for the main mosaic alone, otherwise the main mosaic plus one per
+    cascade level plus one for the scatter.
+
+    Example:
+        >>> fill_layer_count(6, 'diamond', 'auto')
+        7
+    """
+    levels = _resolve_fill_levels(level, shape, fill)
+    return 1 if levels is None else len(levels) + 2
 
 
 def life_safe_pattern(pattern: np.ndarray,
@@ -802,7 +870,7 @@ def compose(pattern: np.ndarray,
             tone: Optional[str] = None,
             tone_angle: float = 0.0,
             fill: Optional[object] = None,
-            fill_band: Optional[int] = 18,
+            fill_band: Optional[int] = None,
             fill_fade: bool = True,
             seed: Optional[int] = None,
             scale: int = 1) -> Image.Image:
@@ -833,9 +901,11 @@ def compose(pattern: np.ndarray,
         tone_angle: Degrees for tone='linear'
         fill: Gap filler for style='mosaic'. None leaves the plain mosaic and
             its ragged halo; 'auto' packs the gap with smaller tiles and loose
-            still lifes, see :func:`filled_background`. Filler cells are
-            painted in the scheme's `fill_pixel` when it sets one.
-        fill_band: How far from the subject the loose still lifes reach
+            still lifes, see :func:`filled_background`. Each filler level
+            is painted a step further along a ramp from the scheme's
+            `eca_pixel` to its `fill` colour.
+        fill_band: How far from the subject the loose still lifes reach;
+            None, the default, lets them reach everywhere
         fill_fade: Thin those out towards the far edge of the band
         seed: Tile draw seed for style='mosaic', so a composition is
             reproducible
@@ -902,13 +972,17 @@ def compose(pattern: np.ndarray,
                 fill_fade=fill_fade, gap=gap, seed=seed
             )
 
-        # Tri-state layer: 0=subject (transparent), 1=field background,
-        # 2=field pixel. Same construction the tile mosaics use. A filled
-        # mosaic numbers its filler 2, which lands on 3 here and picks up the
-        # scheme's fill colour — no extra arithmetic needed.
+        # Layer stack: 0=subject (transparent), 1=field background, 2=field
+        # pixel. Same construction the tile mosaics use. A filled mosaic
+        # numbers its layers 1..n, which land on 2..n+1 here and pick up the
+        # renderer's filler ramp — no extra arithmetic needed. The layer count
+        # is passed rather than read back off the field, so an empty layer
+        # cannot shorten the ramp.
+        layers = (fill_layer_count(level, shape, fill)
+                  if style == 'mosaic' else None)
         backdrop = mask.astype(np.uint8)
         image = renderer.render_full_mosaic(
-            pattern, backdrop * (field + backdrop)
+            pattern, backdrop * (field + backdrop), layers=layers
         )
 
     if scale > 1:

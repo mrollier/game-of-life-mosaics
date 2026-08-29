@@ -14,16 +14,16 @@ Two geometry notes, both learned here:
   `scale=2` it gives 1600x400, four rows of sky more than the banner needs.
 * **The two masks want different tile levels.** Banner 1 is a wide range
   with only a thin strip of sky (18.6% of the canvas), and `mosaic_background`
-  keeps a site only when a whole `6*level+4` box is clear, so level 6 seats
-  nothing at all there. Banner 2 is a single peak under 51.8% sky and takes
+  keeps a site only when the tile's whole footprint is clear, so level 6 seats
+  almost nothing there. Banner 2 is a single peak under 51.8% sky and takes
   every level. The two variation lists reflect that rather than pretending
   one set of parameters suits both.
 * **A plain mosaic leaves a ragged halo.** A tile is seated only where its
-  whole box fits, so the distance from the ridgeline to the nearest tile is
-  whatever the lattice allows: 54 cells at level 4 on banner 2, 73 at level 6,
-  46 on banner 1's thin sky. `filled_background` packs that gap with smaller
-  tiles and then loose still lifes and brings the worst case to 8 or 9. The
-  FILLED set below is that comparison.
+  whole footprint fits, so the distance from the ridgeline to the nearest tile
+  is whatever the lattice allows — tens of cells at the larger levels.
+  `filled_background` packs that gap with smaller tiles and then loose still
+  lifes and brings the worst case to single digits. The FILLED set below is
+  that comparison, and `rule_figure` below is the one for the fit test itself.
 """
 
 import sys
@@ -42,7 +42,8 @@ from beyond_tiles.artifacts import (load_pattern_asset,
                                     save_pattern_asset)
 from beyond_tiles.poster import load_rect
 from beyond_tiles.still_image import verify_still_life
-from gol_mosaics import ColorScheme, compose, filled_background
+from gol_mosaics import (ColorScheme, MosaicRenderer, compose,
+                         filled_background)
 
 WIDTH, HEIGHT, SCALE = 800, 200, 2
 BANNER = (1584, 396)  # LinkedIn's own size; the render is 1600x400
@@ -237,7 +238,8 @@ BACKGROUNDS = [
 #
 # The knobs are `fill` (which smaller levels to cascade through before
 # scattering), `fill_band` (how far from the ridgeline the loose still lifes
-# reach) and `fill_fade` (whether they thin out towards its far edge).
+# reach — None, the default, is everywhere) and `fill_fade` (whether they thin
+# out towards its far edge).
 TEAL_HAZE = replace(TEAL_RUST, fill_pixel="#7FA8A0")
 CREAM_HAZE = replace(CREAM_AUBURN, fill_pixel="#C98F6B")
 
@@ -248,8 +250,9 @@ FILLED_1 = [
                 scheme=TEAL_HAZE)),
     ("l2-tight", dict(style="mosaic", level=2, fill="auto", fill_band=10,
                       seed=22, scheme=CREAM_HAZE)),
-    # No band at all: the filler goes everywhere it fits, not just at the edge.
-    ("l3-wide", dict(style="mosaic", level=3, fill="auto", fill_band=None,
+    # A band instead of the default: the filler hugs the ridgeline and the
+    # sky above it stays open.
+    ("l3-band", dict(style="mosaic", level=3, fill="auto", fill_band=18,
                      seed=23, scheme=TEAL_HAZE)),
     # fill=() skips the tile cascade — loose still lifes only, so the fringe is
     # all grain with no intermediate sizes.
@@ -276,7 +279,9 @@ FILLED_2 = [
     # scatter has more to do.
     ("l5-square", dict(style="mosaic", level=5, shape="square", fill="auto",
                        seed=34, scheme=CREAM_HAZE)),
-    ("l4-wide", dict(style="mosaic", level=4, fill="auto", fill_band=None,
+    # The same geometry as `l4`, with the loose still lifes pulled back to a
+    # fringe. The honest comparison for whether filling the whole sky is right.
+    ("l4-band", dict(style="mosaic", level=4, fill="auto", fill_band=18,
                      seed=35, scheme=TEAL_HAZE)),
 ]
 
@@ -352,6 +357,7 @@ def main() -> None:
         sheet[name] = column
 
     halo_figure(here, out)
+    rule_figure(here)
 
     contact_sheet([sheet["banner1"], sheet["banner2"]],
                   out / "contact-sheet.png", width=16, panel_h=1.35)
@@ -379,9 +385,9 @@ def halo(field, background):
     """Chebyshev distance from each silhouette cell to the nearest field cell.
 
     The number the filler exists to bring down. A plain mosaic seats a tile
-    only where its whole box fits, so this is set by where the lattice falls
-    rather than by the subject's outline — and it is the *variation*, not the
-    width, that reads as untidy.
+    only where the tile's whole footprint fits, so this is set by where the
+    lattice falls rather than by the subject's outline — and it is the
+    *variation*, not the width, that reads as untidy.
     """
     from scipy.ndimage import binary_dilation, distance_transform_cdt
 
@@ -411,8 +417,8 @@ def halo_figure(here: Path, out: Path) -> None:
     background = ~free
 
     panels = [("plain mosaic", dict(fill=None)),
-              ("filled: smaller tiles, then loose still lifes",
-               dict(fill="auto", fill_band=18))]
+              ("filled: smaller tiles graded by size, then loose still lifes",
+               dict(fill="auto"))]
     fig, axes = plt.subplots(2, 1, figsize=(13, 4.4))
     for ax, (title, kwargs) in zip(axes, panels):
         image = to_banner(compose(pattern, background, scale=SCALE,
@@ -420,8 +426,7 @@ def halo_figure(here: Path, out: Path) -> None:
                                   scheme=TEAL_HAZE, **kwargs))
         field = (mosaic_background(background, level=6, seed=31)
                  if kwargs["fill"] is None
-                 else filled_background(background, level=6, seed=31,
-                                        fill_band=18))
+                 else filled_background(background, level=6, seed=31))
         spread = halo(field, background)
         ax.imshow(np.asarray(image.convert("RGB")))
         ax.set_title(f"{title} — halo mean {spread.mean():.1f}, "
@@ -438,6 +443,99 @@ def halo_figure(here: Path, out: Path) -> None:
     chosen = out / "banner2-filled-l6.png"
     Image.open(chosen).save(
         REPO / "experiments/beyond_tiles/figures/linkedin_banner_filled_l6.png")
+
+
+def box_rule_field(background, level, seed=None, shape="diamond"):
+    """`mosaic_background` as it stood before 2026-08-29, for the figure.
+
+    The superseded rule: a site was kept only when its whole `6*level` box
+    plus the gap was clear, rather than the tile's own footprint. Kept here
+    rather than in the library because its only remaining use is to draw the
+    comparison — see REPORT.md section 8.
+    """
+    from gol_mosaics.compose import density_band
+    from gol_mosaics.patterns import PatternLibrary
+    from gol_mosaics.tile_scheme import assemble, diamond_scheme
+
+    gap = 2
+    scheme = diamond_scheme(level)
+    tiles = np.asarray(PatternLibrary.load(level, shape=shape).solutions,
+                       dtype=np.uint8)
+    indices, _ = density_band(level, shape, (0.0, 1.0))
+    height, width = background.shape
+    n = scheme.n
+    (u_i, u_j), (v_i, v_j) = scheme.u, scheme.v
+
+    det = u_i * v_j - v_i * u_j
+    ab = [((i * v_j - j * v_i) / det, (j * u_i - i * u_j) / det)
+          for i in (-n, height) for j in (-n, width)]
+    a_lo, a_hi = int(np.floor(min(a for a, _ in ab))), int(np.ceil(max(a for a, _ in ab)))
+    b_lo, b_hi = int(np.floor(min(b for _, b in ab))), int(np.ceil(max(b for _, b in ab)))
+
+    grid = np.full((a_hi - a_lo + 1, b_hi - b_lo + 1), -1, dtype=np.int64)
+    rows, cols = [], []
+    for a in range(a_lo, a_hi + 1):
+        for b in range(b_lo, b_hi + 1):
+            ci, cj = a * u_i + b * v_i, a * u_j + b * v_j
+            if ci - gap < 0 or cj - gap < 0:
+                continue
+            if ci + n + gap > height or cj + n + gap > width:
+                continue
+            if background[ci - gap:ci + n + gap, cj - gap:cj + n + gap].all():
+                rows.append(a - a_lo)
+                cols.append(b - b_lo)
+    if rows:
+        grid[rows, cols] = np.random.default_rng(seed).choice(indices,
+                                                              size=len(rows))
+    origin_i = min(a_lo * u_i, a_hi * u_i) + min(b_lo * v_i, b_hi * v_i)
+    origin_j = min(a_lo * u_j, a_hi * u_j) + min(b_lo * v_j, b_hi * v_j)
+    pad = 2
+    whole = assemble(scheme, grid, tiles, pad=pad)
+    return np.ascontiguousarray(
+        whole[pad - origin_i:pad - origin_i + height,
+              pad - origin_j:pad - origin_j + width])
+
+
+def rule_figure(here: Path) -> None:
+    """Box rule against support rule, banner 2 at level 6.
+
+    Both panels are plain mosaics with no filling at all, so the only
+    difference on show is which lattice sites the fit test accepts.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from gol_mosaics import mosaic_background
+
+    pattern = load_solve(here, "banner2", set())
+    _, free = load_rect(
+        str(REPO / "input/images/linkedin-background-2.png"),
+        WIDTH, HEIGHT, "eq", 5.0)
+    background = ~free
+
+    fields = [("box rule: the whole 6*level box must be clear",
+               box_rule_field(background, 6, seed=31)),
+              ("support rule: only the tile's own footprint must be",
+               mosaic_background(background, level=6, seed=31))]
+    fig, axes = plt.subplots(2, 1, figsize=(13, 4.4))
+    for ax, (title, field) in zip(axes, fields):
+        backdrop = background.astype(np.uint8)
+        image = MosaicRenderer(TEAL_HAZE).render_full_mosaic(
+            pattern, backdrop * (field + backdrop))
+        spread = halo(field, background)
+        ax.imshow(np.asarray(to_banner(image.resize(
+            (WIDTH * SCALE, HEIGHT * SCALE), Image.Resampling.NEAREST)
+        ).convert("RGB")))
+        ax.set_title(f"{title} — {int(field.sum()):,} cells, "
+                     f"halo mean {spread.mean():.1f}, max {spread.max()}",
+                     fontsize=10)
+        ax.axis("off")
+    fig.tight_layout(pad=0.5)
+    path = REPO / "experiments/beyond_tiles/figures/linkedin_fit_rule.png"
+    fig.savefig(path, dpi=110, facecolor="white")
+    plt.close(fig)
+    print(f"fit-rule fig  -> {path.relative_to(REPO)}")
 
 
 def contact_sheet(columns, path, width=16, panel_h=1.35) -> None:
