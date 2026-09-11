@@ -87,6 +87,20 @@ experiments/beyond_tiles/results/
 # are kept in experiments/beyond_tiles/figures/ instead.
 output/images/linkedin/
 
+# PhD-defence flyer study (experiments/beyond_tiles/flyer.py): the two finished
+# designs (vignette2, skyline2) in every palette are kept with their Golly
+# exports. Previews, zooms, contact and palette sheets, the archived first two
+# rounds and the dropped designs (skyline, antipodes, arch) are regenerated
+# from the saved solves and stay local.
+output/images/flyer/_*
+!output/images/flyer/_palette_skyline2_*.png
+output/images/flyer/_palette_skyline2_teal.png
+output/images/flyer/round*/
+output/images/flyer/skyline-*.png
+output/images/flyer/antipodes-*.png
+output/golly/flyer-skyline-*.cells
+output/golly/flyer-antipodes-*.cells
+
 # Workstation search artifacts (checkpoints, local oracle copy, big outputs)
 workstation/level6_search/work/
 workstation/level6_search/reference/

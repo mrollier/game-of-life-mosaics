@@ -933,7 +933,92 @@ No CP-SAT run: every pattern is the one already committed, and this section
 changes only how the background is packed and painted. `box_rule_field` in
 that script keeps the superseded rule alive for the comparison figure.
 
-## 9. Out of scope
+## 9. The PhD-defence flyer: a skyline as one still life (2026-09-09 to 09-11)
+
+A portrait flyer background for a joint UGent/USP defence, shared on
+WhatsApp: text goes on afterwards in Canva, so the design keeps the middle of
+the canvas empty. `flyer.py` has the whole thing: synthetic *base designs*
+(a tone target plus a mask that says where the free-form still life goes and
+where the tile mosaic goes), the strips-plus-LNS solve of section C7, the
+post-hoc backdrop of sections 6 and 8, and a palette set. Two designs
+survived four review rounds: `vignette2`, a rounded window in a tile frame
+(360×512 at 3 px), and `skyline2`, Ghent on the left and São Paulo on the
+right under a clean tile ribbon (540×768 at 2 px). Every render is merged
+with its tile field and verified as a single still life (38,076 cells for the
+skyline); the `.cells` files are in `output/golly/flyer-*.cells`.
+
+### What the synthetic targets taught
+
+**Strip seams.** `solve_strips` leaves two dead rows at each cut. The window
+objective is satisfied with those rows empty (a seam window still has six
+free rows to meet its target in), so the generic polish never selects a patch
+there and the seams survive as faint horizontal stripes across every dense
+band. The fix is a seam-aware LNS pass: `window_devs` gains a one-sided
+deficit term for the separator rows of each seam window, the patch solver
+gets a matching sub-target (weight 3, hint kept; blanking the hint made
+40×40 patches diverge), and the candidate boxes are the ones centred on a
+seam. Seam occupancy went from 0.3–0.5 of the neighbouring rows to 0.9–1.05.
+Two traps on the way: the LNS window grid indexes only windows that hold free
+cells, so seam rows must be mapped through `_window_grid`, and a seam in the
+grid's first row (right under the ribbon) needs a box that starts on it.
+
+**Dotted lines.** Rounding each window's target gives every window along a
+slow fade the same one-cell target, and the solver answers with one block per
+window, on the window lattice: a perfectly regular dotted line at the edge of
+the empty zone. Error-diffused targets (`--dither fs`) vary from window to
+window and the line dissolves.
+
+**Glow, not distance.** A distance transform throws star-like streaks off
+every thin spire; a Gaussian of the silhouette (`glow`) weights a spire by its
+area, and the grain thins with the mass of the skyline.
+
+**Lattice-snapped silhouettes.** The level-4 diamond lattice has sites 12
+cells apart on a checkerboard, so a tower that is not centred on a lattice
+column gets an off-centre tile column and reads as lopsided. `Lattice` gives
+the column centres after `symmetric_pad` (the padding that puts the canvas
+centre on a mirror line of every cascade level, so the frame is symmetric
+top/bottom and left/right), and every building is drawn with even widths
+about such a centre: 28 cells hold one stack, 52 three, 76 five, and a flat
+roof snaps to the row where a whole diamond closes. Holes (`Sky3.cut`) stay
+empty in both the mask and the tone target: the Copan's two bands, the
+service core of Edifício Itália, MASP's free span. `Sky3.front()` cuts a
+two-cell gap around a building where it overlaps an earlier one, which is
+how MASP stands in front of the Copan.
+
+**Commit charge, not RSS.** On a 16 GB Windows laptop a 64×540 strip solve
+with two CP-SAT workers commits about 1.5 GB while its resident set stays
+near 200 MB. Six strips in parallel hit the commit limit together and each
+worker died with a C-runtime fail-fast (`0xc0000409` in `ucrtbase.dll`, in
+the Application event log), which surfaces in Python only as
+`BrokenProcessPool`. `solve_strips_safe` runs one single-worker pool per
+strip with retries; the real fix was `--strip-procs 2`. A canvas width that
+is not a multiple of the window (540) also needs `edge_windows="partial"`,
+or the LNS's disjoint-window check fails after the strips are done.
+
+### Palettes
+
+The first palettes (teal, terracotta, indigo-copper, forest-gold) pair a
+saturated field with cream tiles, a lightness jump of about 50 points, and a
+near-black grain; the user found them heavy. The quiet set (`QUIET`) puts the
+tiles 13–16 points above their field, the filler halfway between, the grain
+at a mid-tone of the same hue, and the fields at tints: the silhouette reads
+as one soft textured shape. `output/images/flyer/_palette_skyline2_*.png`
+has the skyline in each.
+
+### Reproduction
+
+```bash
+python experiments/beyond_tiles/flyer.py preview                       # designs, no solver
+python experiments/beyond_tiles/flyer.py solve skyline2 --strip-procs 2 --polish-procs 3
+python experiments/beyond_tiles/flyer.py polish skyline2 --seams-only --polish-procs 3
+python experiments/beyond_tiles/flyer.py render                        # all palettes + Golly
+```
+
+The skyline solve is about 14 min of strips and 12 min of polish on 12 cores
+at two strips at a time, the seam pass 10 min more. Solves land under
+`results/flyer/` (ignored); the finished renders are committed.
+
+## 10. Out of scope
 
 pysat/MaxSAT cross-check of the encoding; oscillators (period > 1);
 anti-banding aesthetic constraints; non-square canvases; app integration.

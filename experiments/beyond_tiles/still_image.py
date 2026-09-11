@@ -7,7 +7,6 @@ still carry the no-birth constraint, so a solution is a genuine still
 life embedded in a dead plane, not just internally consistent.
 """
 
-import resource
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,6 +16,15 @@ import numpy as np
 from ortools.sat.python import cp_model
 
 from beyond_tiles.targets import Window, cell_targets, window_slices, window_targets
+
+
+def _max_rss_mb() -> float:
+    """Peak resident set size in MB; 0.0 where `resource` is unavailable (Windows)."""
+    try:
+        import resource
+    except ImportError:
+        return 0.0
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2**20
 
 # Live-neighbour counts a DEAD cell may have (everything except birth on 3).
 _DEAD_OK = cp_model.Domain.FromIntervals([[0, 2], [4, 8]])
@@ -338,7 +346,7 @@ def solve(
             best_bound=int(solver.BestObjectiveBound()),
             wall_time_s=wall,
             obj_history=logger.history,
-            max_rss_mb=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2**20,
+            max_rss_mb=_max_rss_mb(),
             config=cfg,
             build_time_s=bundle.build_time_s,
             windows=bundle.windows,
@@ -361,7 +369,7 @@ def solve(
         best_bound=int(solver.BestObjectiveBound()),
         wall_time_s=wall,
         obj_history=logger.history,
-        max_rss_mb=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2**20,
+        max_rss_mb=_max_rss_mb(),
         config=cfg,
         snapshots=snapshots,
         build_time_s=bundle.build_time_s,
