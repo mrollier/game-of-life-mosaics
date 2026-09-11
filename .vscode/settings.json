@@ -3,7 +3,9 @@
   // are put on sys.path at runtime (notebooks) or via pytest's `pythonpath`.
   // Pylance cannot see that, so tell it where the packages live.
   "python.analysis.extraPaths": ["src", "experiments"],
-  "python.defaultInterpreterPath": "/opt/miniconda3/envs/gol-mosaics/bin/python",
+  // No interpreter path: it is machine-specific (conda on a Mac, anaconda on
+  // a Windows laptop), and VS Code remembers the interpreter picked for this
+  // workspace on its own.
   "python.testing.pytestEnabled": true,
   "python.testing.pytestArgs": ["tests"],
   "jupyter.notebookFileRoot": "${workspaceFolder}"
