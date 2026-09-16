@@ -12,6 +12,7 @@ Subcommands (see REPORT.md for what each experiment established):
     e6      convergence movies: re-solve at three sizes keeping incumbents
     e7      solver-parameter study (slack/dither/subsolvers) over the bench suite
     e9      strip decomposition at scale; --lns-polish runs the champion pipeline
+            (strips, polish, then seam rounds; --seam-polish 0 skips the last)
     e10     annealing chain: agar seed -> parallel tempering -> exact repair
     bench   fixed-protocol A/B benchmark runs; --compare prints a markdown table
     gif     render a saved run's snapshots into a convergence GIF
@@ -356,6 +357,42 @@ def cmd_e9(args) -> None:
                 f"verify={checks}"
             )
 
+            # The polish leaves the separators at about half the density of
+            # the rows around them (window totals cannot see in-window
+            # distribution); the seam rounds put a sub-target on them.
+            # REPORT.md C9.
+            seam_s = args.seam_polish if args.seam_polish is not None else args.lns_polish
+            if seam_s > 0 and len(plan.spans) > 1:
+                from beyond_tiles.lns import seam_occupancy, window_devs
+
+                scfg = LnsConfig(
+                    patch_windows=5, patch_time_s=3.0, budget_s=seam_s,
+                    n_procs=args.procs, seed=cfg.seed + 50, slack=cfg.slack,
+                    seam_rows=tuple(r1 - plan.gap for _, r1 in plan.spans[:-1]),
+                )
+                before = seam_occupancy(res.pattern, scfg, free)["worst"]
+                res = improve(res.pattern, free, kept, targets, scfg)
+                checks = verify_still_life(res.pattern)
+                assert all(checks.values()), checks
+                np.save(out / "pattern.npy", res.pattern)
+                after = seam_occupancy(res.pattern, scfg, free)["worst"]
+                report["seams"] = {
+                    "objective": int(window_devs(res.pattern, free, kept, targets).sum()),
+                    "seam_objective": res.objective,
+                    "worst_separator_before": before,
+                    "worst_separator_after": after,
+                    "wall_time_s": res.obj_history[-1][0],
+                    "deviation_vs_full_targets": deviation_stats(
+                        res.pattern, cell_t, free, windows
+                    ),
+                    "verify": checks,
+                }
+                print(
+                    f"seams: objective={report['seams']['objective']} "
+                    f"worst separator {before:.2f} -> {after:.2f} of neighbours "
+                    f"wall={report['seams']['wall_time_s']:.1f}s verify={checks}"
+                )
+
     if args.mode in ("bound", "both"):
         bound = lower_bound_strips(grey, free, cfg, plan, n_procs=args.procs)
         report["bound"] = bound
@@ -610,6 +647,9 @@ def main() -> None:
                     help="CP-SAT workers per strip (times --procs processes)")
     p9.add_argument("--lns-polish", type=float, default=0.0,
                     help="seconds of full-mask LNS after stitching")
+    p9.add_argument("--seam-polish", type=float, default=None,
+                    help="seconds of seam LNS (separator sub-targets) after the "
+                         "polish; default: as much as --lns-polish, 0 disables")
     p9.add_argument("--seed", type=int, default=0)
     # k/stride are fixed at 8/8 (cuts must align to window boundaries) and
     # dither at "round" (strip-local error diffusion would change targets);

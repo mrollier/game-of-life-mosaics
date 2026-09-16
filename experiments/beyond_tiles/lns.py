@@ -28,6 +28,18 @@ _MARGIN = 2  # frozen context shipped around a patch; radius-1 constraints
 # read one ring, and the ring's own constraints read a second one.
 
 
+def _margin(lcfg: "LnsConfig") -> int:
+    """Frozen context shipped around a patch, in cells.
+
+    Two for stability, and `max_diag_run` for the run clauses: a chain that
+    continues past the shipped margin is invisible to the sub-model, so the
+    patch may lengthen it without ever seeing a clause. That is how the Lam
+    Gods polish (2026-09-16) left twenty chains of 6-7 cells behind a cap of
+    5. The same distance keeps concurrently solved patches apart.
+    """
+    return max(_MARGIN, lcfg.max_diag_run or 0)
+
+
 @dataclass
 class LnsConfig:
     patch_windows: int = 5  # patch side length, in windows (5 x 8 = 40 cells)
@@ -37,6 +49,19 @@ class LnsConfig:
     seed: int = 0
     slack: int = 0
     max_diag_run: Optional[int] = 5  # match SpikeConfig, or repairs re-draw lines
+    # Seam sub-targets. A window total is blind to how its cells are spread,
+    # so the dead separator lines of a strip or block decomposition stay
+    # half-empty once their windows are satisfied: the Lam Gods separators
+    # held 53-75 % of their neighbours' density after a polish to objective
+    # 469, a visible line across every dense band. With the first row (or
+    # column) of each `seam_width`-wide separator listed here, every window
+    # crossing it gets a sub-box with its proportional share as target,
+    # weighted `seam_weight` in the patch solver and, one-sided (deficit
+    # only), in selection and acceptance. The flyer's seam pass, generalised.
+    seam_rows: Tuple[int, ...] = ()
+    seam_cols: Tuple[int, ...] = ()
+    seam_width: int = 2
+    seam_weight: int = 3
 
 
 @dataclass
@@ -49,18 +74,47 @@ class LnsResult:
     patches_improved: int = 0
 
 
+def seam_boxes(
+    window: Window, target: int, lcfg: "LnsConfig"
+) -> List[Tuple[int, int, int, int, int]]:
+    """Separator sub-boxes (i0, i1, j0, j1, target) of one window, global coords."""
+    si, sj = window
+    out = []
+    w = lcfg.seam_width
+    for s in lcfg.seam_rows:
+        if si.start <= s and s + w <= si.stop:
+            share = int(round(target * w / (si.stop - si.start)))
+            out.append((s, s + w, sj.start, sj.stop, share))
+    for s in lcfg.seam_cols:
+        if sj.start <= s and s + w <= sj.stop:
+            share = int(round(target * w / (sj.stop - sj.start)))
+            out.append((si.start, si.stop, s, s + w, share))
+    return out
+
+
 def window_devs(
     pattern: np.ndarray,
     free_mask: np.ndarray,
     windows: Sequence[Window],
     targets: np.ndarray,
     slack: int = 0,
+    lcfg: Optional["LnsConfig"] = None,
 ) -> np.ndarray:
-    """Per-window objective terms max(0, |live - t| - slack)."""
+    """Per-window objective terms max(0, |live - t| - slack).
+
+    With seam lines configured on `lcfg`, a window crossing one also pays
+    `seam_weight` per cell its separator sub-box falls short of its share
+    (deficit only: a full separator is never penalised).
+    """
     devs = np.zeros(len(windows), dtype=np.int64)
+    seams = lcfg is not None and (lcfg.seam_rows or lcfg.seam_cols)
     for idx, (t, (si, sj)) in enumerate(zip(targets, windows)):
         live = int(pattern[si, sj][free_mask[si, sj]].sum())
         devs[idx] = max(0, abs(live - int(t)) - int(slack))
+        if seams:
+            for i0, i1, j0, j1, share in seam_boxes((si, sj), int(t), lcfg):
+                got = int(pattern[i0:i1, j0:j1][free_mask[i0:i1, j0:j1]].sum())
+                devs[idx] += lcfg.seam_weight * max(0, share - got)
     return devs
 
 
@@ -119,8 +173,9 @@ def _cell_box(
 def _select_disjoint(
     scored: List[Tuple[int, Tuple[int, int, int, int], Tuple[int, int, int, int]]],
     limit: int,
+    margin: int = _MARGIN,
 ) -> List[Tuple[int, Tuple[int, int, int, int], Tuple[int, int, int, int]]]:
-    """Greedy top-score patches whose freed cells stay >= 2 cells apart."""
+    """Greedy top-score patches whose freed cells stay >= `margin` cells apart."""
     chosen: List[Tuple[int, Tuple[int, int, int, int], Tuple[int, int, int, int]]] = []
     for item in sorted(scored, key=lambda s: -s[0]):
         if len(chosen) >= limit:
@@ -128,7 +183,7 @@ def _select_disjoint(
         i0, i1, j0, j1 = item[2]
         clash = False
         for _, _, (a0, a1, b0, b1) in chosen:
-            if i0 < a1 + _MARGIN and a0 < i1 + _MARGIN and j0 < b1 + _MARGIN and b0 < j1 + _MARGIN:
+            if i0 < a1 + margin and a0 < i1 + margin and j0 < b1 + margin and b0 < j1 + margin:
                 clash = True
                 break
         if not clash:
@@ -239,6 +294,177 @@ def _solve_patch_task(payload: dict) -> Optional[np.ndarray]:
     return out
 
 
+def _patch_payload(pattern, free_mask, windows, targets, index, box, cbox, lcfg):
+    """The sub-problem for one window-grid box: patch, frozen margin, targets."""
+    m = _margin(lcfg)
+    i0, i1, j0, j1 = cbox
+    pad = np.pad(pattern, m + 1)  # dead plane beyond the canvas
+    free_pad = np.pad(free_mask, m + 1)
+    o = m + 1
+    g0, g1 = i0 + o - m, i1 + o + m
+    h0, h1 = j0 + o - m, j1 + o + m
+    region = pad[g0:g1, h0:h1].copy()
+    rfree = np.zeros_like(region, dtype=bool)
+    rfree[m : m + (i1 - i0), m : m + (j1 - j0)] = free_pad[g0 + m : g1 - m, h0 + m : h1 - m]
+    members = index[box[0] : box[1], box[2] : box[3]].ravel()
+    members = members[members >= 0]
+    win_boxes = [
+        (
+            windows[k][0].start - i0 + m,
+            windows[k][0].stop - i0 + m,
+            windows[k][1].start - j0 + m,
+            windows[k][1].stop - j0 + m,
+            int(targets[k]),
+        )
+        for k in members
+    ]
+    # Seam sub-boxes, repeated seam_weight times: the patch solver weighs
+    # every box the same, so the weight is carried by repetition.
+    for k in members:
+        for a0, a1, b0, b1, share in seam_boxes(windows[k], int(targets[k]), lcfg):
+            win_boxes += [(a0 - i0 + m, a1 - i0 + m, b0 - j0 + m, b1 - j0 + m, share)] * lcfg.seam_weight
+    return dict(
+        region=region,
+        free=rfree,
+        windows=win_boxes,
+        slack=lcfg.slack,
+        max_diag_run=lcfg.max_diag_run,
+        time_s=lcfg.patch_time_s,
+        seed=lcfg.seed,
+        box=(i0, i1, j0, j1),
+        margin=m,
+    )
+
+
+def _solve_patches(payloads, lcfg):
+    if lcfg.n_procs > 1 and len(payloads) > 1:
+        with ProcessPoolExecutor(max_workers=lcfg.n_procs) as pool:
+            return list(pool.map(_solve_patch_task, payloads))
+    return [_solve_patch_task(p) for p in payloads]
+
+
+def _splice(pattern, payload, out):
+    """The global pattern with one solved patch dropped back in."""
+    m = payload["margin"]
+    i0, i1, j0, j1 = payload["box"]
+    candidate = pattern.copy()
+    candidate[i0:i1, j0:j1] = out[m : m + (i1 - i0), m : m + (j1 - j0)]
+    return candidate
+
+
+def seam_occupancy(
+    pattern: np.ndarray, lcfg: "LnsConfig", free_mask: Optional[np.ndarray] = None,
+    span: int = 4,
+) -> dict:
+    """Separator density relative to the `span` lines on either side, per seam.
+
+    1.0 means a seam is indistinguishable from its surroundings; seams whose
+    neighbourhood is nearly empty (< 2 % live) are skipped, nothing to see.
+    Returns {"rows": {first_row: ratio}, "cols": {...}, "worst": min}.
+    """
+    p = np.asarray(pattern, dtype=np.int64)
+    free = np.ones(p.shape, bool) if free_mask is None else free_mask
+    w = lcfg.seam_width
+    out = {"rows": {}, "cols": {}}
+    for axis, seams, key in ((0, lcfg.seam_rows, "rows"), (1, lcfg.seam_cols, "cols")):
+        q, f = (p, free) if axis == 0 else (p.T, free.T)
+        for s in seams:
+            nb = np.r_[max(0, s - span):s, s + w:s + w + span]
+            nb_free, sep_free = int(f[nb].sum()), int(f[s:s + w].sum())
+            if nb_free == 0 or sep_free == 0 or q[nb].sum() < 0.02 * nb_free:
+                continue
+            out[key][int(s)] = float((q[s:s + w].sum() / sep_free) / (q[nb].sum() / nb_free))
+    ratios = list(out["rows"].values()) + list(out["cols"].values())
+    out["worst"] = min(ratios) if ratios else 1.0
+    return out
+
+
+def _long_run_centres(pattern: np.ndarray, max_run: int):
+    """Middle cell of every diagonal chain longer than `max_run`."""
+    live = np.asarray(pattern, dtype=bool)
+    h, w = live.shape
+    centres = []
+    for dj in (1, -1):
+        chain = live.copy()
+        for n in range(1, max_run + 1):  # starts of runs of max_run + 1
+            shifted = np.zeros_like(live)
+            if dj == 1:
+                shifted[: h - n, : w - n] = live[n:, n:]
+            else:
+                shifted[: h - n, n:] = live[n:, : w - n]
+            chain &= shifted
+        for i, j in zip(*np.nonzero(chain)):
+            t = (max_run + 1) // 2
+            centres.append((int(i + t), int(j + t * dj)))
+    return centres
+
+
+def repair_diagonal_runs(
+    pattern: np.ndarray,
+    free_mask: np.ndarray,
+    windows: Sequence[Window],
+    targets: np.ndarray,
+    lcfg: LnsConfig,
+    passes: int = 3,
+    max_cost: int = 2,
+    log=print,
+) -> LnsResult:
+    """Break every diagonal chain longer than `lcfg.max_diag_run`.
+
+    Each chain gets a patch centred on it, so the whole chain is free and
+    the run clauses see it; the patch solver then minimises deviation
+    subject to the cap, and the patch is accepted when it costs at most
+    `max_cost` cells of deviation. The incumbent hint violates the new
+    clause, so the solver is effectively starting over: keep the patches
+    small (3 windows) and the time generous (30 s) — 40x40 at 10 s came
+    back ~150 cells worse per patch on the Lam Gods pattern.
+    """
+    _assert_disjoint(pattern.shape, windows)
+    assert lcfg.max_diag_run, "nothing to repair without a cap"
+    rows, cols, index = _window_grid(windows)
+    n_rows, n_cols = len(rows), len(cols)
+    p = lcfg.patch_windows
+    pattern = pattern.astype(np.uint8).copy()
+    devs = window_devs(pattern, free_mask, windows, targets, lcfg.slack, lcfg)
+    result = LnsResult(pattern=pattern, objective=int(devs.sum()))
+    m = _margin(lcfg)
+
+    for _ in range(passes):
+        centres = _long_run_centres(pattern, lcfg.max_diag_run)
+        if not centres:
+            break
+        scored = []
+        for i, j in centres:
+            r = int(np.searchsorted(rows, i, side="right") - 1)
+            c = int(np.searchsorted(cols, j, side="right") - 1)
+            r0 = min(max(0, r - p // 2), max(0, n_rows - p))
+            c0 = min(max(0, c - p // 2), max(0, n_cols - p))
+            box = (r0, min(r0 + p, n_rows), c0, min(c0 + p, n_cols))
+            scored.append((1, box, _cell_box(box, windows, index)))
+        chosen = _select_disjoint(scored, limit=len(scored), margin=m)
+        payloads = [
+            _patch_payload(pattern, free_mask, windows, targets, index, box, cbox, lcfg)
+            for _, box, cbox in chosen
+        ]
+        outs = _solve_patches(payloads, lcfg)
+        for payload, out in zip(payloads, outs):
+            result.patches_solved += 1
+            if out is None:
+                continue
+            candidate = _splice(pattern, payload, out)
+            new_devs = window_devs(candidate, free_mask, windows, targets, lcfg.slack, lcfg)
+            if new_devs.sum() - devs.sum() <= max_cost:
+                pattern, devs = candidate, new_devs
+                result.patches_improved += 1
+        result.rounds += 1
+        log(f"diagonal repair pass {result.rounds}: {len(centres)} chains, "
+            f"{len(chosen)} patches, objective {int(devs.sum())}")
+
+    result.pattern = pattern
+    result.objective = int(devs.sum())
+    return result
+
+
 def improve(
     pattern: np.ndarray,
     free_mask: np.ndarray,
@@ -254,9 +480,10 @@ def improve(
     boxes = _patch_boxes(n_rows, n_cols, lcfg.patch_windows)
 
     pattern = pattern.astype(np.uint8).copy()
+    m = _margin(lcfg)
     t0 = time.perf_counter()
     result = LnsResult(pattern=pattern, objective=0)
-    devs = window_devs(pattern, free_mask, windows, targets, lcfg.slack)
+    devs = window_devs(pattern, free_mask, windows, targets, lcfg.slack, lcfg)
     result.obj_history.append((0.0, int(devs.sum())))
 
     # Boxes that failed to improve go stale and are skipped until an
@@ -278,64 +505,22 @@ def improve(
                 scored.append((score, box, _cell_box(box, windows, index)))
         if not scored:
             break
-        chosen = _select_disjoint(scored, limit=max(1, lcfg.n_procs) * 2)
+        chosen = _select_disjoint(scored, limit=max(1, lcfg.n_procs) * 2, margin=m)
 
-        pad = np.pad(pattern, _MARGIN + 1)  # dead plane beyond the canvas
-        free_pad = np.pad(free_mask, _MARGIN + 1)
-        payloads = []
-        for _, box, (i0, i1, j0, j1) in chosen:
-            o = _MARGIN + 1
-            g0, g1 = i0 + o - _MARGIN, i1 + o + _MARGIN
-            h0, h1 = j0 + o - _MARGIN, j1 + o + _MARGIN
-            region = pad[g0:g1, h0:h1].copy()
-            rfree = np.zeros_like(region, dtype=bool)
-            rfree[_MARGIN : _MARGIN + (i1 - i0), _MARGIN : _MARGIN + (j1 - j0)] = (
-                free_pad[g0 + _MARGIN : g1 - _MARGIN, h0 + _MARGIN : h1 - _MARGIN]
-            )
-            members = index[box[0] : box[1], box[2] : box[3]].ravel()
-            members = members[members >= 0]
-            win_boxes = [
-                (
-                    windows[m][0].start - i0 + _MARGIN,
-                    windows[m][0].stop - i0 + _MARGIN,
-                    windows[m][1].start - j0 + _MARGIN,
-                    windows[m][1].stop - j0 + _MARGIN,
-                    int(targets[m]),
-                )
-                for m in members
-            ]
-            payloads.append(
-                dict(
-                    region=region,
-                    free=rfree,
-                    windows=win_boxes,
-                    slack=lcfg.slack,
-                    max_diag_run=lcfg.max_diag_run,
-                    time_s=lcfg.patch_time_s,
-                    seed=lcfg.seed,
-                    box=(i0, i1, j0, j1),
-                )
-            )
-
-        if lcfg.n_procs > 1 and len(payloads) > 1:
-            with ProcessPoolExecutor(max_workers=lcfg.n_procs) as pool:
-                outs = list(pool.map(_solve_patch_task, payloads))
-        else:
-            outs = [_solve_patch_task(p) for p in payloads]
+        payloads = [
+            _patch_payload(pattern, free_mask, windows, targets, index, box, cbox, lcfg)
+            for _, box, cbox in chosen
+        ]
+        outs = _solve_patches(payloads, lcfg)
 
         accepted_boxes = []
         for (_, wbox, cbox), payload, out in zip(chosen, payloads, outs):
             result.patches_solved += 1
             improved = False
             if out is not None:
-                i0, i1, j0, j1 = payload["box"]
-                new_patch = out[
-                    _MARGIN : _MARGIN + (i1 - i0), _MARGIN : _MARGIN + (j1 - j0)
-                ]
-                candidate = pattern.copy()
-                candidate[i0:i1, j0:j1] = new_patch
+                candidate = _splice(pattern, payload, out)
                 new_devs = window_devs(
-                    candidate, free_mask, windows, targets, lcfg.slack
+                    candidate, free_mask, windows, targets, lcfg.slack, lcfg
                 )
                 if new_devs.sum() < devs.sum():
                     pattern, devs = candidate, new_devs
@@ -349,8 +534,7 @@ def improve(
             for box in list(stale):
                 b0, b1, c0, c1 = _cell_box(box, windows, index)
                 for a0, a1, d0, d1 in accepted_boxes:
-                    if b0 < a1 + _MARGIN and a0 < b1 + _MARGIN and \
-                            c0 < d1 + _MARGIN and d0 < c1 + _MARGIN:
+                    if b0 < a1 + m and a0 < b1 + m and c0 < d1 + m and d0 < c1 + m:
                         stale.discard(box)
                         break
         result.rounds += 1

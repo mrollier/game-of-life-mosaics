@@ -557,9 +557,12 @@ changes their context), which took the same run to 63.
 Recommended recipes after the campaign (SpikeConfig defaults stay
 unchanged — the evidence favoured pipeline choice over parameter
 flips): up to ~200², plain `solve_image` (proves optimality in
-seconds to minutes); 400² and beyond, `e9 --lns-polish` (strips then
-polish); slack=1 and the agar hint only when a monolithic solve of a
-large canvas is explicitly wanted.
+seconds to minutes); 400² and beyond, `e9 --lns-polish` (strips, then
+polish, then **seam rounds** — added after C9, where the polished
+separators still showed); any image at any rectangular size,
+`poster.py`, which cuts wide canvases into blocks (`--block-cols`) and
+runs the seam rounds by default; slack=1 and the agar hint only when a
+monolithic solve of a large canvas is explicitly wanted.
 
 ### C8 — case study: a dark 1416×2000 portrait (John Conway, 2026-08-20)
 
@@ -605,6 +608,124 @@ density fidelity than the 400² flagship, on an 8× larger canvas, in
 
 *The 1416×2000 John Conway still life (d_max 0.40, strips + three
 10 s-patch LNS rounds).*
+
+### C9 — case study: the whole Lam Gods at pixel resolution (2026-09-15)
+
+The Adoration of the Mystic Lamb, 2480×1653 px, as one still life with a
+cell per pixel — 4.1 M cells, 64,170 windows, one and a half times the
+John Conway canvas — on the 18-core Xeon workstation (frietjes), 28 threads
+at `nice 10`. Three things the C8 recipe did not survive:
+
+1. **Full-width strips do not scale sideways.** A 48×2480 strip is 119k
+   cells, six times the biggest instance that ever closed; at the 300 s cap
+   it was FEASIBLE at objective 18,627 with 2,781 live cells against a
+   target of ~22k, and 5.4 GB of RSS. The same rows cut into 48×416 blocks
+   close to OPTIMAL 0 in 140 s at 1 GB (64×416: 149 s, 1.3 GB; d_max 0.45:
+   119 s). `decompose.solve_blocks` therefore cuts along both axes; the
+   separator argument is the same per axis, and the 2×2 dead corner where
+   four blocks meet has at most one live neighbour. Blocks checkpoint to
+   disk as they land, each in a process pool of its own.
+2. **A painting is all subject.** `poster.py --keep-background` skips
+   rembg; `auto` would have carved a figure out of the altarpiece. After
+   in-frame equalization the target field has mean density 0.197 with only
+   6 % of windows above 0.35 — a low-key photo by median grey (43), but far
+   less ceiling pressure than John's 25 %, so d_max 0.40 was never in
+   question.
+3. **The polish scales with cores; the blocks scale with memory.** Patch
+   solves are single-threaded, so `--polish-procs` can take every thread
+   the box has (28 here) while the block stage is bounded by ~1.3 GB per
+   process (14 here).
+
+| stage | wall | objective vs full targets | MAD |
+|---|---|---|---|
+| 156 blocks of 64×416, 14 procs × 2 workers, 300 s cap | 58 min | 77,944 | — |
+| polish 1–2, 14 procs, 10 s patches | 60 min | 58,868 → 20,877 | — |
+| polish 3–5, 28 procs (resumed) | 52 min | 1,921 → 489 → 489 (stalled) | — |
+| diagonal repair, 20 patches of 24×24 at 30 s | 11 s | **469** | **0.0044** |
+
+Under full load the blocks no longer close: 16 of 156 proved optimal, the
+rest stopped at the cap with residuals of 5–1,900 cells (the bottom rows,
+the crowd and the grass, carry the large ones), 44,859 in total against
+~33k from the 8,660 seam windows. Neither mattered: the polish took both
+down together, at C8's accelerating pace (25 %, 65 %, 91 %, 75 % per
+round), and stopped itself when no 40×40 patch could improve any more.
+
+First result (v1), verified bounded and toroidal: **objective 469, MAD
+0.0044 (darkest quartile 0.0045, p95 0.0097), Pearson 0.9987, 808,796 live
+cells, longest diagonal chain 5** — 2 h 50 min of wall time, ~2.5 h of it
+solver.
+
+#### The seams were still there
+
+Every number above said the picture was done, and every block edge was
+still visible: faint horizontal lines every 64 rows, fainter vertical ones
+every 416 columns. Measured (`lns.seam_occupancy`, separator density
+relative to the four lines on either side), the two dead separator rows
+held **53–75 %** of their neighbours' density, the columns 64–75 %. The
+polish had repopulated them only as far as the window totals asked — and
+a window total is blind to where inside the window the cells sit. A seam
+window with its two separator rows half empty and the other six rows
+slightly overfull has deviation zero, so no patch is ever selected there,
+and no amount of extra polish or block time would change that: the
+artifact lives below the objective's resolution. The flyer met the same
+thing (`flyer.py polish --seams-only`) and answered with a sub-target on
+the separator; that mechanism is now part of `lns` proper, for rows and
+columns: `LnsConfig.seam_rows/seam_cols` give every window crossing a
+separator a `seam_width`-line sub-box whose target is the window's
+proportional share, weighted `seam_weight` = 3 in the patch solver and,
+deficit-only, in selection and acceptance. `poster.py --seam-rounds`
+(default 2) runs it after the polish with the separators read off the
+plan.
+
+Three seam rounds at 28 procs, 15 min cap each, on the v1 pattern
+(`lam_gods_seams.py` for the study):
+
+| | v1 (before) | v2 (seam rounds) |
+|---|---|---|
+| plain objective | 469 | 471 |
+| MAD / Pearson | 0.0044 / 0.9987 | 0.0044 / 0.9987 |
+| separator deficit, weight 3 | 33,016 | **0** |
+| horizontal separators, mean (worst) of neighbours | 0.65 (0.53) | **1.00 (0.93)** |
+| vertical separators, mean (worst) | 0.68 (0.64) | **0.98 (0.95)** |
+| wall | — | 41 min |
+
+The rounds went 33,016 → 7,806 → 884 → 471 on the combined objective;
+the plain objective first rose to 1,680 (the weight buying separator
+cells with window deviation) and came back to 471 as the later rounds
+found the arrangements that satisfy both. Net cost of a seamless pattern:
+two cells of deviation in 64k windows, and 41 minutes on top of 2 h 50.
+
+![seam study](figures/lam_gods_seams.png)
+
+*Mean occupancy across all seams aligned on the separator (grey), v1
+dashed and v2 solid, and the same dense crops before (above) and after.
+The 50 % trough is gone; what remains is the ±0.03 ripple the profile has
+everywhere.*
+
+`assets/lam_gods_2480x1656_pipeline.npz` holds v2 (369 kB packed),
+`assets/lam_gods_2480x1656_v1_before_seams.npz` the v1 it is compared
+against; the run is `poster.py ... --keep-background --dither fs
+--strip-rows 64 --block-cols 416 --strip-procs 14 --polish-procs 28
+--seam-rounds 3`.
+
+![Lam Gods 2480×1656](figures/lam_gods_2480x1656_pipeline.png)
+
+*The Lam Gods still life (v2) at a pixel per cell (black = live).*
+
+**A leak in the diagonal cap.** The polished pattern had 20 chains of 6–7
+cells against a cap of 5. `lns` shipped a two-cell frozen margin around
+every patch — enough for the stability constraints — but a chain that
+continues past the margin is invisible to the run clauses, so a patch can
+lengthen it freely. The margin is now `max(2, max_diag_run)`, for the
+clauses and for the spacing of concurrently solved patches alike, and
+`lns.repair_diagonal_runs` fixes an existing pattern: a patch centred on
+each offending chain, accepted when it costs at most `max_cost` cells of
+deviation. The first attempt at that pass, 40×40 patches at 10 s, broke
+every chain at ~150 cells apiece — the incumbent hint violates the new
+clause, so the solver is starting over, and 10 s is not enough for 1,600
+cells from scratch (the flyer's blank-hint finding again). 24×24 patches at
+30 s solve to optimality: all 20 chains gone in one pass, objective 489 →
+469.
 
 ### Considered and rejected
 

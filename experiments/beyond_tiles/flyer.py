@@ -950,7 +950,7 @@ def patch_task_seam(payload: dict):
     i0 = payload["box"][0]
     extra = []
     for s0 in seam_rows():
-        sr = s0 - i0 + LNS_MARGIN
+        sr = s0 - i0 + payload.get("margin", LNS_MARGIN)
         for a0, a1, b0, b1, target in payload["windows"]:
             if a0 <= sr and sr + 2 <= a1:
                 box = (sr, sr + 2, b0, b1, _seam_target(target, a1 - a0))

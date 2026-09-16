@@ -1044,6 +1044,93 @@ def test_strip_solve_parallel_matches_serial():
     assert serial["objective"] == parallel["objective"]
 
 
+def test_block_solve_stitches_to_still_life(tmp_path):
+    si = _solver()
+    from beyond_tiles.decompose import plan_blocks, solve_blocks
+
+    grey = uniform_grey(40, 100)
+    free = np.ones((40, 40), dtype=bool)
+    cfg = _test_config(si, k=8, stride=8, time_limit_s=20.0)
+    plan = plan_blocks(40, 40, k=8, block_rows=24, block_cols=24, gap=2)
+    assert plan.row_spans == [(0, 24), (24, 40)] and plan.col_spans == plan.row_spans
+    out = solve_blocks(grey, free, cfg, plan, n_procs=2, checkpoint_dir=tmp_path)
+    pattern = out["pattern"]
+    assert pattern.shape == (40, 40)
+    checks = si.verify_still_life(pattern)
+    assert checks["bounded"] and checks["toroidal"]
+    assert pattern[22:24].sum() == 0 and pattern[:, 22:24].sum() == 0  # separators
+    assert all(pattern[r0:r1, c0:c1].sum() > 0
+               for r0, r1 in plan.row_spans for c0, c1 in plan.col_spans)
+    assert len(list(tmp_path.glob("block_*.npz"))) == 4
+    # the checkpoints reproduce the run without solving anything
+    again = solve_blocks(grey, free, cfg, plan, n_procs=1, checkpoint_dir=tmp_path)
+    assert np.array_equal(again["pattern"], pattern)
+    assert again["statuses"] == out["statuses"]
+
+
+def test_repair_diagonal_runs_breaks_long_chains():
+    si = _solver()
+    from beyond_tiles.lns import LnsConfig, repair_diagonal_runs, window_devs
+    from beyond_tiles.metrics import max_diagonal_run
+    from beyond_tiles.targets import cell_targets, window_targets
+
+    # A long barge: a still life whose two diagonals are solid 8-cell chains.
+    pattern = np.zeros((24, 24), dtype=np.uint8)
+    for t in range(8):
+        pattern[7 + t, 8 + t] = 1
+        pattern[8 + t, 7 + t] = 1
+    assert si.verify_still_life(pattern)["bounded"]
+    free = np.ones((24, 24), dtype=bool)
+    cell_t = cell_targets(uniform_grey(24, 220), 0.45)
+    targets, kept = window_targets(
+        cell_t, free, window_slices((24, 24), k=8, stride=8)
+    )
+    before = int(window_devs(pattern, free, kept, targets).sum())
+    lcfg = LnsConfig(patch_windows=2, patch_time_s=5.0, n_procs=1, seed=0,
+                     max_diag_run=4)
+    res = repair_diagonal_runs(pattern, free, kept, targets, lcfg, max_cost=8,
+                               log=lambda *_: None)
+    assert max_diagonal_run(res.pattern) <= 4
+    assert res.objective <= before + 8
+    checks = si.verify_still_life(res.pattern)
+    assert checks["bounded"] and checks["toroidal"]
+
+
+def test_seam_subtargets_fill_the_separator():
+    si = _solver()
+    from beyond_tiles.decompose import plan_blocks, solve_blocks
+    from beyond_tiles.lns import (LnsConfig, improve, seam_boxes, seam_occupancy,
+                                  window_devs)
+    from beyond_tiles.targets import cell_targets, window_targets
+
+    grey = uniform_grey(48, 60)  # dense enough for an empty separator to show
+    free = np.ones((48, 48), dtype=bool)
+    cfg = _test_config(si, k=8, stride=8, time_limit_s=20.0)
+    plan = plan_blocks(48, 48, k=8, block_rows=24, block_cols=48, gap=2)
+    pattern = solve_blocks(grey, free, cfg, plan, n_procs=2)["pattern"]
+    cell_t = cell_targets(grey, 0.45)
+    targets, kept = window_targets(
+        cell_t, free, window_slices((48, 48), k=8, stride=8)
+    )
+    assert pattern[22:24].sum() == 0  # the block stage leaves the separator dead
+    lcfg = LnsConfig(patch_windows=3, patch_time_s=5.0, budget_s=60.0,
+                     n_procs=2, seed=0, seam_rows=(22,))
+    plain = lambda q: int(window_devs(q, free, kept, targets).sum())
+    before = seam_occupancy(pattern, lcfg)["worst"]
+    res = improve(pattern, free, kept, targets, lcfg, log=lambda *_: None)
+    after = seam_occupancy(res.pattern, lcfg)["worst"]
+    assert after > before and after > 0.6
+    # the combined objective is the plain one plus the weighted deficit
+    deficit = sum(
+        max(0, share - int(res.pattern[i0:i1, j0:j1].sum()))
+        for w, t in zip(kept, targets)
+        for i0, i1, j0, j1, share in seam_boxes(w, int(t), lcfg)
+    )
+    assert res.objective == plain(res.pattern) + 3 * deficit
+    checks = si.verify_still_life(res.pattern)
+    assert checks["bounded"] and checks["toroidal"]
+
+
 def test_lower_bound_is_valid_on_solved_instance():
     si = _solver()
     from beyond_tiles.decompose import StripPlan, lower_bound_strips

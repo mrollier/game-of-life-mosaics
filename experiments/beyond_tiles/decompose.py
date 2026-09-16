@@ -187,3 +187,131 @@ def lower_bound_strips(
         ],
         "spans": plan.spans,
     }
+
+
+# --- 2-D blocks ---------------------------------------------------------------
+#
+# Strips stop paying once the canvas is wide: a 48x2480 strip (119k cells) is
+# six times the largest model that closes in minutes, and at 5 GB apiece a
+# handful of them fill the machine (frietjes, 2026-09-15: FEASIBLE at
+# objective 18,627 after 300 s, versus OPTIMAL 0 in 140 s for a 48x416 block).
+# Cutting along both axes keeps every block a 200²-class instance. The
+# separator argument is the same per axis: two dead columns decouple the
+# blocks left and right exactly as two dead rows do above and below, and the
+# 2x2 dead corner where four blocks meet has at most one live neighbour (the
+# corner cell of the diagonal block), so it can never be born.
+
+
+@dataclass
+class BlockPlan:
+    row_spans: List[Tuple[int, int]]
+    col_spans: List[Tuple[int, int]]
+    gap: int  # dead rows/cols folded into the bottom/right of non-final blocks
+
+
+def plan_blocks(
+    h: int, w: int, k: int, block_rows: int = 64, block_cols: int = 416, gap: int = 2
+) -> BlockPlan:
+    """k-aligned row and column spans; the last of each takes the remainder."""
+    return BlockPlan(
+        row_spans=plan_strips(h, k, block_rows, gap).spans,
+        col_spans=plan_strips(w, k, block_cols, gap).spans,
+        gap=gap,
+    )
+
+
+def solve_blocks(
+    grey: np.ndarray,
+    free_mask: np.ndarray,
+    cfg: SpikeConfig,
+    plan: BlockPlan,
+    n_procs: int = 4,
+    checkpoint_dir=None,
+    log=None,
+    retries: int = 2,
+) -> dict:
+    """Restriction form on a 2-D grid of blocks separated by dead gap lines.
+
+    Each block runs in a process pool of its own (an aborting CP-SAT worker
+    then costs one retry with another seed instead of the whole batch, the
+    lesson of the first flyer solve), and with `checkpoint_dir` every solved
+    block is saved as it lands, so a killed run resumes where it stopped.
+    The stitched pattern is a still life by construction; callers should
+    still run verify_still_life on it.
+    """
+    from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+    from concurrent.futures.process import BrokenProcessPool
+    from pathlib import Path
+
+    cfg = _check_cfg(cfg)
+    if plan.gap < 2:
+        raise ValueError("gap must be >= 2 dead rows/cols (see solve_strips)")
+    n_rows, n_cols = len(plan.row_spans), len(plan.col_spans)
+    tasks = [(ri, ci) for ri in range(n_rows) for ci in range(n_cols)]
+    ckpt = Path(checkpoint_dir) if checkpoint_dir else None
+    if ckpt:
+        ckpt.mkdir(parents=True, exist_ok=True)
+    say = log or (lambda msg: None)
+
+    def payload_for(ri, ci):
+        r0, r1 = plan.row_spans[ri]
+        c0, c1 = plan.col_spans[ci]
+        free = free_mask[r0:r1, c0:c1].copy()
+        if ri < n_rows - 1:
+            free[-plan.gap :, :] = False
+        if ci < n_cols - 1:
+            free[:, -plan.gap :] = False
+        return dict(grey=grey[r0:r1, c0:c1], free=free, cfg=cfg)
+
+    done = [0]
+
+    def run(task):
+        ri, ci = task
+        path = ckpt / f"block_{ri:02d}_{ci:02d}.npz" if ckpt else None
+        if path and path.exists():
+            with np.load(path) as z:
+                out = {k: (z[k].item() if z[k].ndim == 0 else z[k]) for k in z.files}
+            done[0] += 1
+            say(f"block ({ri},{ci}) restored [{done[0]}/{len(tasks)}]")
+            return task, out
+        payload = payload_for(ri, ci)
+        for attempt in range(retries + 1):
+            try:
+                with ProcessPoolExecutor(max_workers=1) as pool:
+                    out = pool.submit(_solve_strip_task, payload).result()
+                break
+            except BrokenProcessPool:
+                say(f"block ({ri},{ci}) aborted on attempt {attempt + 1}; "
+                    f"retrying with another seed")
+                payload = dict(
+                    payload, cfg=dataclasses.replace(cfg, seed=cfg.seed + 100 * (attempt + 1))
+                )
+        else:
+            raise RuntimeError(f"block ({ri},{ci}) aborted {retries + 1} times")
+        if path:
+            np.savez_compressed(path, **out)
+        done[0] += 1
+        say(f"block ({ri},{ci}) {out['status']} obj {out['objective']} "
+            f"in {out['wall_time_s']:.0f}s [{done[0]}/{len(tasks)}]")
+        return task, out
+
+    with ThreadPoolExecutor(max_workers=n_procs) as tp:
+        outs = dict(tp.map(run, tasks))
+
+    pattern = np.block(
+        [[outs[(ri, ci)]["pattern"] for ci in range(n_cols)] for ri in range(n_rows)]
+    ).astype(np.uint8)
+    per_block = {
+        f"{ri},{ci}": {k: v for k, v in outs[(ri, ci)].items() if k != "pattern"}
+        for ri, ci in tasks
+    }
+    return {
+        "pattern": pattern,
+        "objective": int(sum(o["objective"] for o in outs.values())),
+        "statuses": [outs[t]["status"] for t in tasks],
+        "wall_time_s": max(o["wall_time_s"] for o in outs.values()),
+        "total_cpu_s": sum(o["wall_time_s"] for o in outs.values()),
+        "per_block": per_block,
+        "row_spans": plan.row_spans,
+        "col_spans": plan.col_spans,
+    }
