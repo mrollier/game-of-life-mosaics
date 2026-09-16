@@ -94,7 +94,9 @@ def main(argv=None) -> int:
     if not args.counter:
         return 0
 
-    cmd = (["/usr/bin/time", "-l", args.counter]
+    # BSD/macOS time reports peak RSS in bytes with -l; GNU time in kB with -v
+    time_flag = "-l" if sys.platform == "darwin" else "-v"
+    cmd = (["/usr/bin/time", time_flag, args.counter]
            + args.counter_args.split() + [str(cnf_path)])
     t0 = time.time()
     proc = subprocess.run(cmd, capture_output=True, text=True)
@@ -105,6 +107,9 @@ def main(argv=None) -> int:
     m = re.search(r"(\d+)\s+maximum resident set size", proc.stderr)
     if m:
         rss = int(m.group(1)) / 1e9  # bytes on macOS
+    m = re.search(r"Maximum resident set size \(kbytes\): (\d+)", proc.stderr)
+    if m:
+        rss = int(m.group(1)) / 1e6  # kB on Linux
     if count is None:
         print(f"level {args.level}: FAILED to parse a count "
               f"(exit {proc.returncode}, {wall:.1f}s). Last output lines:")
