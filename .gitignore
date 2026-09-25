@@ -98,3 +98,6 @@ search/tiles/counts/
 search/tiles/certificates/
 search/nosym/work_nosym/
 search/nosym/tiles_diamond_nosym_level_*.npy
+
+# What the tutorials export for you to open in Golly
+output/golly/my_*.cells
