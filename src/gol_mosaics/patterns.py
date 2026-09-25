@@ -1,8 +1,10 @@
 """
 Game of Life pattern generation and management.
 
-This module provides the PatternLibrary class for generating and managing
-symmetric Game of Life still-life patterns using integer linear programming.
+This module provides the PatternLibrary class, which loads the shipped
+symmetric still-life tiles and maps grey values to tiles by density. The
+tiles are enumerated with SAT (gol_mosaics.sat_search); the original Gurobi
+ILP generator lives in gol_mosaics.legacy_ilp.
 """
 
 import logging
@@ -12,15 +14,9 @@ from importlib.resources import files
 from typing import Optional
 from scipy.ndimage import binary_fill_holes
 
+from . import tile_domain
 from .tile_domain import derive_dead_edges, unpack_solutions
 from .tile_scheme import pond_square_scheme, unpack_scheme_solutions
-
-# Gurobi is optional - only needed for generating new patterns
-try:
-    from gurobipy import Model, GRB, quicksum
-    GUROBI_AVAILABLE = True
-except ImportError:
-    GUROBI_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -92,9 +88,8 @@ class PatternLibrary:
     """
     Manages Game of Life still-life patterns.
 
-    Handles both generation (using Gurobi optimisation) and loading
-    of pre-computed symmetric patterns. Patterns are loaded lazily to
-    minimise memory usage.
+    Loads the pre-computed symmetric patterns and maps grey values to them
+    by density. Patterns are loaded lazily to minimise memory usage.
 
     Attributes:
         level: Pattern complexity level (1-5 pre-computed, others require generation)
@@ -293,191 +288,11 @@ class PatternLibrary:
             >>> # Save for future use
             >>> np.save('solutions_level_6.npy', library.solutions)
         """
-        if not GUROBI_AVAILABLE:
-            raise ImportError(
-                "Gurobi is required for pattern generation but is not installed. "
-                "Install with: pip install gurobipy\n"
-                "Note: Gurobi requires a licence (free academic licences available at gurobi.com).\n"
-                "For pre-computed patterns (levels 1-5), use PatternLibrary.load() instead."
-            )
+        from .legacy_ilp import generate_tiles
 
         library = cls(level=level)
-        library._solutions = library._find_all_symmetric_gol_mosaics(solution_limit)
+        library._solutions = generate_tiles(level, solution_limit)
         return library
-
-    def _find_all_symmetric_gol_mosaics(self, solution_limit: int = 1000) -> np.ndarray:
-        """
-        Find all symmetric GoL still-life patterns using Gurobi ILP.
-
-        This is the core optimisation routine that uses Gurobi's mixed-integer
-        programming solver to exhaustively find patterns.
-
-        This approach is inspired by Rob Bosch's 2019 book "Opt Art".
-
-        Args:
-            solution_limit: Maximum number of solutions to find
-
-        Returns:
-            Numpy array of shape (N, H, W) with N found patterns
-        """
-        # Create empty mosaic and print initial information
-        pp_edge = self.pond_pattern_edge()
-        n = pp_edge.shape[0]
-        logger.info("Looking for pattern level %d with grid size %dx%d",
-                    self.level, n, n)
-
-        # Make mask for cells outside the tile pattern
-        pp_edge_binary = (pp_edge > 0).astype(np.uint8)
-        pp_outside = 1 - binary_fill_holes(pp_edge_binary).astype(np.uint8)
-
-        # Create Gurobi model
-        model = Model("still_life")
-        model.setParam('OutputFlag', 0)  # Suppress Gurobi output
-
-        # Decision variables
-        alive = {}  # Alive cells
-        ldead = {}  # Low dead (< 2 neighbours)
-        hdead = {}  # High dead (> 3 neighbours)
-
-        for i in range(n):
-            for j in range(n):
-                alive[i, j] = model.addVar(vtype=GRB.BINARY, name=f"A_{i}_{j}")
-                ldead[i, j] = model.addVar(vtype=GRB.BINARY, name=f"L_{i}_{j}")
-                hdead[i, j] = model.addVar(vtype=GRB.BINARY, name=f"H_{i}_{j}")
-
-        model.update()
-
-        # Define neighbors function
-        def neighbors(i, j, n):
-            return [
-                ((i + di) % n, (j + dj) % n)
-                for di in [-1, 0, 1]
-                for dj in [-1, 0, 1]
-                if not (di == 0 and dj == 0)
-            ]
-
-        def symmetric_coords(i, j, n):
-            """Return all symmetric positions for (i,j)."""
-            return {
-                "ver": (n - 1 - i, j),
-                "hor": (i, n - 1 - j),
-                "ver_and_hor": (n - 1 - i, n - 1 - j),
-                "diag": (j, i),
-                "diag_and_ver": (j, n - 1 - i),
-                "diag_and_hor": (n - 1 - j, i),
-                "all_sym": (n - 1 - j, n - 1 - i)
-            }
-
-        # Get dead edges for this level
-        dead_edges = self._get_dead_edges(self.level)
-
-        # Add constraints
-        for i in range(n):
-            for j in range(n):
-                N = neighbors(i, j, n)
-                neighbor_sum = quicksum(alive[ii, jj] for (ii, jj) in N)
-
-                # Low-dead: cells with < 2 neighbours
-                model.addConstr(
-                    4 * ldead[i, j] + neighbor_sum <= 6,
-                    name=f"low_dead_{i}_{j}"
-                )
-
-                # High-dead: cells with > 3 neighbours
-                model.addConstr(
-                    4 * hdead[i, j] <= neighbor_sum,
-                    name=f"high_dead_{i}_{j}"
-                )
-
-                # Stayin' alive: alive cells need 2-3 neighbours
-                model.addConstr(
-                    2 * alive[i, j] <= neighbor_sum,
-                    name=f"stay1_{i}_{j}"
-                )
-                model.addConstr(
-                    3 * alive[i, j] + neighbor_sum <= 6,
-                    name=f"stay2_{i}_{j}"
-                )
-
-                # Exactly one of L, H, or A is true
-                model.addConstr(
-                    ldead[i, j] + hdead[i, j] + alive[i, j] == 1,
-                    name=f"oneof_{i}_{j}"
-                )
-
-                # Symmetry constraints
-                sym_coords = symmetric_coords(i, j, n)
-                for (ii, jj) in sym_coords.values():
-                    model.addConstr(alive[i, j] == alive[ii, jj])
-                    model.addConstr(ldead[i, j] == ldead[ii, jj])
-                    model.addConstr(hdead[i, j] == hdead[ii, jj])
-
-                # Force alive along tile pattern edge
-                if pp_edge_binary[i, j]:
-                    model.addConstr(
-                        alive[i, j] == int(pp_edge_binary[i, j]),
-                        name=f"force_alive_{i}_{j}"
-                    )
-
-                # Force dead outside tile pattern
-                if pp_outside[i, j]:
-                    model.addConstr(
-                        alive[i, j] == 0,
-                        name=f"force_dead_{i}_{j}"
-                    )
-
-                # Force dead on specific edges
-                if (i, j) in dead_edges:
-                    model.addConstr(
-                        alive[i, j] == 0,
-                        name=f"force_dead_edge_{i}_{j}"
-                    )
-
-        # Objective: maximise number of living cells
-        model.setObjective(
-            quicksum(alive[i, j] for i in range(n) for j in range(n)),
-            GRB.MAXIMIZE
-        )
-
-        # Iterative exclusion to find all solutions
-        solutions = []
-
-        while True:
-            model.optimize()
-
-            if model.status != GRB.OPTIMAL:
-                logger.info("Found %d optimal solutions.", len(solutions))
-                break
-
-            # Extract current solution
-            sol = np.array([
-                [round(alive[i, j].X) for j in range(n)]
-                for i in range(n)
-            ])
-            solutions.append(sol)
-
-            # Identify alive cells
-            alive_cells = [
-                (i, j) for i in range(n) for j in range(n)
-                if round(alive[i, j].X) == 1
-            ]
-
-            # Add exclusion constraint
-            model.addConstr(
-                quicksum(1 - alive[i, j] for (i, j) in alive_cells) +
-                quicksum(
-                    alive[i, j]
-                    for i in range(n) for j in range(n)
-                    if (i, j) not in alive_cells
-                ) >= 1,
-                name=f"exclude_solution_{len(solutions)}"
-            )
-
-            if len(solutions) >= solution_limit:
-                logger.info("Reached solution limit (%d).", solution_limit)
-                break
-
-        return np.array(solutions)
 
     def get_pattern_for_value(self,
                               value: float,
@@ -652,24 +467,13 @@ class PatternLibrary:
     @staticmethod
     def pond_pattern() -> np.ndarray:
         """
-        Generate the base pond pattern (4x4 still-life).
-
-        The pond is a simple still-life in Conway's Game of Life.
-
-        Returns:
-            4x4 binary array
+        The base pond pattern (4x4 still life), see tile_domain.pond_pattern.
 
         Example:
-            >>> pattern = PatternLibrary.pond_pattern()
-            >>> pattern.shape
+            >>> PatternLibrary.pond_pattern().shape
             (4, 4)
         """
-        return np.array([
-            [0, 1, 1, 0],
-            [1, 0, 0, 1],
-            [1, 0, 0, 1],
-            [0, 1, 1, 0]
-        ])
+        return tile_domain.pond_pattern()
 
     @property
     def tile_shape(self) -> tuple:
@@ -693,138 +497,39 @@ class PatternLibrary:
 
     def pond_pattern_multiple(self) -> np.ndarray:
         """
-        Generate multiple pond patterns with symmetry.
+        Stacked pond pattern with masked corners, see
+        tile_domain.pond_pattern_multiple.
 
-        The result is cached on the instance (level and pond_width are
-        immutable); treat it as read-only.
-
-        Returns:
-            Pattern array sized according to level
+        The result is cached on the instance; treat it as read-only.
         """
         self._require_diamond("pond_pattern_multiple")
-        if self._pond_pattern_multiple is not None:
-            return self._pond_pattern_multiple
-
-        width = self.pond_width * self.level
-        pp = self.pond_pattern()
-
-        # Create multiple pattern by stacking
-        if self.level > 1:
-            pp_multiple = np.vstack((
-                np.vstack([pp[:-1]] * (self.level - 1)),
-                pp,
-                np.vstack([pp[1:]] * (self.level - 1))
-            ))
-            pp_multiple = np.hstack((
-                np.hstack([pp_multiple[:, :-1]] * (self.level - 1)),
-                pp_multiple,
-                np.hstack([pp_multiple[:, 1:]] * (self.level - 1))
-            ))
-        else:
-            pp_multiple = pp.copy()
-
-        # Add edge
-        pp_multiple = np.pad(pp_multiple, pad_width=1, constant_values=0)
-
-        # Mask corners
-        # Diagonal corners
-        mask_even = np.array([
-            [(i + j) < self.pond_width * self.level / 2 for j in range(width)]
-            for i in range(width)
-        ])
-        mask_even = mask_even + mask_even[::-1, ::-1]
-
-        # Off-diagonal corners
-        mask_odd = np.array([
-            [(i - j) >= self.pond_width * self.level / 2 for j in range(width)]
-            for i in range(width)
-        ])
-        mask_odd = mask_odd + mask_odd.T
-
-        mask = mask_even + mask_odd
-        pp_multiple = np.where(1 - mask, pp_multiple, 0)
-
-        self._pond_pattern_multiple = pp_multiple
-        return pp_multiple
+        if self._pond_pattern_multiple is None:
+            self._pond_pattern_multiple = tile_domain.pond_pattern_multiple(
+                self.level)
+        return self._pond_pattern_multiple
 
     def pond_pattern_edge(self) -> np.ndarray:
         """
-        Generate edge pond pattern (only the border).
+        The tile's forced-alive pond frame, see tile_domain.pond_pattern_edge.
 
         The result is cached on the instance; treat it as read-only.
-
-        Returns:
-            Pattern array with only edge tiles
         """
         self._require_diamond("pond_pattern_edge")
-        if self._pond_pattern_edge is not None:
-            return self._pond_pattern_edge
+        if self._pond_pattern_edge is None:
+            self._pond_pattern_edge = tile_domain.pond_pattern_edge(self.level)
+        return self._pond_pattern_edge
 
-        width = self.pond_width * self.level
-        pp_multiple = self.pond_pattern_multiple()
-
-        # Mask the interior
-        mask_corner = np.array([
-            [(i + j) < self.pond_width * self.level / 2 + 3 for j in range(width)]
-            for i in range(width)
-        ])
-        mask = (mask_corner + mask_corner[::-1, ::-1] +
-                mask_corner[::-1] + mask_corner[:, ::-1])
-
-        pp_edge = np.where(mask, pp_multiple, 0)
-        self._pond_pattern_edge = pp_edge
-        return pp_edge
-    
     def pond_pattern_eighth(self) -> np.ndarray:
         """
-        Generate the pattern corresponding to all cells whose values can become either 0 or 1 in the D4 dihedral symmetry.
-
-        Returns:
-            Pattern array with the eighth of unique cells
+        The free cells of one D4 octant, see tile_domain.pond_pattern_eighth.
         """
         self._require_diamond("pond_pattern_eighth")
-        width = self.pond_width * self.level
-        half_width = width // 2
-
-        # Cache edge pattern to avoid redundant calls
-        pp_edge = self.pond_pattern_edge()
-
-        # Extract first quarter (top-right) of edge pattern
-        pp_edge_eighth = np.zeros_like(pp_edge)
-        pp_edge_eighth[:half_width, half_width:] = pp_edge[:half_width, half_width:]
-
-        # Create sub-diagonal through first quarter
-        pp_diagonal = np.diag(np.ones(width - 1, dtype=int), k=1)[::-1]
-
-        # Create vertical line one cell to the left of centre
-        pp_vertical = np.zeros_like(pp_edge)
-        pp_vertical[:, half_width - 1] = 1
-
-        # Union of the three patterns
-        pp_outer = (pp_edge_eighth | pp_diagonal | pp_vertical).astype(bool)
-
-        # Find the pattern surrounded by 1s on all sides
-        pp_eighth = binary_fill_holes(pp_outer).astype(int)
-        return pp_eighth - pp_outer
+        return tile_domain.pond_pattern_eighth(self.level)
 
     @staticmethod
     def _get_dead_edges(level: int) -> list:
-        """
-        Get dead edge coordinates for a given level.
-
-        These are specific cells that must be forced dead so that adjacent
-        tiles in a mosaic cannot interact. Derived from the interlocking
-        geometry for any level (see tile_domain.derive_dead_edges); the
-        derivation reproduces the historically hard-coded lists for levels
-        2-6 exactly (a regression test guards this).
-
-        Args:
-            level: Pattern level
-
-        Returns:
-            List of (i, j) tuples for dead edges (octant representatives;
-            the solver's symmetry constraints propagate them orbit-wide)
-        """
+        """Octant representatives of the forced-dead interlock cells, see
+        tile_domain.derive_dead_edges."""
         return derive_dead_edges(level)
 
 

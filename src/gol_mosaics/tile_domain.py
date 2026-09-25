@@ -7,11 +7,10 @@ tile databases: instead of full (N, n, n) grids, a level's solutions can be
 stored as one bit per *free symmetry orbit* (59 bits per level-6 tile) and
 expanded on load.
 
-The geometry functions mirror :class:`gol_mosaics.patterns.PatternLibrary`
-(``pond_pattern`` .. ``pond_pattern_edge``) as standalone functions so the
-search bundle in ``workstation/level6_search`` can vendor them without the
-package installed. Divergence is guarded by tests that re-derive the shipped
-level 3-5 databases byte-exactly.
+The pond geometry (``pond_pattern`` .. ``pond_pattern_edge``) lives here as
+plain functions of the level; :class:`gol_mosaics.patterns.PatternLibrary`
+delegates to them. Tests re-derive the shipped level 3-5 databases
+byte-exactly from this geometry.
 
 Dead edges — the cells that must be forced dead so tiles interlock into a
 global still life — were historically hard-coded per level (through level 6).
@@ -115,6 +114,31 @@ def pond_pattern_edge(level: int) -> np.ndarray:
             mask_corner[::-1] + mask_corner[:, ::-1])
 
     return np.where(mask, pp_multiple, 0)
+
+
+def pond_pattern_eighth(level: int) -> np.ndarray:
+    """
+    The cells of one D4 octant whose value is free (can be 0 or 1): the
+    region a symmetric tile is determined by, used to illustrate the
+    symmetry reduction.
+    """
+    width = POND_WIDTH * level
+    half_width = width // 2
+    pp_edge = pond_pattern_edge(level)
+
+    # First quarter (top-right) of the edge pattern
+    pp_edge_eighth = np.zeros_like(pp_edge)
+    pp_edge_eighth[:half_width, half_width:] = pp_edge[:half_width, half_width:]
+    # Sub-diagonal through the first quarter
+    pp_diagonal = np.diag(np.ones(width - 1, dtype=int), k=1)[::-1]
+    # Vertical line one cell left of centre
+    pp_vertical = np.zeros_like(pp_edge)
+    pp_vertical[:, half_width - 1] = 1
+
+    # The region enclosed by the three
+    pp_outer = (pp_edge_eighth | pp_diagonal | pp_vertical).astype(bool)
+    pp_eighth = binary_fill_holes(pp_outer).astype(int)
+    return pp_eighth - pp_outer
 
 
 def _base_masks(level: int) -> Tuple[np.ndarray, np.ndarray]:

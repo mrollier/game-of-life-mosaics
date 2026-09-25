@@ -410,3 +410,27 @@ def test_level_6_selection_does_not_allocate_a_dense_matrix():
         tracemalloc.stop()
     assert indices.shape == (120, 120)
     assert peak < 64 * 2 ** 20, f"peak {peak / 2 ** 20:.0f} MB"
+
+
+def test_package_import_does_not_touch_gurobi():
+    """gurobipy is imported only by the legacy ILP, and only when it runs."""
+    import subprocess
+    import sys
+
+    code = ("import sys; sys.modules['gurobipy'] = None; "
+            "import gol_mosaics, gol_mosaics.legacy_ilp; "
+            "from gol_mosaics.patterns import PatternLibrary; "
+            "PatternLibrary.load(3); print('ok')")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                         text=True, check=True)
+    assert out.stdout.strip() == "ok"
+
+
+def test_legacy_ilp_reports_missing_gurobi(monkeypatch):
+    import sys
+
+    from gol_mosaics.legacy_ilp import generate_tiles
+
+    monkeypatch.setitem(sys.modules, "gurobipy", None)
+    with pytest.raises(ImportError, match="sat_search"):
+        generate_tiles(3)
