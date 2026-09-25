@@ -13,3 +13,8 @@
 *.npz binary
 *.png binary
 *.gif binary
+
+# Research notebooks are versioned without outputs; `nbstripout --install
+# --attributes .gitattributes` (see CONTRIBUTING.md) makes git strip them
+# on commit. Tutorials keep their outputs so they render on GitHub.
+notebooks/research/**/*.ipynb filter=nbstripout
