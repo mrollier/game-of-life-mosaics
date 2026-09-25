@@ -238,7 +238,7 @@ Conway's Game of Life is a cellular automaton where cells live or die based on t
 
 **Still Lives** are stable patterns that never change. This project uses **8-fold symmetric Still Lives**, exhaustively enumerated at each complexity level with a SAT solver over the free symmetry orbits (originally via a Gurobi ILP; see `notebooks/tile_generation_sat.ipynb` for the method, its five-tier validation, and the generalisation to other Life-like rules).
 
-The complete census per level, from the tile geometry in `gol_mosaics.tile_domain` and the searches in `workstation/level6_search/`:
+The complete census per level, from the tile geometry in `gol_mosaics.tile_domain` and the searches in `search/tiles/`:
 
 | Level | Grid | Live cells in the basic (frame-only) tile | Interior cells enclosed by the frame | Free cells after the forced-dead interlock | Free D4 orbits | Symmetric tiles |
 |---|---|---|---|---|---|---|
@@ -253,7 +253,7 @@ The complete census per level, from the tile geometry in `gol_mosaics.tile_domai
 
 - The **basic tile** is the pond-chain frame with an empty interior; it is the lowest-density tile at every level and the frame is forced alive in every other tile. Its live count is `16L - 8`, the interior it encloses is `18L² - 26L + 12` cells, and the forced-dead interlock ring (the cells that must stay dead so neighbouring tiles compose into one still life) holds `12L - 8` of those for `L ≥ 2`.
 - **Levels 1–7 are exhaustively enumerated**; levels 1–6 ship with the package, and the level-7 database (108,492,376 tiles, 1.2 GB packed, reproduced twice by independent runs) lives in the workstation bundle.
-- **Level 8 is a count, not a database.** The tile CNF has one variable per free orbit and no auxiliary variables, so its number of satisfying assignments *is* the census. An exact model counter (sharpSAT-td) computes that number without listing the tiles by splitting the formula into independent components and multiplying their counts; it reproduces the enumerated censuses for levels 3–7 and gives 172,693,540,438 for level 8 in 6.5 h on one core. Enumerating level 8 would take weeks and roughly 2.5 TB. See `workstation/level6_search/README.md` (section *Counting without enumerating*) and `workstation/level6_search/count.py`.
+- **Level 8 is a count, not a database.** The tile CNF has one variable per free orbit and no auxiliary variables, so its number of satisfying assignments *is* the census. An exact model counter (sharpSAT-td) computes that number without listing the tiles by splitting the formula into independent components and multiplying their counts; it reproduces the enumerated censuses for levels 3–7 and gives 172,693,540,438 for level 8 in 6.5 h on one core. Enumerating level 8 would take weeks and roughly 2.5 TB. See `search/tiles/README.md` (section *Counting without enumerating*) and `search/tiles/count.py`.
 
 ### Pattern Mapping
 

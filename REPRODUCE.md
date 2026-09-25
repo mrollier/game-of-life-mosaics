@@ -4,7 +4,7 @@ Every table and figure of the preprint *"Exhaustive enumeration of
 symmetric still-life tiles in Life-like cellular automata via
 orbit-reduced SAT solving"* regenerates from this repository. Commands
 run from the repository root; `PY` is a Python 3.13 with the packages
-pinned in `workstation/level6_search/requirements-lock.txt`
+pinned in `search/tiles/requirements-lock.txt`
 (measurements in the paper: Apple M4, 10 cores, 16 GB, macOS 26.5).
 
 ```bash
@@ -15,8 +15,8 @@ export PYTHONPATH=src
 ## Validation battery (run first)
 
 ```bash
-(cd workstation/level6_search && $PY search.py validate)     # byte-exact levels 3-5
-(cd workstation/level6_search && $PY search.py validate --solver glucose42)
+(cd search/tiles && $PY search.py validate)     # byte-exact levels 3-5
+(cd search/tiles && $PY search.py validate --solver glucose42)
 $PY -m gol_mosaics.sat_search bruteforce --level 4            # SAT-free 2^22 check
 $PY -m pytest tests/                                          # incl. whole-mosaic stability
 ```
@@ -28,8 +28,8 @@ $PY -m pytest tests/                                          # incl. whole-mosa
 | Table 1 (census, CNF sizes, single-thread times) | `$PY -c "from gol_mosaics.sat_search import build_cnf, enumerate_all; ..."` — or run `notebooks/sat_tile_search.ipynb` end to end; timings: 3 runs of `enumerate_all(build_cnf(L))`, median |
 | Table 2 (orbit accounting) | evidence script `paper/ars/revision_data/` (archived with the release); equivalently `build_domain(L)` and count `constants` values |
 | Table 3 (hypothesis (H)) | `tests/test_tiling.py` harness; frame-only tile = `build_domain(L).expand(zeros)`; assembled check via `MosaicGenerator._build_mosaic` with a single-tile library |
-| Table 4 (level-6 benchmark) | `cd workstation/level6_search && /usr/bin/time -l $PY search.py run --level 6 --work-dir /tmp/bench --output /tmp/bench_level6.npy` (phase timings are printed by `run`/`merge`) |
-| Table 5 (certificates) | `cd workstation/level6_search && $PY certify.py --level L` for L = 3,4,5,6 (levels 3-5 auto-check with the bundled `rup_check.py`) |
+| Table 4 (level-6 benchmark) | `cd search/tiles && /usr/bin/time -l $PY search.py run --level 6 --work-dir /tmp/bench --output /tmp/bench_level6.npy` (phase timings are printed by `run`/`merge`) |
+| Table 5 (certificates) | `cd search/tiles && $PY certify.py --level L` for L = 3,4,5,6 (levels 3-5 auto-check with the bundled `rup_check.py`) |
 | Table 6 (population statistics) | populations = `PatternLibrary.load(L).solutions.sum((1,2))`; percentiles with lower interpolation |
 | Appendix (interlock representatives) | `$PY -c "from gol_mosaics.tile_domain import derive_dead_edges; print(derive_dead_edges(L))"` |
 
@@ -47,7 +47,7 @@ checker's practical range. Check it with drat-trim:
 
 ```bash
 git clone https://github.com/marijnheule/drat-trim && (cd drat-trim && make)
-cd workstation/level6_search
+cd search/tiles
 PYTHONPATH=../../src $PY certify.py --level 6 --checker ../../drat-trim/drat-trim
 ```
 
@@ -112,7 +112,7 @@ single-shot AllSAT probe passed 2 x 10^6 models without exhausting the
 space, so the count exceeds two million and needs the cube-and-conquer
 treatment of the symmetric level 7 (hours of compute, artifact too
 large for git). The runner is ready:
-`workstation/nosym_search/search_nosym.py run --level 4 --cube-bits 16`
+`search/nosym/search_nosym.py run --level 4 --cube-bits 16`
 (resumable; `self-test` reproduces the level-3 census through the cube
 path byte-exactly). Use fine cubes — with `--cube-bits 12` a handful of
 tail cubes hold nearly the whole census and the per-cube blocking-clause

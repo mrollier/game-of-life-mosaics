@@ -1,0 +1,7 @@
+matplotlib==3.10.0
+numpy==2.2.5
+pillow==11.1.0
+python-sat==1.9.dev5
+scipy==1.15.3
+six==1.17.0
+# Python 3.13.5 (conda, macOS 26.5, Apple M4); base env used for all paper measurements

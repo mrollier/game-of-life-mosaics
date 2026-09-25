@@ -9,7 +9,7 @@ Requires python-sat (enumeration); the shipped file is expanded at load
 time without it. Aborts unless the packed file expands back
 byte-identically. Levels 1-2 are not stored (their nosym censuses equal
 the symmetric ones and re-derive in milliseconds); the level-4 census
-is uncomputed (> 2 x 10^6 tiles — see nosym_search/search_nosym.py and
+is uncomputed (> 2 x 10^6 tiles — see search/nosym/search_nosym.py and
 REPRODUCE.md).
 """
 
