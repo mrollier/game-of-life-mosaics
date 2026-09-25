@@ -1,0 +1,2 @@
+# The archived annealer's JIT backend; nothing else in the repository needs it.
+numba>=0.59

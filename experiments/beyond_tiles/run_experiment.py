@@ -409,7 +409,7 @@ def cmd_e10(args) -> None:
     """Annealing chain: agar seed -> parallel tempering -> exact repair."""
     import time as time_mod
 
-    from beyond_tiles.anneal import AnnealConfig, anneal, instability, kill_repair
+    from archive.anneal import AnnealConfig, anneal, instability, kill_repair
     from gol_mosaics.freeform.lns import LnsConfig, improve, window_devs
     from gol_mosaics.freeform.seeds import best_seed
     from gol_mosaics.freeform.targets import cell_targets, window_slices, window_targets

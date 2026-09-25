@@ -1,5 +1,11 @@
 """Massively parallel annealing for density-matched still lifes.
 
+Archived: a documented negative result (experiments/beyond_tiles/REPORT.md,
+campaign C6). 33 million updates per second did not beat CP-SAT with
+large-neighbourhood search on any benchmark, so this is kept for the record
+and for `run_experiment.py e10`, not developed further. Needs numba
+(experiments/archive/requirements.txt).
+
 Energy: E = lam * (#unstable cells, bounded-plane semantics, including
 no-birth in the dead border ring) + sum_w max(0, |live_w - t_w| - slack).
 A still life meeting every window target within the slack has E = 0.
@@ -36,6 +42,7 @@ import numpy as np
 from numba import njit, prange
 
 from gol_mosaics.freeform.targets import Window
+from gol_mosaics.life import neighbour_counts as _life_neighbour_counts
 
 
 @dataclass
@@ -181,17 +188,7 @@ def _block_phase(
 
 def neighbour_counts(grid: np.ndarray) -> np.ndarray:
     """Padded live-neighbour counts (same shape as the padded grid)."""
-    counts = np.zeros_like(grid, dtype=np.int16)
-    h, w = grid.shape
-    g = grid.astype(np.int16)
-    for di in (-1, 0, 1):
-        for dj in (-1, 0, 1):
-            if (di, dj) == (0, 0):
-                continue
-            counts[
-                max(0, di) : h + min(0, di), max(0, dj) : w + min(0, dj)
-            ] += g[max(0, -di) : h + min(0, -di), max(0, -dj) : w + min(0, -dj)]
-    return counts
+    return _life_neighbour_counts(grid).astype(np.int16)
 
 
 def instability(grid: np.ndarray) -> int:
