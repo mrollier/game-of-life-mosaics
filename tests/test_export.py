@@ -45,6 +45,26 @@ def test_export_to_cells_glider_does_not_mutate_input(tmp_path):
     assert lines[1:4] == ['.O........', '..O.......', 'OOO.......']
 
 
+@pytest.mark.parametrize("corner,heading", [
+    ('top left', (1, 1)),
+    ('top right', (1, -1)),
+    ('bottom left', (-1, 1)),
+    ('bottom right', (-1, -1)),
+])
+def test_glider_travels_inward_from_every_corner(corner, heading):
+    """Four generations move a glider one cell diagonally; from each corner
+    that step must point into the grid, not off its edge."""
+    from gol_mosaics.life import life_step
+
+    grid = GollyExporter._add_glider_pattern(np.zeros((12, 12), dtype=int),
+                                             corner)
+    start = np.argwhere(grid).mean(axis=0)
+    for _ in range(4):
+        grid = life_step(grid)
+    assert grid.sum() == 5, "the glider must survive intact"
+    assert tuple(np.argwhere(grid).mean(axis=0) - start) == heading
+
+
 def test_export_to_rle_exact_text(tmp_path):
     """A known glider produces the exact RLE header and encoding."""
     glider = np.array([[0, 1, 0], [0, 0, 1], [1, 1, 1]])

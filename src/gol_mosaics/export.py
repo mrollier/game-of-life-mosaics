@@ -128,8 +128,9 @@ class GollyExporter:
                 mosaic[:glider_pattern.shape[0], -glider_pattern.shape[1]:] = glider_pattern
             # add to bottom-left corner
             elif add_glider == 'bottom left':
-                # rotate glider_pattern 270 degrees for correct orientation
-                glider_pattern = np.rot90(glider_pattern, 3)
+                # rotate glider_pattern 90 degrees anticlockwise so it
+                # travels up and to the right, into the grid
+                glider_pattern = np.rot90(glider_pattern, 1)
                 mosaic[-glider_pattern.shape[0]:, :glider_pattern.shape[1]] = glider_pattern
 
         return mosaic
