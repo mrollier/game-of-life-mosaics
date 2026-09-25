@@ -62,7 +62,7 @@ def test_glider_travels_inward_from_every_corner(corner, heading):
     for _ in range(4):
         grid = life_step(grid)
     assert grid.sum() == 5, "the glider must survive intact"
-    assert tuple(np.argwhere(grid).mean(axis=0) - start) == heading
+    assert np.allclose(np.argwhere(grid).mean(axis=0) - start, heading)
 
 
 def test_export_to_rle_exact_text(tmp_path):
