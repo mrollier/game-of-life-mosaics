@@ -58,8 +58,8 @@ from contextlib import contextmanager
 import numpy as np
 from PIL import Image, ImageDraw
 
-from beyond_tiles.lns import _MARGIN as LNS_MARGIN
-from beyond_tiles.lns import _solve_patch_task as ORIGINAL_PATCH_TASK
+from gol_mosaics.freeform.lns import _MARGIN as LNS_MARGIN
+from gol_mosaics.freeform.lns import _solve_patch_task as ORIGINAL_PATCH_TASK
 from gol_mosaics import ColorScheme
 
 HERE = Path(__file__).resolve().parent
@@ -765,7 +765,7 @@ def seam_report(pattern: np.ndarray, strip_rows: int,
 
 
 def _targets(design: Design, dither: str):
-    from beyond_tiles.targets import cell_targets, window_slices, window_targets
+    from gol_mosaics.freeform.targets import cell_targets, window_slices, window_targets
 
     cell_t = cell_targets(design.grey, D_MAX)
     # "partial": the 540-wide skyline is not a multiple of 8, and the LNS
@@ -776,7 +776,7 @@ def _targets(design: Design, dither: str):
 
 
 def _polish_rounds(pattern, free, kept, targets, args, seed0, obj, stop=0.98):
-    from beyond_tiles.lns import LnsConfig, improve
+    from gol_mosaics.freeform.lns import LnsConfig, improve
 
     rounds = []
     for rnd in range(1, args.polish_rounds + 1):
@@ -811,7 +811,7 @@ def solve_strips_safe(grey, free, cfg, plan, n_procs: int, retries: int = 2):
     """
     from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
     from concurrent.futures.process import BrokenProcessPool
-    from beyond_tiles.decompose import _check_cfg, _solve_strip_task
+    from gol_mosaics.freeform.decompose import _check_cfg, _solve_strip_task
 
     cfg = _check_cfg(cfg)
     payloads = []
@@ -846,10 +846,10 @@ def solve_strips_safe(grey, free, cfg, plan, n_procs: int, retries: int = 2):
 
 def solve(design: Design, args) -> Path:
     """poster.py's strips + LNS pipeline on a synthetic tone target."""
-    from beyond_tiles.decompose import plan_strips, solve_strips
-    from beyond_tiles.lns import window_devs
-    from beyond_tiles.metrics import deviation_stats, max_diagonal_run
-    from beyond_tiles.still_image import SpikeConfig, verify_still_life
+    from gol_mosaics.freeform.decompose import plan_strips, solve_strips
+    from gol_mosaics.freeform.lns import window_devs
+    from gol_mosaics.freeform.metrics import deviation_stats, max_diagonal_run
+    from gol_mosaics.freeform.solver import SpikeConfig, verify_still_life
 
     out = HERE / "results/flyer" / design.name
     out.mkdir(parents=True, exist_ok=True)
@@ -984,11 +984,11 @@ def polish(design: Design, args) -> None:
     lands on the fringe of the fade and the polish re-solves the dotted line
     there.
     """
-    from beyond_tiles import lns
-    from beyond_tiles.metrics import deviation_stats, max_diagonal_run
-    from beyond_tiles.still_image import verify_still_life
+    from gol_mosaics.freeform import lns
+    from gol_mosaics.freeform.metrics import deviation_stats, max_diagonal_run
+    from gol_mosaics.freeform.solver import verify_still_life
 
-    from beyond_tiles.decompose import plan_strips
+    from gol_mosaics.freeform.decompose import plan_strips
 
     import os
 
@@ -1301,7 +1301,7 @@ def load_solve(name: str):
 
 def render(labels=None) -> None:
     from beyond_tiles.linkedin_banners import contact_sheet
-    from beyond_tiles.still_image import verify_still_life
+    from gol_mosaics.freeform.solver import verify_still_life
     from gol_mosaics import compose, filled_background, life_safe_pattern
     from gol_mosaics.export import GollyExporter
 

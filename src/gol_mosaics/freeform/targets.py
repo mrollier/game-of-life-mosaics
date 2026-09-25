@@ -165,7 +165,7 @@ def grey_and_mask_from_image(
     """
     from PIL import Image
 
-    from gol_mosaics.image_processing import ImageProcessor
+    from ..image_processing import ImageProcessor
 
     img, mask = ImageProcessor.load_image(
         src,

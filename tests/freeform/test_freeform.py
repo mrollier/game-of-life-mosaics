@@ -1,8 +1,7 @@
-"""Tests for the beyond-tiles spike: free-form density-matched still lifes.
+"""Tests for gol_mosaics.freeform: free-form density-matched still lifes.
 
-The numpy-only layer (targets, metrics) is tested unconditionally; the
-CP-SAT layer is skipped when ortools is not installed, mirroring the
-pysat gating in test_nosym_tiles.py.
+The numpy-only layer (targets, metrics, seeds, io) is tested
+unconditionally; the CP-SAT layer is skipped when ortools is not installed.
 """
 
 from pathlib import Path
@@ -10,14 +9,19 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from beyond_tiles.targets import (
+from gol_mosaics.freeform.metrics import deviation_stats, motif_stats, tile_db_overlap
+from gol_mosaics.freeform.targets import (
     cell_targets,
     ramp_grey,
     uniform_grey,
     window_slices,
     window_targets,
 )
-from beyond_tiles.metrics import deviation_stats, motif_stats, tile_db_overlap
+from tests.conftest import REPO_ROOT
+from tests.freeform.helpers import _solver, _test_config
+
+# Committed extracts of the headline solves (bit-packed patterns)
+ASSETS = REPO_ROOT / "experiments" / "beyond_tiles" / "assets"
 
 
 # ---------------------------------------------------------------------------
@@ -128,63 +132,6 @@ def test_same_seed_same_pattern():
     assert np.array_equal(a.pattern, b.pattern)
 
 
-def test_end_to_end_artifacts(tmp_path):
-    si = _solver()
-    from PIL import Image
-
-    from beyond_tiles.artifacts import save_run
-    from beyond_tiles.targets import grey_and_mask_from_image
-
-    img = Image.fromarray(np.tile(ramp_grey(64), (1, 1)), mode="L").convert("RGB")
-    grey, free = grey_and_mask_from_image(img, size=16, remove_background=False)
-    assert grey.shape == (16, 16) and free.shape == (16, 16)
-    assert free.all()  # no alpha channel -> everything is subject
-
-    result = si.solve_image(grey, free, _test_config(si))
-    outdir = tmp_path / "run"
-    save_run(outdir, result, grey, free)
-    for name in (
-        "pattern.npy",
-        "render.png",
-        "density_maps.png",
-        "convergence.csv",
-        "metrics.json",
-        "pattern.cells",
-    ):
-        assert (outdir / name).exists(), name
-
-    # the .cells export must round-trip to the same pattern
-    rows = [
-        line
-        for line in (outdir / "pattern.cells").read_text().splitlines()
-        if line and not line.startswith("!")
-    ]
-    parsed = np.array(
-        [[1 if c == "O" else 0 for c in row] for row in rows], dtype=np.uint8
-    )
-    assert np.array_equal(parsed, result.pattern)
-
-
-# ---------------------------------------------------------------------------
-# metrics: deviation statistics
-# ---------------------------------------------------------------------------
-
-
-def _solver():
-    """Import the CP-SAT layer, skipping when ortools is absent."""
-    pytest.importorskip("ortools")
-    from beyond_tiles import still_image
-
-    return still_image
-
-
-def _test_config(still_image, **overrides):
-    """Deterministic small-scale solver settings for tests."""
-    defaults = dict(k=4, stride=2, d_max=0.45, time_limit_s=10.0, workers=1, seed=0)
-    defaults.update(overrides)
-    return still_image.SpikeConfig(**defaults)
-
-
 # ---------------------------------------------------------------------------
 # CP-SAT encoder
 # ---------------------------------------------------------------------------
@@ -230,7 +177,7 @@ def test_forbid_diagonal_runs_caps_the_chain():
     si = _solver()
     from ortools.sat.python import cp_model
 
-    from beyond_tiles.metrics import max_diagonal_run
+    from gol_mosaics.freeform.metrics import max_diagonal_run
 
     n, cap = 20, 4
     model = cp_model.CpModel()
@@ -284,7 +231,7 @@ def test_forbid_diagonal_runs_frozen_cells():
 
 def test_solve_image_respects_the_diagonal_cap():
     si = _solver()
-    from beyond_tiles.metrics import max_diagonal_run
+    from gol_mosaics.freeform.metrics import max_diagonal_run
 
     grey = uniform_grey(20, 0)  # black -> the densest targets available
     free = np.ones((20, 20), dtype=bool)
@@ -298,7 +245,7 @@ def test_solve_image_respects_the_diagonal_cap():
 
 def test_diagonal_cap_reaches_the_model_through_the_config():
     si = _solver()
-    from beyond_tiles.targets import cell_targets
+    from gol_mosaics.freeform.targets import cell_targets
 
     cell_t = cell_targets(uniform_grey(20, 0), 0.45)
     free = np.ones((20, 20), dtype=bool)
@@ -377,7 +324,7 @@ def test_tile_db_overlap_detects_level1_pond():
 
 
 def test_normalize_grey_stretches_subject_range():
-    from beyond_tiles.targets import normalize_grey
+    from gol_mosaics.freeform.targets import normalize_grey
 
     grey = np.full((10, 10), 255, dtype=np.uint8)
     free = np.zeros((10, 10), dtype=bool)
@@ -395,7 +342,7 @@ def test_normalize_grey_stretches_subject_range():
 
 
 def test_normalize_grey_flat_subject_unchanged():
-    from beyond_tiles.targets import normalize_grey
+    from gol_mosaics.freeform.targets import normalize_grey
 
     grey = uniform_grey(8, 77)
     free = np.ones((8, 8), dtype=bool)
@@ -404,7 +351,7 @@ def test_normalize_grey_flat_subject_unchanged():
 
 
 def test_equalize_grey_flattens_distribution():
-    from beyond_tiles.targets import equalize_grey
+    from gol_mosaics.freeform.targets import equalize_grey
 
     rng = np.random.default_rng(0)
     grey = np.full((20, 20), 255, dtype=np.uint8)
@@ -429,7 +376,7 @@ def test_equalize_grey_flattens_distribution():
 
 
 def test_pattern_asset_round_trip(tmp_path):
-    from beyond_tiles.artifacts import load_pattern_asset, save_pattern_asset
+    from gol_mosaics.freeform.io import load_pattern_asset, save_pattern_asset
 
     rng = np.random.default_rng(3)
     pattern = rng.integers(0, 2, (37, 53)).astype(np.uint8)
@@ -452,7 +399,7 @@ def test_pattern_asset_round_trip(tmp_path):
 def test_shipped_assets_are_still_lifes(name, size):
     from gol_mosaics.life import is_still_life
 
-    from beyond_tiles.artifacts import ASSETS, load_pattern_asset
+    from gol_mosaics.freeform.io import load_pattern_asset
 
     pattern = load_pattern_asset(ASSETS / name)
     assert pattern.shape == (size, size)
@@ -469,11 +416,11 @@ def test_agar_background_on_shipped_asset_is_a_still_life():
     from gol_mosaics.compose import life_safe_pattern
     from gol_mosaics.life import is_still_life
 
-    from beyond_tiles.artifacts import ASSETS, load_pattern_asset
-    from beyond_tiles.still_image import verify_still_life
-    from beyond_tiles.targets import grey_and_mask_from_image
+    from gol_mosaics.freeform.io import load_pattern_asset
+    from gol_mosaics.freeform.solver import verify_still_life
+    from gol_mosaics.freeform.targets import grey_and_mask_from_image
 
-    repo = Path(__file__).resolve().parents[1]
+    repo = REPO_ROOT
     pattern = load_pattern_asset(ASSETS / "marilyn_400_pipeline.npz")
     _, free = grey_and_mask_from_image(repo / "input/images/marilyn.png", 400)
 
@@ -494,11 +441,11 @@ def test_mosaic_background_on_shipped_asset_is_a_still_life(shape):
     from gol_mosaics.compose import life_safe_pattern, mosaic_background
     from gol_mosaics.life import is_still_life
 
-    from beyond_tiles.artifacts import ASSETS, load_pattern_asset
-    from beyond_tiles.still_image import verify_still_life
-    from beyond_tiles.targets import grey_and_mask_from_image
+    from gol_mosaics.freeform.io import load_pattern_asset
+    from gol_mosaics.freeform.solver import verify_still_life
+    from gol_mosaics.freeform.targets import grey_and_mask_from_image
 
-    repo = Path(__file__).resolve().parents[1]
+    repo = REPO_ROOT
     pattern = load_pattern_asset(ASSETS / "marilyn_400_pipeline.npz")
     _, free = grey_and_mask_from_image(repo / "input/images/marilyn.png", 400)
 
@@ -510,42 +457,8 @@ def test_mosaic_background_on_shipped_asset_is_a_still_life(shape):
     assert verify_still_life(whole) == {"bounded": True, "toroidal": True}
 
 
-# ---------------------------------------------------------------------------
-# convergence movies
-# ---------------------------------------------------------------------------
-
-
-def test_select_frames_keeps_endpoints_and_budget():
-    from beyond_tiles.animate import select_frames
-
-    times = list(np.linspace(0.0, 100.0, 500))
-    picks = select_frames(times, max_frames=10)
-    assert picks[0] == 0 and picks[-1] == len(times) - 1
-    assert len(picks) <= 10
-    assert picks == sorted(set(picks))  # strictly increasing, no repeats
-
-
-def test_select_frames_passes_short_runs_through():
-    from beyond_tiles.animate import select_frames
-
-    assert select_frames([0.0, 1.0, 2.0], max_frames=10) == [0, 1, 2]
-    assert select_frames([], max_frames=10) == []
-
-
-def test_select_frames_time_pacing_spreads_over_wall_time():
-    from beyond_tiles.animate import select_frames
-
-    # 90 incumbents in the first second, 10 spread over the next 99
-    times = list(np.linspace(0, 1, 90)) + list(np.linspace(2, 100, 10))
-    picks = select_frames(times, max_frames=10, pacing="time")
-    late = sum(times[i] > 10 for i in picks)
-    assert late >= 5  # uniform in time, not dominated by the early burst
-    index_picks = select_frames(times, max_frames=10, pacing="index")
-    assert sum(times[i] > 10 for i in index_picks) < late
-
-
 def test_snapshot_round_trip(tmp_path):
-    from beyond_tiles.artifacts import load_snapshots, save_snapshots
+    from gol_mosaics.freeform.io import load_snapshots, save_snapshots
 
     rng = np.random.default_rng(7)
     snaps = [
@@ -558,21 +471,6 @@ def test_snapshot_round_trip(tmp_path):
     for (t0, o0, p0), (t1, o1, p1) in zip(snaps, back):
         assert (t0, o0) == (t1, o1)
         assert (p0 == p1).all()
-
-
-def test_write_gif_frame_count(tmp_path):
-    from PIL import Image
-
-    from beyond_tiles.animate import frame_image, write_gif
-
-    history = [(1.0, 30), (2.0, 20), (3.0, 10)]
-    snaps = [
-        (t, o, np.zeros((8, 8), dtype=np.uint8)) for t, o in history
-    ]
-    frames = [frame_image(s, history, "8x8", px=200) for s in snaps]
-    path = write_gif(tmp_path / "m.gif", frames, duration_ms=50)
-    with Image.open(path) as gif:
-        assert gif.n_frames == 3
 
 
 def test_snapshots_off_by_default():
@@ -647,25 +545,6 @@ def test_reported_objective_matches_pattern():
         assert recomputed == result.objective
 
 
-def test_save_run_uses_result_windows(tmp_path):
-    si = _solver()
-    import dataclasses as dc
-    import json
-
-    from beyond_tiles.artifacts import save_run
-
-    grey = ramp_grey(16)
-    free = np.ones((16, 16), dtype=bool)
-    result = si.solve_image(grey, free, _test_config(si))
-    with_fields = save_run(tmp_path / "a", result, grey, free)
-    stripped = dc.replace(result, windows=None, targets=None)
-    fallback = save_run(tmp_path / "b", stripped, grey, free)
-    assert with_fields["deviation"] == fallback["deviation"]
-    assert with_fields["objective"] == fallback["objective"]
-    assert json.loads((tmp_path / "a" / "metrics.json").read_text())["deviation"] == \
-        with_fields["deviation"]
-
-
 # ---------------------------------------------------------------------------
 # constructive seeds + rectangular LNS (Stage 3)
 # ---------------------------------------------------------------------------
@@ -674,8 +553,8 @@ def test_save_run_uses_result_windows(tmp_path):
 def test_seed_is_still_life_under_any_mask():
     from gol_mosaics.life import is_still_life
 
-    from beyond_tiles.seeds import build_seed
-    from beyond_tiles.targets import window_targets
+    from gol_mosaics.freeform.seeds import build_seed
+    from gol_mosaics.freeform.targets import window_targets
 
     rng = np.random.default_rng(5)
     for trial in range(4):
@@ -689,8 +568,8 @@ def test_seed_is_still_life_under_any_mask():
 
 
 def test_seed_density_tracks_targets():
-    from beyond_tiles.seeds import build_seed
-    from beyond_tiles.targets import window_targets
+    from gol_mosaics.freeform.seeds import build_seed
+    from gol_mosaics.freeform.targets import window_targets
 
     # left half dark (0.4), right half light (0.05)
     cell_t = np.concatenate(
@@ -707,8 +586,8 @@ def test_seed_density_tracks_targets():
 
 
 def test_best_seed_reports_consistent_objective():
-    from beyond_tiles.seeds import best_seed, seed_objective
-    from beyond_tiles.targets import window_targets
+    from gol_mosaics.freeform.seeds import best_seed, seed_objective
+    from gol_mosaics.freeform.targets import window_targets
 
     rng = np.random.default_rng(9)
     cell_t = rng.uniform(0, 0.45, (24, 24))
@@ -718,14 +597,14 @@ def test_best_seed_reports_consistent_objective():
     seed, obj = best_seed(free, kept, targets)
     assert obj == seed_objective(seed, free, kept, targets)
     for phase in [(0, 0), (1, 2)]:
-        from beyond_tiles.seeds import build_seed
+        from gol_mosaics.freeform.seeds import build_seed
 
         other = build_seed(free, kept, targets, phase)
         assert obj <= seed_objective(other, free, kept, targets)
 
 
 def test_window_devs_hand_computed():
-    from beyond_tiles.lns import window_devs
+    from gol_mosaics.freeform.lns import window_devs
 
     pattern = np.zeros((8, 16), dtype=np.uint8)
     pattern[:2, :2] = 1  # 4 live in the left window
@@ -737,7 +616,7 @@ def test_window_devs_hand_computed():
 
 
 def test_select_disjoint_keeps_gap():
-    from beyond_tiles.lns import _select_disjoint
+    from gol_mosaics.freeform.lns import _select_disjoint
 
     scored = [
         (10, (0, 1, 0, 1), (0, 8, 0, 8)),
@@ -765,9 +644,9 @@ def test_agar_hint_bounds_first_incumbent():
 
 def test_lns_improves_seed_and_stays_still_life():
     si = _solver()
-    from beyond_tiles.lns import LnsConfig, improve, window_devs
-    from beyond_tiles.seeds import build_seed
-    from beyond_tiles.targets import cell_targets, window_targets
+    from gol_mosaics.freeform.lns import LnsConfig, improve, window_devs
+    from gol_mosaics.freeform.seeds import build_seed
+    from gol_mosaics.freeform.targets import cell_targets, window_targets
 
     grey = ramp_grey(24)
     free = np.ones((24, 24), dtype=bool)
@@ -792,10 +671,10 @@ def test_lns_improves_seed_and_stays_still_life():
 
 def test_lns_repairs_respect_the_diagonal_cap():
     si = _solver()
-    from beyond_tiles.lns import LnsConfig, improve
-    from beyond_tiles.metrics import max_diagonal_run
-    from beyond_tiles.seeds import build_seed
-    from beyond_tiles.targets import cell_targets, window_targets
+    from gol_mosaics.freeform.lns import LnsConfig, improve
+    from gol_mosaics.freeform.metrics import max_diagonal_run
+    from gol_mosaics.freeform.seeds import build_seed
+    from gol_mosaics.freeform.targets import cell_targets, window_targets
 
     grey = uniform_grey(24, 0)  # black -> the patch solver has to fill densely
     free = np.ones((24, 24), dtype=bool)
@@ -820,7 +699,7 @@ def test_lns_repairs_respect_the_diagonal_cap():
 
 
 def test_lns_rejects_overlapping_windows():
-    from beyond_tiles.lns import LnsConfig, improve
+    from gol_mosaics.freeform.lns import LnsConfig, improve
 
     windows = window_slices((100, 100), k=8, stride=8)  # clamp: overlap at 92
     with pytest.raises(ValueError):
@@ -841,7 +720,7 @@ def test_lns_rejects_overlapping_windows():
 def test_dither_carries_residual_across_segments():
     # Isolated kept windows (all diffusion neighbours masked): residuals
     # must be handed down the scan instead of dropped per segment.
-    from beyond_tiles.targets import window_targets
+    from gol_mosaics.freeform.targets import window_targets
 
     free = np.zeros((48, 48), dtype=bool)
     for r in range(0, 6, 2):
@@ -856,7 +735,7 @@ def test_dither_carries_residual_across_segments():
 
 def test_strip_guards_reject_unsound_configs():
     si = _solver()
-    from beyond_tiles.decompose import StripPlan, lower_bound_strips, solve_strips
+    from gol_mosaics.freeform.decompose import StripPlan, lower_bound_strips, solve_strips
 
     grey = uniform_grey(16, 100)
     free = np.ones((16, 16), dtype=bool)
@@ -872,130 +751,13 @@ def test_strip_guards_reject_unsound_configs():
         )
 
 
-def test_bench_rejects_protocol_overrides():
-    from beyond_tiles.bench import quick_suite
-
-    with pytest.raises(ValueError, match="protocol-fixed"):
-        quick_suite({"seed": 7})
-    with pytest.raises(ValueError, match="protocol-fixed"):
-        quick_suite({"time_limit_s": 5.0})
-
-
-def test_anneal_rejects_overlapping_windows():
-    pytest.importorskip("numba")
-    from beyond_tiles.anneal import AnnealConfig, anneal
-
-    windows = window_slices((100, 100), k=8, stride=8)  # clamp overlap at 92
-    with pytest.raises(ValueError, match="disjoint"):
-        anneal(
-            np.zeros((100, 100), np.uint8),
-            np.ones((100, 100), bool),
-            windows,
-            np.zeros(len(windows), np.int64),
-            AnnealConfig(sweeps=1),
-        )
-
-
-def test_single_replica_uses_cold_endpoints():
-    pytest.importorskip("numba")
-    from beyond_tiles.anneal import AnnealConfig, anneal
-    from beyond_tiles.targets import window_targets
-
-    cell_t = np.full((16, 16), 0.25)
-    free = np.ones((16, 16), dtype=bool)
-    windows = window_slices((16, 16), k=8, stride=8)
-    targets, kept = window_targets(cell_t, free, windows)
-    seed = np.zeros((16, 16), dtype=np.uint8)
-    cfg = AnnealConfig(sweeps=200, replicas=1, seed=3, report_every=0)
-    pattern, info = anneal(seed, free, kept, targets, cfg, log=lambda *_: None)
-    # At the cold endpoints the block moves alone must make real progress.
-    assert info["best_energy"] < 64
-
-
-# ---------------------------------------------------------------------------
-# annealing engine (Stage 5)
-# ---------------------------------------------------------------------------
-
-
-def test_energy_zero_iff_stable_and_on_target():
-    pytest.importorskip("numba")
-    from beyond_tiles.anneal import energy, instability
-    from beyond_tiles.targets import window_targets
-
-    # A block exactly meets a target of 4 -> energy 0.
-    pattern = np.zeros((8, 8), dtype=np.uint8)
-    pattern[3:5, 3:5] = 1
-    free = np.ones((8, 8), dtype=bool)
-    windows = window_slices((8, 8), k=8, stride=8)
-    targets = np.array([4])
-    assert instability(np.pad(pattern, 1)) == 0
-    assert energy(np.pad(pattern, 1), free, windows, targets, 4.0, 0) == 0.0
-    # Off target by 2 -> energy 2; unstable single cell -> lam per violation.
-    assert energy(np.pad(pattern, 1), free, windows, np.array([6]), 4.0, 0) == 2.0
-    lonely = np.zeros((8, 8), dtype=np.uint8)
-    lonely[4, 4] = 1
-    assert instability(np.pad(lonely, 1)) == 1
-    assert energy(np.pad(lonely, 1), free, windows, np.array([1]), 4.0, 0) == 4.0
-
-
-def test_incremental_energy_matches_recompute():
-    pytest.importorskip("numba")
-    from beyond_tiles.anneal import AnnealConfig, anneal, energy
-    from beyond_tiles.targets import window_targets
-
-    rng = np.random.default_rng(3)
-    cell_t = rng.uniform(0, 0.45, (24, 24))
-    free = np.ones((24, 24), dtype=bool)
-    windows = window_slices((24, 24), k=8, stride=8)
-    targets, kept = window_targets(cell_t, free, windows)
-    seed = np.zeros((24, 24), dtype=np.uint8)
-    cfg = AnnealConfig(sweeps=30, replicas=2, seed=1, report_every=0, swap_every=10)
-    pattern, info = anneal(seed, free, kept, targets, cfg, log=lambda *_: None)
-    # The kernel's incremental energy must agree with a full recompute of
-    # the returned best grid.
-    assert info["best_energy"] == pytest.approx(
-        energy(np.pad(pattern, 1), free, kept, targets, cfg.lam, cfg.slack)
-    )
-
-
-def test_anneal_reduces_energy_and_is_deterministic():
-    pytest.importorskip("numba")
-    from beyond_tiles.anneal import AnnealConfig, anneal, energy
-    from beyond_tiles.targets import window_targets
-
-    cell_t = np.full((16, 16), 0.25)
-    free = np.ones((16, 16), dtype=bool)
-    windows = window_slices((16, 16), k=8, stride=8)
-    targets, kept = window_targets(cell_t, free, windows)
-    seed = np.zeros((16, 16), dtype=np.uint8)
-    e0 = energy(np.pad(seed, 1), free, kept, targets, 4.0, 0)
-    cfg = AnnealConfig(sweeps=200, replicas=2, seed=7, report_every=0)
-    a, info_a = anneal(seed, free, kept, targets, cfg, log=lambda *_: None)
-    b, info_b = anneal(seed, free, kept, targets, cfg, log=lambda *_: None)
-    assert info_a["best_energy"] < e0
-    assert np.array_equal(a, b)  # same config + seed -> same result
-
-
-def test_kill_repair_yields_exact_still_life():
-    pytest.importorskip("numba")
-    from beyond_tiles.anneal import instability, kill_repair
-
-    rng = np.random.default_rng(2)
-    for _ in range(5):
-        noisy = (rng.random((20, 20)) < 0.3).astype(np.uint8)
-        repaired = kill_repair(noisy)
-        assert instability(np.pad(repaired, 1)) == 0
-        # repair only removes cells
-        assert (repaired <= noisy).all()
-
-
 # ---------------------------------------------------------------------------
 # strip decomposition (Stage 4)
 # ---------------------------------------------------------------------------
 
 
 def test_plan_strips_alignment():
-    from beyond_tiles.decompose import plan_strips
+    from gol_mosaics.freeform.decompose import plan_strips
 
     plan = plan_strips(400, k=8, strip_rows=48, gap=2)
     assert plan.spans[0] == (0, 48)
@@ -1012,7 +774,7 @@ def test_plan_strips_alignment():
 
 def test_strip_solve_stitches_to_still_life():
     si = _solver()
-    from beyond_tiles.decompose import StripPlan, solve_strips
+    from gol_mosaics.freeform.decompose import StripPlan, solve_strips
 
     grey = uniform_grey(32, 100)
     free = np.ones((32, 32), dtype=bool)
@@ -1029,7 +791,7 @@ def test_strip_solve_stitches_to_still_life():
 
 def test_strip_solve_parallel_matches_serial():
     si = _solver()
-    from beyond_tiles.decompose import StripPlan, solve_strips
+    from gol_mosaics.freeform.decompose import StripPlan, solve_strips
 
     grey = ramp_grey(24)
     free = np.ones((24, 24), dtype=bool)
@@ -1043,7 +805,7 @@ def test_strip_solve_parallel_matches_serial():
 
 def test_block_solve_stitches_to_still_life(tmp_path):
     si = _solver()
-    from beyond_tiles.decompose import plan_blocks, solve_blocks
+    from gol_mosaics.freeform.decompose import plan_blocks, solve_blocks
 
     grey = uniform_grey(40, 100)
     free = np.ones((40, 40), dtype=bool)
@@ -1067,9 +829,9 @@ def test_block_solve_stitches_to_still_life(tmp_path):
 
 def test_repair_diagonal_runs_breaks_long_chains():
     si = _solver()
-    from beyond_tiles.lns import LnsConfig, repair_diagonal_runs, window_devs
-    from beyond_tiles.metrics import max_diagonal_run
-    from beyond_tiles.targets import cell_targets, window_targets
+    from gol_mosaics.freeform.lns import LnsConfig, repair_diagonal_runs, window_devs
+    from gol_mosaics.freeform.metrics import max_diagonal_run
+    from gol_mosaics.freeform.targets import cell_targets, window_targets
 
     # A long barge: a still life whose two diagonals are solid 8-cell chains.
     pattern = np.zeros((24, 24), dtype=np.uint8)
@@ -1095,10 +857,10 @@ def test_repair_diagonal_runs_breaks_long_chains():
 
 def test_seam_subtargets_fill_the_separator():
     si = _solver()
-    from beyond_tiles.decompose import plan_blocks, solve_blocks
-    from beyond_tiles.lns import (LnsConfig, improve, seam_boxes, seam_occupancy,
+    from gol_mosaics.freeform.decompose import plan_blocks, solve_blocks
+    from gol_mosaics.freeform.lns import (LnsConfig, improve, seam_boxes, seam_occupancy,
                                   window_devs)
-    from beyond_tiles.targets import cell_targets, window_targets
+    from gol_mosaics.freeform.targets import cell_targets, window_targets
 
     grey = uniform_grey(48, 60)  # dense enough for an empty separator to show
     free = np.ones((48, 48), dtype=bool)
@@ -1130,7 +892,7 @@ def test_seam_subtargets_fill_the_separator():
 
 def test_lower_bound_is_valid_on_solved_instance():
     si = _solver()
-    from beyond_tiles.decompose import StripPlan, lower_bound_strips
+    from gol_mosaics.freeform.decompose import StripPlan, lower_bound_strips
 
     grey = ramp_grey(16)
     free = np.ones((16, 16), dtype=bool)
@@ -1149,7 +911,7 @@ def test_relaxed_model_has_fewer_constraints():
     grey = uniform_grey(16, 60)
     free = np.ones((16, 16), dtype=bool)
     cfg = _test_config(si, k=8, stride=8)
-    from beyond_tiles.targets import cell_targets
+    from gol_mosaics.freeform.targets import cell_targets
 
     cell_t = cell_targets(grey, cfg.d_max)
     full = si.build_model(cell_t, free, cfg)
@@ -1183,7 +945,7 @@ def test_slack_absorbs_small_deviation():
 
 
 def test_dither_preserves_total_mass():
-    from beyond_tiles.targets import window_targets
+    from gol_mosaics.freeform.targets import window_targets
 
     rng = np.random.default_rng(11)
     cell_t = rng.uniform(0, 0.45, (40, 40))
@@ -1199,7 +961,7 @@ def test_dither_preserves_total_mass():
 def test_dither_beats_rounding_on_biased_field():
     # Every window sums to x.4: plain rounding drops 0.4 cells per window,
     # error diffusion keeps the total within half a cell.
-    from beyond_tiles.targets import window_targets
+    from gol_mosaics.freeform.targets import window_targets
 
     cell_t = np.full((32, 32), 2.4 / 64)
     free = np.ones((32, 32), dtype=bool)
@@ -1212,7 +974,7 @@ def test_dither_beats_rounding_on_biased_field():
 
 
 def test_dither_skips_dropped_windows():
-    from beyond_tiles.targets import window_targets
+    from gol_mosaics.freeform.targets import window_targets
 
     cell_t = np.full((16, 16), 0.3)
     free = np.ones((16, 16), dtype=bool)
@@ -1247,56 +1009,12 @@ def test_apply_solver_params():
     assert p.max_deterministic_time == 5.0
 
 
-# ---------------------------------------------------------------------------
-# benchmark harness (Stage 0 of the optimization campaign)
-# ---------------------------------------------------------------------------
-
-
-def test_parse_overrides_types():
-    from beyond_tiles.bench import parse_overrides
-
-    out = parse_overrides(["workers=4", "d_max=0.4", "mask_mode=none", "flag=true"])
-    assert out == {"workers": 4, "d_max": 0.4, "mask_mode": "none", "flag": True}
-    with pytest.raises(ValueError):
-        parse_overrides(["notapair"])
-
-
-def test_derive_timings_pure():
-    from beyond_tiles.bench import derive_timings
-
-    history = [(1.5, 30), (2.0, 10), (7.5, 2)]
-    t = derive_timings(history, "OPTIMAL", 8.0)
-    assert t == {"time_to_first_s": 1.5, "time_to_optimal_s": 8.0}
-    t = derive_timings(history, "FEASIBLE", 8.0)
-    assert t == {"time_to_first_s": 1.5, "time_to_optimal_s": None}
-    assert derive_timings([], "FEASIBLE", 8.0)["time_to_first_s"] is None
-
-
 def test_build_time_recorded():
     si = _solver()
     grey = uniform_grey(12, 128)
     free = np.ones((12, 12), dtype=bool)
     result = si.solve_image(grey, free, _test_config(si))
     assert result.build_time_s > 0
-
-
-def test_bench_case_roundtrip(tmp_path):
-    _solver()
-    import json
-
-    from beyond_tiles.bench import BenchCase, compare, run_case
-
-    grey = uniform_grey(16, 200)
-    free = np.ones((16, 16), dtype=bool)
-    case = BenchCase("tiny", 16, 5.0, 0, {"workers": 1})
-    metrics = run_case(case, tmp_path / "tag", grey=grey, free=free)
-    saved = json.loads((tmp_path / "tag" / "tiny" / "metrics.json").read_text())
-    for key in ("build_time_s", "time_to_first_s", "time_to_optimal_s", "bench"):
-        assert key in saved, key
-    assert saved["bench"]["case"]["name"] == "tiny"
-    assert saved["objective"] == metrics["objective"]
-    table = compare([tmp_path / "tag"])
-    assert "tag/tiny" in table and "| run |" in table
 
 
 def test_snapshots_recorded_and_end_on_the_final_pattern():
@@ -1327,12 +1045,12 @@ def test_filled_background_on_the_shipped_marilyn_asset():
     """
     from PIL import Image
 
-    from beyond_tiles.artifacts import load_pattern_asset
-    from beyond_tiles.still_image import verify_still_life
-    from beyond_tiles.targets import grey_and_mask_from_image
+    from gol_mosaics.freeform.io import load_pattern_asset
+    from gol_mosaics.freeform.solver import verify_still_life
+    from gol_mosaics.freeform.targets import grey_and_mask_from_image
     from gol_mosaics import filled_background, mosaic_background
 
-    root = Path(__file__).resolve().parents[1]
+    root = REPO_ROOT
     pattern = load_pattern_asset(
         root / "experiments/beyond_tiles/assets/marilyn_400_pipeline.npz")
     _, free = grey_and_mask_from_image(

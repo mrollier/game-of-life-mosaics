@@ -1,4 +1,8 @@
-"""Persist a spike run: pattern, renders, convergence log, metrics, Golly file."""
+"""Persist a spike run: pattern, renders, convergence log, metrics, Golly file.
+
+The bit-packed pattern and snapshot formats live in gol_mosaics.freeform.io;
+they are re-exported here for the harness scripts.
+"""
 
 import csv
 import dataclasses
@@ -8,57 +12,14 @@ from pathlib import Path
 import numpy as np
 from matplotlib.figure import Figure
 
-from beyond_tiles.metrics import deviation_stats
-from beyond_tiles.targets import cell_targets, window_slices, window_targets
+from gol_mosaics.freeform.io import (load_pattern_asset, load_snapshots,  # noqa: F401
+                                     save_pattern_asset, save_snapshots)
+from gol_mosaics.freeform.metrics import deviation_stats
+from gol_mosaics.freeform.targets import cell_targets, window_slices, window_targets
 
 # Committed extracts of the headline runs (the full results/ tree is
 # gitignored). Small enough to version: bit-packed patterns, ~16 kB total.
 ASSETS = Path(__file__).resolve().parent / "assets"
-
-
-def save_pattern_asset(path, pattern: np.ndarray) -> Path:
-    """Store a binary pattern bit-packed, for versioning alongside the code."""
-    pattern = np.asarray(pattern)
-    np.savez_compressed(
-        path,
-        packed=np.packbits(pattern.astype(bool), axis=None),
-        shape=np.asarray(pattern.shape, dtype=np.int64),
-    )
-    return Path(path)
-
-
-def load_pattern_asset(path) -> np.ndarray:
-    """Inverse of `save_pattern_asset`: uint8 array of the original shape."""
-    with np.load(path) as data:
-        shape = tuple(int(v) for v in data["shape"])
-        n = int(np.prod(shape))
-        return np.unpackbits(data["packed"])[:n].reshape(shape).astype(np.uint8)
-
-
-def save_snapshots(path, snapshots) -> Path:
-    """Store a run's incumbent patterns (time, objective, pattern) bit-packed."""
-    times = np.array([t for t, _, _ in snapshots], dtype=np.float64)
-    objectives = np.array([o for _, o, _ in snapshots], dtype=np.int64)
-    frames = np.stack([np.asarray(p) for _, _, p in snapshots])
-    np.savez_compressed(
-        path,
-        packed=np.packbits(frames.astype(bool), axis=-1),
-        shape=np.asarray(frames.shape[1:], dtype=np.int64),
-        times=times,
-        objectives=objectives,
-    )
-    return Path(path)
-
-
-def load_snapshots(path):
-    """Inverse of `save_snapshots`: list of (time, objective, pattern)."""
-    with np.load(path) as data:
-        shape = tuple(int(v) for v in data["shape"])
-        frames = np.unpackbits(data["packed"], axis=-1)[..., : shape[1]]
-        return [
-            (float(t), int(o), frame.astype(np.uint8))
-            for t, o, frame in zip(data["times"], data["objectives"], frames)
-        ]
 
 
 def _window_field(values, windows, shape) -> np.ndarray:
@@ -79,7 +40,7 @@ def save_run(outdir, result, grey: np.ndarray, free_mask: np.ndarray) -> dict:
     from gol_mosaics.export import GollyExporter
     from gol_mosaics.renderer import MosaicRenderer
 
-    from beyond_tiles.still_image import verify_still_life
+    from gol_mosaics.freeform.solver import verify_still_life
 
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)

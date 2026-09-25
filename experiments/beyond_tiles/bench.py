@@ -89,7 +89,7 @@ def derive_timings(
 
 def marilyn_inputs(size: int, tone: str = "eq"):
     """The campaign's fixed test image at a given canvas size."""
-    from beyond_tiles.targets import (
+    from gol_mosaics.freeform.targets import (
         equalize_grey,
         grey_and_mask_from_image,
         normalize_grey,
@@ -121,7 +121,7 @@ def run_case(case: BenchCase, outdir: Path, grey=None, free=None) -> dict:
     import ortools
 
     from beyond_tiles.artifacts import save_run
-    from beyond_tiles.still_image import SpikeConfig, solve_image
+    from gol_mosaics.freeform.solver import SpikeConfig, solve_image
 
     if grey is None:
         grey, free = marilyn_inputs(case.size)

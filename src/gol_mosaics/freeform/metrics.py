@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from beyond_tiles.targets import Window
+from .targets import Window
 
 
 def motif_stats(
@@ -45,7 +45,7 @@ def tile_db_overlap(pattern: np.ndarray, level: int = 1) -> float:
     Quantifies the "beyond tiles" claim: a tile mosaic scores near 1,
     a free-form solve should score near 0.
     """
-    from gol_mosaics import PatternLibrary
+    from ..patterns import PatternLibrary
 
     tiles = PatternLibrary.load(level).solutions
     images = set()

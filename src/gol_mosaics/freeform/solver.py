@@ -13,9 +13,16 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-from ortools.sat.python import cp_model
 
-from beyond_tiles.targets import Window, cell_targets, window_slices, window_targets
+try:
+    from ortools.sat.python import cp_model
+except ImportError as exc:  # pragma: no cover - depends on the environment
+    raise ImportError(
+        "gol_mosaics.freeform.solver needs OR-Tools. Install it with: "
+        "pip install gol-mosaics[beyond]"
+    ) from exc
+
+from .targets import Window, cell_targets, window_slices, window_targets
 
 
 def _max_rss_mb() -> float:
@@ -394,7 +401,7 @@ def solve_image(
     bundle = build_model(cell_t, free_mask, cfg)
     seed_obj: Optional[int] = None
     if hint is None and cfg.hint_mode == "agar":
-        from beyond_tiles.seeds import best_seed
+        from .seeds import best_seed
 
         hint, seed_obj = best_seed(
             free_mask, bundle.windows, bundle.targets, slack=cfg.slack
@@ -406,8 +413,8 @@ def solve_image(
 
 def verify_still_life(pattern: np.ndarray) -> Dict[str, bool]:
     """Two independent stability checks; both must hold."""
-    from gol_mosaics.life import is_still_life
-    from gol_mosaics.sat_search import rule_violations
+    from ..life import is_still_life
+    from ..sat_search import rule_violations
 
     padded = np.pad(np.asarray(pattern, dtype=np.uint8), 1)
     return {

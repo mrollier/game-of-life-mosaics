@@ -26,7 +26,7 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
-from beyond_tiles.still_image import SpikeConfig, build_model, solve
+from .solver import SpikeConfig, build_model, solve
 
 
 def _check_cfg(cfg: SpikeConfig) -> SpikeConfig:
@@ -71,9 +71,9 @@ def plan_strips(h: int, k: int, strip_rows: int = 48, gap: int = 2) -> StripPlan
 
 
 def _solve_strip_task(payload: dict):
-    from beyond_tiles.still_image import build_model as bm
-    from beyond_tiles.still_image import solve as sv
-    from beyond_tiles.targets import cell_targets
+    from .solver import build_model as bm
+    from .solver import solve as sv
+    from .targets import cell_targets
 
     cfg: SpikeConfig = payload["cfg"]
     cell_t = cell_targets(payload["grey"], cfg.d_max)

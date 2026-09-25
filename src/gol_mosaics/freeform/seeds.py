@@ -22,7 +22,7 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
-from beyond_tiles.targets import Window
+from .targets import Window
 
 PERIOD_ROWS = 3  # 2x2 block + 1 dead row
 PERIOD_COLS = 4  # 2x2 block + 2 dead columns

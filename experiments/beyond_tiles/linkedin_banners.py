@@ -41,7 +41,7 @@ from PIL import Image
 from beyond_tiles.artifacts import (load_pattern_asset,
                                     save_pattern_asset)
 from beyond_tiles.poster import load_rect
-from beyond_tiles.still_image import verify_still_life
+from gol_mosaics.freeform.solver import verify_still_life
 from gol_mosaics import (ColorScheme, MosaicRenderer, compose,
                          filled_background)
 

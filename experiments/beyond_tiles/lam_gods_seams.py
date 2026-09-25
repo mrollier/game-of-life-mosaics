@@ -27,11 +27,11 @@ import numpy as np
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
-from beyond_tiles.lns import LnsConfig, seam_occupancy, window_devs
-from beyond_tiles.metrics import deviation_stats, max_diagonal_run
+from gol_mosaics.freeform.lns import LnsConfig, seam_occupancy, window_devs
+from gol_mosaics.freeform.metrics import deviation_stats, max_diagonal_run
 from beyond_tiles.poster import load_rect
-from beyond_tiles.still_image import verify_still_life
-from beyond_tiles.targets import cell_targets, window_slices, window_targets
+from gol_mosaics.freeform.solver import verify_still_life
+from gol_mosaics.freeform.targets import cell_targets, window_slices, window_targets
 
 HERE = Path(__file__).resolve().parent
 RES = HERE / "results/lam_gods"

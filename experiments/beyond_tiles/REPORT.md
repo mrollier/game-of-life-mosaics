@@ -1,5 +1,13 @@
 # Beyond Tiles — feasibility spike report
 
+> **Where the code lives now (3.0).** The solver library this report
+> describes moved into the package as `gol_mosaics.freeform`: `targets`,
+> `lns`, `decompose`, `seeds` and `metrics` kept their names,
+> `still_image.py` is now `freeform/solver.py`, and the pattern storage
+> half of `artifacts.py` is `freeform/io.py`. The experiment harness
+> (`run_experiment.py`, `bench.py`, `animate.py`, `make_assets.py`) stays
+> here. File names below are as they were when each section was written.
+
 **Question.** Can a greyscale image be mapped onto a single large Game-of-Life
 still life that (i) is globally static, (ii) locally tracks the image's grey
 values in live-cell density, and (iii) is not assembled from a tile

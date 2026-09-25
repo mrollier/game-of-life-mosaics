@@ -16,7 +16,7 @@ import numpy as np
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
-from beyond_tiles.targets import Window
+from gol_mosaics.freeform.targets import Window
 
 Snapshot = Tuple[float, int, np.ndarray]
 

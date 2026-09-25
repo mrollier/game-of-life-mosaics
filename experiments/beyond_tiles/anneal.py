@@ -35,7 +35,7 @@ from typing import List, Sequence, Tuple
 import numpy as np
 from numba import njit, prange
 
-from beyond_tiles.targets import Window
+from gol_mosaics.freeform.targets import Window
 
 
 @dataclass

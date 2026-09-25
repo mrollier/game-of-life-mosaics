@@ -36,8 +36,8 @@ for p in (REPO / "src", REPO / "experiments"):
 import numpy as np
 
 from beyond_tiles.artifacts import save_run
-from beyond_tiles.still_image import SpikeConfig, solve_image, verify_still_life
-from beyond_tiles.targets import (
+from gol_mosaics.freeform.solver import SpikeConfig, solve_image, verify_still_life
+from gol_mosaics.freeform.targets import (
     equalize_grey,
     grey_and_mask_from_image,
     normalize_grey,
@@ -156,7 +156,7 @@ def cmd_e5(args) -> None:
 
     from gol_mosaics.mosaic import MosaicGenerator
 
-    from beyond_tiles.metrics import motif_stats, spectral, tile_db_overlap
+    from gol_mosaics.freeform.metrics import motif_stats, spectral, tile_db_overlap
 
     free_form = np.load(Path(args.pattern))
     gen = MosaicGenerator(
@@ -286,9 +286,9 @@ def cmd_bench(args) -> None:
 
 def cmd_e9(args) -> None:
     """Strip decomposition at scale: solve (restriction) and/or bound."""
-    from beyond_tiles.decompose import lower_bound_strips, plan_strips, solve_strips
-    from beyond_tiles.metrics import deviation_stats
-    from beyond_tiles.targets import cell_targets, window_slices
+    from gol_mosaics.freeform.decompose import lower_bound_strips, plan_strips, solve_strips
+    from gol_mosaics.freeform.metrics import deviation_stats
+    from gol_mosaics.freeform.targets import cell_targets, window_slices
 
     grey, free = _marilyn(args)
     cfg = _cfg(args, k=8, stride=8)
@@ -319,8 +319,8 @@ def cmd_e9(args) -> None:
         if args.lns_polish > 0:
             # The polisher sees the full mask, so it re-populates the
             # dead gap bands — the strips' one visible artifact.
-            from beyond_tiles.lns import LnsConfig, improve
-            from beyond_tiles.targets import window_targets
+            from gol_mosaics.freeform.lns import LnsConfig, improve
+            from gol_mosaics.freeform.targets import window_targets
 
             targets, kept = window_targets(
                 cell_t, free, windows, dither=cfg.dither
@@ -363,7 +363,7 @@ def cmd_e9(args) -> None:
             # REPORT.md C9.
             seam_s = args.seam_polish if args.seam_polish is not None else args.lns_polish
             if seam_s > 0 and len(plan.spans) > 1:
-                from beyond_tiles.lns import seam_occupancy, window_devs
+                from gol_mosaics.freeform.lns import seam_occupancy, window_devs
 
                 scfg = LnsConfig(
                     patch_windows=5, patch_time_s=3.0, budget_s=seam_s,
@@ -410,9 +410,9 @@ def cmd_e10(args) -> None:
     import time as time_mod
 
     from beyond_tiles.anneal import AnnealConfig, anneal, instability, kill_repair
-    from beyond_tiles.lns import LnsConfig, improve, window_devs
-    from beyond_tiles.seeds import best_seed
-    from beyond_tiles.targets import cell_targets, window_slices, window_targets
+    from gol_mosaics.freeform.lns import LnsConfig, improve, window_devs
+    from gol_mosaics.freeform.seeds import best_seed
+    from gol_mosaics.freeform.targets import cell_targets, window_slices, window_targets
 
     grey, free = _marilyn(args)
     cell_t = cell_targets(grey, 0.45)
@@ -458,7 +458,7 @@ def cmd_e10(args) -> None:
     out = RESULTS / "e10" / f"marilyn_{args.size}"
     out.mkdir(parents=True, exist_ok=True)
     np.save(out / "pattern.npy", repaired)
-    from beyond_tiles.metrics import deviation_stats
+    from gol_mosaics.freeform.metrics import deviation_stats
 
     stats = deviation_stats(repaired, cell_t, free, kept)
     report = {
@@ -479,9 +479,9 @@ def cmd_lns(args) -> None:
     """Polish a saved run with rectangular LNS; writes RUN_DIR/lns/."""
     import dataclasses
 
-    from beyond_tiles import lns as lns_mod
-    from beyond_tiles.still_image import SpikeConfig, SpikeResult, _max_rss_mb
-    from beyond_tiles.targets import cell_targets, window_slices, window_targets
+    from gol_mosaics.freeform import lns as lns_mod
+    from gol_mosaics.freeform.solver import SpikeConfig, SpikeResult, _max_rss_mb
+    from gol_mosaics.freeform.targets import cell_targets, window_slices, window_targets
 
     run_dir = Path(args.run_dir)
     pattern = np.load(run_dir / "pattern.npy")

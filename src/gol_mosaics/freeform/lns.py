@@ -22,7 +22,7 @@ from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from beyond_tiles.targets import Window
+from .targets import Window
 
 _MARGIN = 2  # frozen context shipped around a patch; radius-1 constraints
 # read one ring, and the ring's own constraints read a second one.
@@ -267,7 +267,7 @@ def _solve_patch_task(payload: dict) -> Optional[np.ndarray]:
     model.Minimize(cp_model.LinearExpr.Sum(devs))
 
     if payload["max_diag_run"] is not None:
-        from beyond_tiles.still_image import forbid_diagonal_runs
+        from .solver import forbid_diagonal_runs
 
         # Frozen live cells become `True` so a run straddling the patch
         # boundary is still broken by the free cells it does contain.

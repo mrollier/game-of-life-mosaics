@@ -226,11 +226,11 @@ FREEFORM = "8c941dd73c777c94"
 
 def freeform_digest():
     pytest.importorskip("ortools")
-    from beyond_tiles.artifacts import load_pattern_asset
-    from beyond_tiles.lns import LnsConfig, window_devs
-    from beyond_tiles.metrics import deviation_stats
-    from beyond_tiles.seeds import seed_objective
-    from beyond_tiles.targets import (cell_targets, grey_and_mask_from_image,
+    from gol_mosaics.freeform.io import load_pattern_asset
+    from gol_mosaics.freeform.lns import LnsConfig, window_devs
+    from gol_mosaics.freeform.metrics import deviation_stats
+    from gol_mosaics.freeform.seeds import seed_objective
+    from gol_mosaics.freeform.targets import (cell_targets, grey_and_mask_from_image,
                                       window_slices, window_targets)
 
     pattern = load_pattern_asset(

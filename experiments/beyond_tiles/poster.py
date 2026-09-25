@@ -84,7 +84,7 @@ def load_rect(src: str, width: int, height: int, tone: str, contrast: float,
     """
     from PIL import Image
 
-    from beyond_tiles.targets import equalize_grey, normalize_grey
+    from gol_mosaics.freeform.targets import equalize_grey, normalize_grey
     from gol_mosaics.image_processing import ImageProcessor
 
     img, mask = ImageProcessor.load_image(
@@ -154,13 +154,13 @@ def main() -> None:
     if args.block_cols % 8:
         ap.error("--block-cols must be a multiple of 8")
 
-    from beyond_tiles.decompose import (plan_blocks, plan_strips, solve_blocks,
+    from gol_mosaics.freeform.decompose import (plan_blocks, plan_strips, solve_blocks,
                                         solve_strips)
-    from beyond_tiles.lns import (LnsConfig, improve, repair_diagonal_runs,
+    from gol_mosaics.freeform.lns import (LnsConfig, improve, repair_diagonal_runs,
                                   seam_occupancy, window_devs)
-    from beyond_tiles.metrics import deviation_stats, max_diagonal_run
-    from beyond_tiles.still_image import SpikeConfig, verify_still_life
-    from beyond_tiles.targets import cell_targets, window_slices, window_targets
+    from gol_mosaics.freeform.metrics import deviation_stats, max_diagonal_run
+    from gol_mosaics.freeform.solver import SpikeConfig, verify_still_life
+    from gol_mosaics.freeform.targets import cell_targets, window_slices, window_targets
 
     out = Path(args.out)
     if not out.is_absolute():
