@@ -49,8 +49,7 @@ untouched; this module builds on it without modifying it.
 """
 
 from dataclasses import dataclass
-from itertools import combinations
-from typing import Dict, List, Optional, Sequence, Set, Tuple
+from typing import List, Optional, Sequence, Set, Tuple
 
 import hashlib
 
@@ -58,14 +57,15 @@ import numpy as np
 from scipy.ndimage import binary_dilation, binary_fill_holes
 
 from .life import is_still_life
-from .sat_search import CONWAY, Encoding, _simplify, enumerate_all
+from .sat_search import CONWAY, Encoding, _domain_clauses, enumerate_all
 from .tile_domain import (
     Domain,
     POND_WIDTH,
     _base_masks,
-    neighbors,
+    canonical_order,
+    d4_representatives,
+    domain_from_forcings,
     pond_pattern,
-    symmetric_coords,
 )
 
 _DILATE1 = np.ones((3, 3), dtype=bool)
@@ -182,36 +182,12 @@ def build_scheme_domain(scheme: TileScheme,
     """
     if interlock is None:
         interlock = derive_interlock(scheme)
-    n = scheme.n
-    rep_i = np.empty((n, n), dtype=np.int64)
-    rep_j = np.empty((n, n), dtype=np.int64)
-    for i in range(n):
-        for j in range(n):
-            rep_i[i, j], rep_j[i, j] = min(symmetric_coords(i, j, n))
-
-    constants: Dict[Offset, int] = {}
-    for i in range(n):
-        for j in range(n):
-            forced = None
-            if scheme.frame[i, j]:
-                forced = 1
-            if not scheme.support[i, j] or (i, j) in interlock:
-                assert forced is None, (
-                    f"cell ({i},{j}) forced both alive and dead"
-                )
-                forced = 0
-            if forced is not None:
-                rep = (int(rep_i[i, j]), int(rep_j[i, j]))
-                assert constants.get(rep, forced) == forced, (
-                    f"orbit {rep} receives conflicting forcings at ({i},{j})"
-                )
-                constants[rep] = forced
-
-    all_reps = {(int(rep_i[i, j]), int(rep_j[i, j]))
-                for i in range(n) for j in range(n)}
-    free_reps = sorted(all_reps - set(constants))
-    return Domain(level=scheme.level, n=n, rep_i=rep_i, rep_j=rep_j,
-                  constants=constants, free_reps=free_reps)
+    dead = ~scheme.support
+    for i, j in interlock:
+        dead[i, j] = True
+    rep_i, rep_j = d4_representatives(scheme.n)
+    return domain_from_forcings(scheme.level, rep_i, rep_j, scheme.frame,
+                                dead)
 
 
 def build_scheme_cnf(scheme: TileScheme,
@@ -228,46 +204,14 @@ def build_scheme_cnf(scheme: TileScheme,
     survival = tuple(sorted(survival))
     domain = build_scheme_domain(scheme, interlock=interlock)
     n = domain.n
-    var_of_rep = {rep: idx + 1 for idx, rep in enumerate(domain.free_reps)}
-
-    def lit(i, j):
-        rep = domain.rep_of(i, j)
-        if rep in domain.constants:
-            return bool(domain.constants[rep])
-        return var_of_rep[rep]
-
-    def neg(x):
-        return (not x) if isinstance(x, bool) else -x
-
-    alive_forbidden = [c for c in range(9) if c not in survival]
-    dead_forbidden = list(birth)
-
-    clause_set = set()
-    positions = range(8)
-    for i in range(n):
-        for j in range(n):
-            centre = lit(i, j)
-            nbrs = [lit(ii, jj) for (ii, jj) in neighbors(i, j, n)]
-            for centre_lit, forbidden in ((neg(centre), alive_forbidden),
-                                          (centre, dead_forbidden)):
-                for c in forbidden:
-                    for subset in combinations(positions, c):
-                        clause = _simplify(
-                            [centre_lit]
-                            + [neg(nbrs[p]) for p in subset]
-                            + [nbrs[p] for p in positions if p not in subset]
-                        )
-                        if clause:
-                            clause_set.add(clause)
-
-    clauses = sorted(clause_set)
+    clauses = _domain_clauses(domain, birth, survival)
     digest = hashlib.sha256()
-    digest.update(f"scheme={scheme.name};n={n};vars={len(var_of_rep)};"
+    digest.update(f"scheme={scheme.name};n={n};vars={len(domain.free_reps)};"
                   f"birth={birth};survival={survival};".encode())
     digest.update(repr(domain.free_reps).encode())
     digest.update(repr(clauses).encode())
     return Encoding(domain=domain, birth=birth, survival=survival,
-                    n_vars=len(var_of_rep), clauses=clauses,
+                    n_vars=len(domain.free_reps), clauses=clauses,
                     sha256=digest.hexdigest())
 
 
@@ -284,9 +228,7 @@ def enumerate_scheme_tiles(scheme: TileScheme,
         return scheme.frame.astype(np.uint8)[None]
     bits = enumerate_all(enc, limit=limit)
     grids = enc.domain.expand_many(bits)
-    order = sorted(range(len(grids)),
-                   key=lambda i: (int(grids[i].sum()), grids[i].tobytes()))
-    return grids[order]
+    return grids[canonical_order(grids)]
 
 
 def pack_scheme_solutions(scheme: TileScheme, grids: np.ndarray) -> np.ndarray:
@@ -295,20 +237,12 @@ def pack_scheme_solutions(scheme: TileScheme, grids: np.ndarray) -> np.ndarray:
     (m, ceil(n_free/8)) uint8 — the scheme analogue of
     :func:`gol_mosaics.tile_domain.pack_solutions`.
     """
-    domain = build_scheme_domain(scheme)
-    bits = domain.extract_bits(np.asarray(grids))
-    assert np.array_equal(domain.expand_many(bits),
-                          np.asarray(grids, dtype=np.uint8)), (
-        "grids are not expressible as free-orbit assignments of this scheme"
-    )
-    return np.packbits(bits, axis=1)
+    return build_scheme_domain(scheme).pack(grids)
 
 
 def unpack_scheme_solutions(scheme: TileScheme, packed: np.ndarray) -> np.ndarray:
     """Inverse of pack_scheme_solutions: packed bits -> (m, n, n) uint8 grids."""
-    domain = build_scheme_domain(scheme)
-    bits = np.unpackbits(packed, axis=1, count=len(domain.free_reps))
-    return domain.expand_many(bits)
+    return build_scheme_domain(scheme).unpack(packed)
 
 
 # ------------------------------------------------------------- assembly

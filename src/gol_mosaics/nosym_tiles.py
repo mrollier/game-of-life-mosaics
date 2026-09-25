@@ -38,7 +38,8 @@ from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 
-from .tile_domain import POND_WIDTH, Domain, forced_masks
+from .tile_domain import (POND_WIDTH, Domain, _check_border_dead,
+                          canonical_order, domain_from_forcings, forced_masks)
 from .sat_search import (
     CONWAY,
     Encoding,
@@ -60,43 +61,24 @@ def build_nosym_domain(level: int, dead_edges=None) -> Domain:
     n = POND_WIDTH * level
     custom_dead_edges = dead_edges is not None
     edge_alive, outside_dead, dead_edges = forced_masks(level, dead_edges)
-    dead_edge_set = set(dead_edges)
+    dead = outside_dead.astype(bool)
+    for i, j in dead_edges:
+        dead[i, j] = True
 
     rep_i, rep_j = np.indices((n, n))
-
-    constants = {}
-    for i in range(n):
-        for j in range(n):
-            forced = None
-            if edge_alive[i, j]:
-                forced = 1
-            if outside_dead[i, j] or (i, j) in dead_edge_set:
-                assert forced is None, \
-                    f"cell ({i},{j}) forced both alive and dead"
-                forced = 0
-            if forced is not None:
-                constants[(i, j)] = forced
-
-    free_reps = sorted({(i, j) for i in range(n) for j in range(n)}
-                       - set(constants))
-
-    # Border ring must be entirely forced dead, which is what makes the
-    # % n wraparound inert (mirrors build_domain).
+    domain = domain_from_forcings(level, rep_i.astype(np.int64),
+                                  rep_j.astype(np.int64),
+                                  edge_alive.astype(bool), dead)
     if level >= 2:
-        border = ([(0, k) for k in range(n)] + [(n - 1, k) for k in range(n)]
-                  + [(k, 0) for k in range(n)] + [(k, n - 1) for k in range(n)])
-        assert all(constants.get(cell) == 0 for cell in border), \
-            "border ring not fully forced dead"
+        _check_border_dead(domain)
 
     expected = EXPECTED_FREE_CELLS.get(level)
     if expected is not None and not custom_dead_edges:
-        assert len(free_reps) == expected, (
-            f"level {level}: {len(free_reps)} free cells, expected {expected}"
+        assert len(domain.free_reps) == expected, (
+            f"level {level}: {len(domain.free_reps)} free cells, "
+            f"expected {expected}"
         )
-
-    return Domain(level=level, n=n,
-                  rep_i=rep_i.astype(np.int64), rep_j=rep_j.astype(np.int64),
-                  constants=constants, free_reps=free_reps)
+    return domain
 
 
 def build_nosym_cnf(level: int,
@@ -137,9 +119,7 @@ def enumerate_nosym_tiles(level: int,
     enc = build_nosym_cnf(level, birth, survival, dead_edges=dead_edges)
     rows = enumerate_all(enc, solver_name=solver_name, limit=limit)
     grids = enc.domain.expand_many(rows)
-    order = sorted(range(len(grids)),
-                   key=lambda i: (int(grids[i].sum()), grids[i].tobytes()))
-    return grids[order]
+    return grids[canonical_order(grids)]
 
 
 # ------------------------------------------------------------- packing
@@ -150,20 +130,12 @@ def pack_nosym_solutions(grids: np.ndarray, level: int) -> np.ndarray:
     (m, ceil(n_free/8)) uint8. Mirrors tile_domain.pack_solutions but
     over the identity domain (one bit per free cell, MSB-first).
     """
-    domain = build_nosym_domain(level)
-    bits = domain.extract_bits(np.asarray(grids))
-    assert np.array_equal(domain.expand_many(bits),
-                          np.asarray(grids, dtype=np.uint8)), (
-        "grids are not expressible as free-cell assignments of this level"
-    )
-    return np.packbits(bits, axis=1)
+    return build_nosym_domain(level).pack(grids)
 
 
 def unpack_nosym_solutions(packed: np.ndarray, level: int) -> np.ndarray:
     """Inverse of pack_nosym_solutions: packed bits -> (m, n, n) uint8."""
-    domain = build_nosym_domain(level)
-    bits = np.unpackbits(packed, axis=1, count=len(domain.free_reps))
-    return domain.expand_many(bits)
+    return build_nosym_domain(level).unpack(packed)
 
 
 def load_nosym_tiles(level: int = 3) -> np.ndarray:

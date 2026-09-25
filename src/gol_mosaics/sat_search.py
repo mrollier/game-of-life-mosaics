@@ -37,7 +37,7 @@ from typing import Iterable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
-from .tile_domain import Domain, build_domain, neighbors
+from .tile_domain import Domain, build_domain, canonical_order, neighbors
 
 # A position's value is either a constant bool (forced orbit) or a DIMACS
 # literal (positive int for the orbit variable).
@@ -205,9 +205,7 @@ def enumerate_tiles(level: int,
     enc = build_cnf(level, birth, survival, dead_edges=dead_edges)
     bits = enumerate_all(enc, solver_name)
     grids = enc.domain.expand_many(bits)
-    order = sorted(range(len(grids)),
-                   key=lambda i: (int(grids[i].sum()), grids[i].tobytes()))
-    return grids[order]
+    return grids[canonical_order(grids)]
 
 
 # ---------------------------------------------------------------- bruteforce
@@ -268,9 +266,7 @@ def bruteforce_tiles(level: int,
         log("")
     grids = (np.concatenate(keep) if keep
              else np.empty((0, domain.n, domain.n), dtype=np.uint8))
-    order = sorted(range(len(grids)),
-                   key=lambda i: (int(grids[i].sum()), grids[i].tobytes()))
-    return grids[order]
+    return grids[canonical_order(grids)]
 
 
 # ---------------------------------------------------------------- CLI

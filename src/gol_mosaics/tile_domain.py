@@ -49,7 +49,7 @@ POND_WIDTH = 6
 
 # Free-orbit counts per level, asserted in build_domain: a mismatch means the
 # geometry has diverged from patterns.py.
-EXPECTED_FREE_ORBITS = {3: 10, 4: 22, 5: 38, 6: 59, 7: 84}
+EXPECTED_FREE_ORBITS = {1: 1, 2: 3, 3: 10, 4: 22, 5: 38, 6: 59, 7: 84}
 
 _DILATE1 = np.ones((3, 3), dtype=bool)
 
@@ -320,6 +320,112 @@ class Domain:
         _, is_const, const_value = self._cell_index_maps
         return int(const_value[is_const].sum())
 
+    def pack(self, grids: np.ndarray) -> np.ndarray:
+        """
+        Compress (m, n, n) tile grids to packed free-orbit bits,
+        (m, ceil(n_free/8)) uint8, MSB first.
+
+        Raises AssertionError if a grid is not an assignment of this domain
+        (a forced cell differs, or an orbit is not constant).
+        """
+        grids = np.asarray(grids)
+        bits = self.extract_bits(grids)
+        assert np.array_equal(self.expand_many(bits),
+                              grids.astype(np.uint8)), (
+            "grids are not expressible as free-orbit assignments of this "
+            "domain"
+        )
+        return np.packbits(bits, axis=1)
+
+    def unpack(self, packed: np.ndarray) -> np.ndarray:
+        """Inverse of pack: packed bits -> (m, n, n) uint8 grids."""
+        bits = np.unpackbits(packed, axis=1, count=len(self.free_reps))
+        return self.expand_many(bits)
+
+
+def d4_representatives(n: int) -> Tuple[np.ndarray, np.ndarray]:
+    """(rep_i, rep_j): each cell's lexicographically smallest D4 image."""
+    i, j = np.indices((n, n))
+    m = n - 1
+    images = [(i, j), (m - i, j), (i, m - j), (m - i, m - j),
+              (j, i), (j, m - i), (m - j, i), (m - j, m - i)]
+    key = np.min([a * n + b for a, b in images], axis=0)
+    return (key // n).astype(np.int64), (key % n).astype(np.int64)
+
+
+def domain_from_forcings(level: int,
+                         rep_i: np.ndarray,
+                         rep_j: np.ndarray,
+                         alive: np.ndarray,
+                         dead: np.ndarray) -> Domain:
+    """
+    Propagate per-cell forcings to whole orbits and collect the free ones.
+
+    Shared by the D4 diamond domain (:func:`build_domain`), scheme domains
+    (:func:`gol_mosaics.tile_scheme.build_scheme_domain`) and the identity
+    domain (:func:`gol_mosaics.nosym_tiles.build_nosym_domain`).
+
+    Args:
+        level: Carried into the Domain as metadata
+        rep_i, rep_j: (n, n) orbit representative of every cell
+        alive, dead: (n, n) bool masks of cells forced alive / dead
+
+    Raises:
+        AssertionError: If a cell is forced both ways, or an orbit receives
+            conflicting forcings
+    """
+    alive = np.asarray(alive, dtype=bool)
+    dead = np.asarray(dead, dtype=bool)
+    clash = alive & dead
+    assert not clash.any(), (
+        f"cell {tuple(map(int, np.argwhere(clash)[0]))} forced both alive "
+        f"and dead"
+    )
+    constants: Dict[Tuple[int, int], int] = {}
+    for i, j in np.argwhere(alive | dead):
+        forced = 1 if alive[i, j] else 0
+        rep = (int(rep_i[i, j]), int(rep_j[i, j]))
+        assert constants.get(rep, forced) == forced, (
+            f"orbit {rep} receives conflicting forcings at cell ({i},{j})"
+        )
+        constants[rep] = forced
+
+    all_reps = set(zip(rep_i.ravel().tolist(), rep_j.ravel().tolist()))
+    free_reps = sorted(all_reps - set(constants))
+    return Domain(level=level, n=rep_i.shape[0], rep_i=rep_i, rep_j=rep_j,
+                  constants=constants, free_reps=free_reps)
+
+
+def _check_border_dead(domain: Domain) -> None:
+    """The border ring must be entirely forced dead, which is what makes the
+    % n wraparound of the neighbourhoods inert."""
+    n = domain.n
+    border = np.zeros((n, n), dtype=bool)
+    border[0, :] = border[-1, :] = border[:, 0] = border[:, -1] = True
+    assert all(domain.constants.get(domain.rep_of(i, j)) == 0
+               for i, j in zip(*np.where(border))), (
+        "border ring not fully forced dead"
+    )
+
+
+def canonical_order(grids: np.ndarray) -> np.ndarray:
+    """
+    Indices sorting a (m, n, n) 0/1 stack by population, then by raw grid
+    bytes: the canonical order of every enumerated tile database.
+
+    Equivalent to ``sorted(range(m), key=lambda i: (grids[i].sum(),
+    grids[i].tobytes()))`` (stable, so duplicates keep their order), but
+    vectorised: the bytes of 0/1 grids compare like their packed bits.
+    """
+    grids = np.asarray(grids)
+    flat = grids.reshape(len(grids), -1)
+    assert flat.size == 0 or flat.max() <= 1, "canonical_order needs 0/1 grids"
+    packed = np.packbits(flat.astype(np.uint8), axis=1)
+    population = flat.sum(axis=1, dtype=np.int64)
+    # lexsort: the last key is primary
+    keys = [packed[:, k] for k in range(packed.shape[1] - 1, -1, -1)]
+    return np.lexsort(keys + [population])
+
 
 def build_domain(level: int, dead_edges=None) -> Domain:
     """
@@ -332,54 +438,23 @@ def build_domain(level: int, dead_edges=None) -> Domain:
     n = POND_WIDTH * level
     custom_dead_edges = dead_edges is not None
     edge_alive, outside_dead, dead_edges = forced_masks(level, dead_edges)
-    dead_edge_set = set(dead_edges)
+    dead = outside_dead.astype(bool)
+    for i, j in dead_edges:
+        dead[i, j] = True
 
-    rep_i = np.empty((n, n), dtype=np.int64)
-    rep_j = np.empty((n, n), dtype=np.int64)
-    for i in range(n):
-        for j in range(n):
-            ri, rj = min(symmetric_coords(i, j, n))
-            rep_i[i, j] = ri
-            rep_j[i, j] = rj
-
-    constants: Dict[Tuple[int, int], int] = {}
-    for i in range(n):
-        for j in range(n):
-            forced = None
-            if edge_alive[i, j]:
-                forced = 1
-            if outside_dead[i, j] or (i, j) in dead_edge_set:
-                assert forced is None, f"cell ({i},{j}) forced both alive and dead"
-                forced = 0
-            if forced is not None:
-                rep = (int(rep_i[i, j]), int(rep_j[i, j]))
-                assert constants.get(rep, forced) == forced, (
-                    f"orbit {rep} receives conflicting forcings at cell ({i},{j})"
-                )
-                constants[rep] = forced
-
-    all_reps = {(int(rep_i[i, j]), int(rep_j[i, j]))
-                for i in range(n) for j in range(n)}
-    free_reps = sorted(all_reps - set(constants))
-
-    # Border ring must be entirely forced dead, which is what makes the % n
-    # wraparound inert.
+    rep_i, rep_j = d4_representatives(n)
+    domain = domain_from_forcings(level, rep_i, rep_j,
+                                  edge_alive.astype(bool), dead)
     if level >= 2:
-        border = np.zeros((n, n), dtype=bool)
-        border[0, :] = border[-1, :] = border[:, 0] = border[:, -1] = True
-        assert all(
-            constants.get((int(rep_i[i, j]), int(rep_j[i, j]))) == 0
-            for i, j in zip(*np.where(border))
-        ), "border ring not fully forced dead"
+        _check_border_dead(domain)
 
     expected = EXPECTED_FREE_ORBITS.get(level)
     if expected is not None and not custom_dead_edges:
-        assert len(free_reps) == expected, (
-            f"level {level}: {len(free_reps)} free orbits, expected {expected}"
+        assert len(domain.free_reps) == expected, (
+            f"level {level}: {len(domain.free_reps)} free orbits, "
+            f"expected {expected}"
         )
-
-    return Domain(level=level, n=n, rep_i=rep_i, rep_j=rep_j,
-                  constants=constants, free_reps=free_reps)
+    return domain
 
 
 def pack_solutions(grids: np.ndarray, level: int) -> np.ndarray:
@@ -387,17 +462,9 @@ def pack_solutions(grids: np.ndarray, level: int) -> np.ndarray:
     Compress (m, n, n) tile grids to packed free-orbit bits:
     (m, ceil(n_free/8)) uint8. ~162x smaller than uint8 grids at level 6.
     """
-    domain = build_domain(level)
-    bits = domain.extract_bits(np.asarray(grids))
-    assert np.array_equal(domain.expand_many(bits),
-                          np.asarray(grids, dtype=np.uint8)), (
-        "grids are not expressible as free-orbit assignments of this level"
-    )
-    return np.packbits(bits, axis=1)
+    return build_domain(level).pack(grids)
 
 
 def unpack_solutions(packed: np.ndarray, level: int) -> np.ndarray:
     """Inverse of pack_solutions: packed bits -> (m, n, n) uint8 grids."""
-    domain = build_domain(level)
-    bits = np.unpackbits(packed, axis=1, count=len(domain.free_reps))
-    return domain.expand_many(bits)
+    return build_domain(level).unpack(packed)

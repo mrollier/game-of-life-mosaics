@@ -434,3 +434,17 @@ def test_legacy_ilp_reports_missing_gurobi(monkeypatch):
     monkeypatch.setitem(sys.modules, "gurobipy", None)
     with pytest.raises(ImportError, match="sat_search"):
         generate_tiles(3)
+
+
+@pytest.mark.parametrize("n", [3, 6, 11])
+def test_canonical_order_matches_sorted_key(n):
+    """lexsort on packed bits equals the (population, bytes) sort it
+    replaced, duplicates included (both are stable)."""
+    from gol_mosaics.tile_domain import canonical_order
+
+    rng = np.random.default_rng(n)
+    grids = rng.integers(0, 2, (400, n, n)).astype(np.uint8)
+    grids[200:220] = grids[:20]  # duplicates keep their relative order
+    expected = sorted(range(len(grids)),
+                      key=lambda i: (int(grids[i].sum()), grids[i].tobytes()))
+    assert list(canonical_order(grids)) == expected
