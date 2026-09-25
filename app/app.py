@@ -4,7 +4,8 @@ Gradio web app for gol_mosaics.
 Upload an image, pick a few settings, and get back a Conway's Game of Life
 still-life mosaic with an Elementary Cellular Automaton (ECA) background.
 
-Deployable as a free Hugging Face Gradio Space (`python app.py` runs it locally).
+Deployable as a free Hugging Face Gradio Space (`python app/app.py` runs it
+locally; app/deploy.sh publishes it).
 
 Design notes:
 - Background removal runs in an upload handler, NOT inside the mosaic pipeline.
@@ -13,15 +14,21 @@ Design notes:
   in per-session state. A toggle then chooses which cached copy feeds the
   pipeline, so live tweaks (sliders etc.) never re-run the heavy removal — the
   pipeline is always called with remove_background=False.
-- The pattern libraries for the exposed levels are warmed at startup;
-  PatternLibrary.load() caches one shared read-only instance per level, so
-  requests never re-read the (up to 19 MB) data files from disk.
+- The pattern libraries for the exposed levels are warmed in a background
+  thread at launch; PatternLibrary.load() caches one shared read-only instance
+  per level, so requests never re-expand the packed data files. Importing the
+  module does no work (the tests import it), and the interface is built on
+  first use of `demo`.
+- The last render's live cells are kept in session state, so the .cells
+  download reuses them instead of running the pipeline a second time.
 """
 
+import hashlib
 import os
 import re
 import random
 import tempfile
+import threading
 from functools import lru_cache
 from typing import Optional
 
@@ -77,16 +84,19 @@ MIN_BG_SIZE, MAX_BG_SIZE, DEFAULT_BG_SIZE = 1, 40, 15
 # The per-session seed and the "New variation" reroll draw from this range.
 SEED_MAX = 2**31
 
-# --- One-time startup work ----------------------------------------------------
+# --- Start-up work --------------------------------------------------------------
 
-# Warm the pattern-library cache for the cheap levels. load() keeps one
-# shared read-only instance per (level, shape), so requests hit the cache
-# instead of re-reading the 19 MB level-5 file. The square libraries are tiny
-# (packed orbit bits, ~60 KB total) and are all warmed.
-for _level in WARM_LEVELS:
-    PatternLibrary.load(_level)
-for _level in SQUARE_LEVELS:
-    PatternLibrary.load(_level, shape="square")
+def warm_libraries() -> None:
+    """Load the cheap levels into PatternLibrary's cache.
+
+    load() keeps one shared read-only instance per (level, shape), so later
+    requests skip the unpacking. Run in a thread at launch: the first request
+    for a level that is not warm yet simply loads it itself.
+    """
+    for level in WARM_LEVELS:
+        PatternLibrary.load(level)
+    for level in SQUARE_LEVELS:
+        PatternLibrary.load(level, shape="square")
 
 # Colour scheme UI labels. UGent and monochrome are deterministic; Warhol picks
 # random pop colours every call.
@@ -303,19 +313,31 @@ def render_mosaic(image, tile_shape, level, color_scheme, grid_size,
     if image is None:
         return None
 
+    return _render(image, tile_shape, level, color_scheme, grid_size,
+                   empty_tiles_cutoff, alpha_cutoff, eca_choice,
+                   eca_custom_rule, bg_pattern_size, auto_seed,
+                   gol_background, gol_pixel, eca_background, eca_pixel)[0]
+
+
+def _render(image, tile_shape, level, color_scheme, grid_size,
+            empty_tiles_cutoff, alpha_cutoff, eca_choice, eca_custom_rule,
+            bg_pattern_size, auto_seed,
+            gol_background, gol_pixel, eca_background, eca_pixel):
+    """render_mosaic, also returning the still life's live cells (trimmed)."""
     manual_colors = (gol_background, gol_pixel, eca_background, eca_pixel)
     try:
-        mosaic, scheme, bounded = _generate_mosaic(
+        (mosaic, gol_mosaic, _), scheme, bounded = _generate_mosaic(
             image, tile_shape, level, color_scheme, grid_size,
             empty_tiles_cutoff, alpha_cutoff, eca_choice, eca_custom_rule,
-            bg_pattern_size, auto_seed, manual_colors,
+            bg_pattern_size, auto_seed, manual_colors, return_arrays=True,
         )
         # Fit to the original aspect ratio on a solid ECA-background backdrop
         # (fills the aspect padding around the opaque mosaic).
         target_ratio = bounded.width / bounded.height
-        return _fit_to_aspect(
+        fitted = _fit_to_aspect(
             mosaic, target_ratio, _hex_to_rgba(scheme.eca_background)
         )
+        return fitted, _binary_bbox(gol_mosaic)
     except Exception as exc:  # surface a friendly message, keep the app alive
         raise gr.Error(f"Could not generate the mosaic: {exc}")
 
@@ -404,13 +426,31 @@ def _selected_input(state: Optional[dict], remove_bg: bool) -> Optional[Image.Im
     return state["with_bg"]
 
 
-def generate_ui(state, remove_bg, *rest) -> Optional[str]:
+def _settings_key(image: Image.Image, settings) -> str:
+    """Identify a render: the input image's pixels plus every setting."""
+    digest = hashlib.blake2b(digest_size=16)
+    digest.update(repr((image.size, image.mode, tuple(settings))).encode())
+    digest.update(image.tobytes())
+    return digest.hexdigest()
+
+
+def generate_ui(state, remove_bg, *rest):
     """Generation entry point for the UI: resolve the toggled input, then render.
 
-    Keeps render_mosaic/generate unaware of the caching layer — they still take a
-    plain PIL image as their first argument.
+    Returns (png_path, last_cells): the file for the image output and, for the
+    session state, the render's live cells bit-packed under a key of the input
+    and settings, so export_cells_ui can reuse them. Keeps
+    render_mosaic/generate unaware of the caching layer.
     """
-    return generate(_selected_input(state, remove_bg), *rest)
+    image = _selected_input(state, remove_bg)
+    if image is None:
+        return None, None
+    mosaic, cells = _render(image, *rest)
+    out_path = os.path.join(tempfile.mkdtemp(prefix="gol_"), "gol-mosaic.png")
+    mosaic.save(out_path)
+    last = {"key": _settings_key(image, rest), "shape": cells.shape,
+            "packed": np.packbits(cells, axis=None)}
+    return out_path, last
 
 
 def _binary_bbox(mosaic: np.ndarray) -> np.ndarray:
@@ -430,32 +470,41 @@ def _binary_bbox(mosaic: np.ndarray) -> np.ndarray:
     return binary[r0:r1 + 1, c0:c1 + 1]
 
 
-def export_cells_ui(state, remove_bg, tile_shape, level, color_scheme,
+def export_cells_ui(last, state, remove_bg, tile_shape, level, color_scheme,
                     grid_size, empty_tiles_cutoff, alpha_cutoff, eca_choice,
                     eca_custom_rule, bg_pattern_size, auto_seed,
                     gol_background, gol_pixel, eca_background, eca_pixel
                     ) -> Optional[str]:
     """Build a Golly .cells file of the still-life mosaic for the current settings.
 
-    Re-runs the pipeline (deterministic via auto_seed, so it matches the displayed
-    mosaic) to recover the binary GoL array, then exports just the still-life
-    portrait — the ECA background is decorative and not stable in Golly.
+    Uses the live cells the last render left in session state (`last`) when
+    they belong to the same input and settings; otherwise re-runs the pipeline
+    (deterministic via auto_seed, so it matches the displayed mosaic). Exports
+    just the still-life portrait: the ECA background is decorative and not
+    stable in Golly.
     """
     image = _selected_input(state, remove_bg)
     if image is None:
         raise gr.Error("Upload an image first, then download its .cells file.")
 
-    manual_colors = (gol_background, gol_pixel, eca_background, eca_pixel)
-    try:
-        (_, gol_mosaic, _), _, _ = _generate_mosaic(
-            image, tile_shape, level, color_scheme, grid_size,
-            empty_tiles_cutoff, alpha_cutoff, eca_choice, eca_custom_rule,
-            bg_pattern_size, auto_seed, manual_colors, return_arrays=True,
-        )
-    except Exception as exc:
-        raise gr.Error(f"Could not build the .cells file: {exc}")
-
-    cells = _binary_bbox(gol_mosaic)
+    settings = (tile_shape, level, color_scheme, grid_size, empty_tiles_cutoff,
+                alpha_cutoff, eca_choice, eca_custom_rule, bg_pattern_size,
+                auto_seed, gol_background, gol_pixel, eca_background, eca_pixel)
+    if last and last.get("key") == _settings_key(image, settings):
+        shape = tuple(last["shape"])
+        cells = np.unpackbits(last["packed"], count=int(np.prod(shape))
+                              ).reshape(shape)
+    else:
+        manual_colors = (gol_background, gol_pixel, eca_background, eca_pixel)
+        try:
+            (_, gol_mosaic, _), _, _ = _generate_mosaic(
+                image, tile_shape, level, color_scheme, grid_size,
+                empty_tiles_cutoff, alpha_cutoff, eca_choice, eca_custom_rule,
+                bg_pattern_size, auto_seed, manual_colors, return_arrays=True,
+            )
+        except Exception as exc:
+            raise gr.Error(f"Could not build the .cells file: {exc}")
+        cells = _binary_bbox(gol_mosaic)
     if cells.size == 0:
         raise gr.Error("The mosaic has no live cells to export.")
 
@@ -548,6 +597,10 @@ def build_demo() -> gr.Blocks:
         # Cached upload copies for this session: {"with_bg", "without_bg",
         # "has_bg"}. Populated by on_upload so background removal runs only once.
         inputs_state = gr.State(None)
+
+        # The last render's live cells, for the .cells download (see
+        # generate_ui / export_cells_ui).
+        last_cells = gr.State(None)
 
         with gr.Row(equal_height=False):
             # --- Controls (compact, left) ------------------------------------
@@ -673,7 +726,7 @@ def build_demo() -> gr.Blocks:
             grid_in=grid_in, reroll_btn=reroll_btn,
             empty_in=empty_in, alpha_in=alpha_in,
             eca_in=eca_in, eca_custom_in=eca_custom_in, bg_size_in=bg_size_in,
-            image_out=image_out, cells_btn=cells_btn,
+            image_out=image_out, cells_btn=cells_btn, last_cells=last_cells,
         )
 
     return demo
@@ -683,7 +736,7 @@ def _wire_events(*, inputs_state, auto_seed, image_in, bg_toggle, input_preview,
                  shape_in, level_in, color_in, manual_group, gol_bg_in,
                  gol_px_in, eca_bg_in, eca_px_in, grid_in, reroll_btn,
                  empty_in, alpha_in, eca_in, eca_custom_in, bg_size_in,
-                 image_out, cells_btn):
+                 image_out, cells_btn, last_cells):
     """Attach all event handlers to the components built by build_demo.
 
     Must be called inside the gr.Blocks context (build_demo does so), since
@@ -702,7 +755,7 @@ def _wire_events(*, inputs_state, auto_seed, image_in, bg_toggle, input_preview,
     # programmatic re-range here doesn't fire a second generation.
     shape_in.change(
         fn=on_shape_change, inputs=[shape_in, level_in], outputs=level_in,
-    ).then(fn=generate_ui, inputs=gen_inputs, outputs=image_out)
+    ).then(fn=generate_ui, inputs=gen_inputs, outputs=[image_out, last_cells])
 
     # Show the manual colour pickers only for the "Manual" scheme.
     color_in.change(
@@ -721,13 +774,13 @@ def _wire_events(*, inputs_state, auto_seed, image_in, bg_toggle, input_preview,
     image_in.change(
         fn=on_upload, inputs=image_in,
         outputs=[inputs_state, bg_toggle, input_preview],
-    ).then(fn=generate_ui, inputs=gen_inputs, outputs=image_out)
+    ).then(fn=generate_ui, inputs=gen_inputs, outputs=[image_out, last_cells])
 
     # Toggle: switch the previewed/used copy (no re-removal), then regenerate.
     bg_toggle.change(
         fn=_selected_input, inputs=[inputs_state, bg_toggle],
         outputs=input_preview,
-    ).then(fn=generate_ui, inputs=gen_inputs, outputs=image_out)
+    ).then(fn=generate_ui, inputs=gen_inputs, outputs=[image_out, last_cells])
 
     # Live regeneration: sliders fire on release (not every pixel of drag),
     # dropdowns / colour pickers fire on change. (Upload, toggle and tile
@@ -740,25 +793,48 @@ def _wire_events(*, inputs_state, auto_seed, image_in, bg_toggle, input_preview,
         gol_bg_in.change, gol_px_in.change, eca_bg_in.change, eca_px_in.change,
     ]
     gr.on(triggers=live_triggers, fn=generate_ui,
-          inputs=gen_inputs, outputs=image_out)
+          inputs=gen_inputs, outputs=[image_out, last_cells])
 
     # "New variation": pick a fresh session seed, then regenerate.
     reroll_btn.click(
         fn=lambda: random.randrange(SEED_MAX), outputs=auto_seed
     ).then(
-        fn=generate_ui, inputs=gen_inputs, outputs=image_out
+        fn=generate_ui, inputs=gen_inputs, outputs=[image_out, last_cells]
     )
 
     # Build the .cells file for the current settings on demand.
-    cells_btn.click(fn=export_cells_ui, inputs=gen_inputs, outputs=cells_btn)
+    cells_btn.click(fn=export_cells_ui, inputs=[last_cells] + gen_inputs,
+                    outputs=cells_btn)
 
 
-demo = build_demo()
-# Cap concurrency so simultaneous requests don't oversubscribe a small (2-vCPU)
-# box; queue extra requests rather than running them all at once.
-demo.queue(default_concurrency_limit=2, max_size=20)
+_demo = None
 
-if __name__ == "__main__":
+
+def get_demo() -> gr.Blocks:
+    """The interface, built once on first use."""
+    global _demo
+    if _demo is None:
+        _demo = build_demo()
+        # Cap concurrency so simultaneous requests don't oversubscribe a small
+        # (2-vCPU) box; queue extra requests rather than running them all.
+        _demo.queue(default_concurrency_limit=2, max_size=20)
+    return _demo
+
+
+def __getattr__(name):
+    """`demo` is built lazily, so `gradio app/app.py` (hot reload), which
+    looks the attribute up, still finds it while a plain import stays cheap."""
+    if name == "demo":
+        return get_demo()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def main() -> None:
+    threading.Thread(target=warm_libraries, daemon=True).start()
     # head=... injects the force-light-mode script (Gradio 6 takes head/js/theme
     # on launch(), not on the Blocks constructor).
-    demo.launch(theme=gr.themes.Soft(), head=FORCE_LIGHT_THEME_HEAD)
+    get_demo().launch(theme=gr.themes.Soft(), head=FORCE_LIGHT_THEME_HEAD)
+
+
+if __name__ == "__main__":
+    main()

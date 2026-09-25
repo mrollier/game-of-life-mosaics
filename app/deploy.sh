@@ -2,47 +2,82 @@
 #
 # Deploy the Gradio web app to the Hugging Face Space.
 #
-# Rebuilds the self-contained staging folder (hf_space/) from the current
-# working tree, then uploads it over HTTP (large files go up as LFS
-# automatically). Run from anywhere; paths are resolved relative to this script.
+# Stages a self-contained copy of the app (app.py, its requirements, the
+# Space README and the gol_mosaics package) in a temporary folder and uploads
+# it over HTTP (large files go up as LFS automatically). Refuses to deploy a
+# working tree with uncommitted changes, and runs the tests first, so what
+# goes live is always a commit that passed them.
 #
-# Usage:
-#   app/deploy.sh ["commit message"]
+# Usage (from anywhere):
+#   app/deploy.sh [--dry-run] [--skip-tests] ["commit message"]
+#
+#   --dry-run     stage and list the files, but do not upload
+#   --skip-tests  skip the test run (the clean-tree check still applies)
 #
 # Prerequisites (one-time):
 #   hf auth login        # token with WRITE permission
 #
 set -euo pipefail
 
-# Resolve the repo root (the parent of the app/ folder holding this script).
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$APP_DIR")"
 cd "$REPO_ROOT"
 
 SPACE_ID="mrollier/game-of-life-mosaics"
-STAGING="hf_space"
-COMMIT_MSG="${1:-Deploy Game of Life Mosaics app}"
+DRY_RUN=0
+RUN_TESTS=1
+COMMIT_MSG=""
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) DRY_RUN=1 ;;
+        --skip-tests) RUN_TESTS=0 ;;
+        -*) echo "unknown option: $arg" >&2; exit 2 ;;
+        *) COMMIT_MSG="$arg" ;;
+    esac
+done
+REVISION="$(git rev-parse --short HEAD)"
+COMMIT_MSG="${COMMIT_MSG:-Deploy Game of Life Mosaics app ($REVISION)}"
 
-echo "==> Rebuilding staging folder: $STAGING/"
-rm -rf "$STAGING"
-mkdir "$STAGING"
+echo "==> Checking for uncommitted changes"
+if [ -n "$(git status --porcelain -- src app)" ]; then
+    git status --short -- src app
+    echo "Refusing to deploy: commit or stash the changes above first." >&2
+    exit 1
+fi
 
-# App entrypoint + runtime deps.
+if [ "$RUN_TESTS" -eq 1 ]; then
+    echo "==> Running the library and app tests"
+    python -m pytest -q -p no:cacheprovider tests \
+        --ignore=tests/freeform --ignore=tests/experiments
+fi
+
+STAGING="$(mktemp -d)"
+trap 'rm -rf "$STAGING"' EXIT
+echo "==> Staging $REVISION in $STAGING"
+
+# App entrypoint + runtime deps; the Space reads its config from README.md's
+# YAML front matter.
 cp app/app.py app/requirements.txt "$STAGING/"
-
-# The Space reads its config from README.md's YAML front matter.
 cp app/README_space.md "$STAGING/README.md"
 
-# Ship the package at the Space root so `import gol_mosaics` works with no
-# pip install (data files in gol_mosaics/data/ come along).
+# Ship the package at the Space root so `import gol_mosaics` works with no pip
+# install (data files in gol_mosaics/data/ come along). The free-form solver
+# needs OR-Tools, which the Space does not install, and the app does not use
+# it, so it stays behind.
 cp -R src/gol_mosaics "$STAGING/gol_mosaics"
-
-# Strip caches that may have been copied.
+rm -rf "$STAGING/gol_mosaics/freeform"
 find "$STAGING" -name '__pycache__' -type d -prune -exec rm -rf {} +
 find "$STAGING" -name '*.pyc' -delete
 
-# Track the large pattern file(s) as LFS.
+# Track the pattern files as LFS.
 printf '*.npy filter=lfs diff=lfs merge=lfs -text\n' > "$STAGING/.gitattributes"
+
+(cd "$STAGING" && find . -type f | sort)
+
+if [ "$DRY_RUN" -eq 1 ]; then
+    echo "==> Dry run: nothing uploaded"
+    exit 0
+fi
 
 echo "==> Confirming HF login"
 hf auth whoami

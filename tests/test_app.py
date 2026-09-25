@@ -228,9 +228,9 @@ def test_export_cells_writes_valid_golly_file():
     """export_cells_ui writes a named .cells file containing only Golly glyphs."""
     state = {"with_bg": _subject_on_transparent(), "without_bg": None,
              "has_bg": False}
-    path = app.export_cells_ui(state, False, app.DIAMONDS, 3, app.UGENT, 40,
-                               0.65, 0.5, "random", 110, app.DEFAULT_BG_SIZE,
-                               0, *_MANUAL)
+    path = app.export_cells_ui(None, state, False, app.DIAMONDS, 3, app.UGENT,
+                               40, 0.65, 0.5, "random", 110,
+                               app.DEFAULT_BG_SIZE, 0, *_MANUAL)
     assert os.path.basename(path) == "gol-mosaic.cells"
     with open(path) as f:
         lines = f.read().splitlines()
@@ -288,3 +288,46 @@ def test_warhol_palette_is_a_function_of_the_seed():
     app._warhol_for_seed.cache_clear()
     assert app._warhol_for_seed(3) == first
     assert {app._warhol_for_seed(seed) for seed in range(6)} != {first}
+
+
+def test_cells_download_reuses_the_last_render(monkeypatch):
+    """The .cells export takes the cells generate_ui cached for the same
+    input and settings, and only re-runs the pipeline when they changed."""
+    state = {"with_bg": _subject_on_transparent(), "without_bg": None,
+             "has_bg": False}
+    settings = (app.DIAMONDS, 3, app.UGENT, 40, 0.65, 0.5, "random", 110,
+                app.DEFAULT_BG_SIZE, 0, *_MANUAL)
+    png, last = app.generate_ui(state, False, *settings)
+    assert os.path.exists(png) and last["key"]
+    fresh = app.export_cells_ui(None, state, False, *settings)
+
+    def fail(*args, **kwargs):
+        raise AssertionError("the pipeline ran again")
+
+    monkeypatch.setattr(app, "_generate_mosaic", fail)
+    cached = app.export_cells_ui(last, state, False, *settings)
+    with open(fresh) as a, open(cached) as b:
+        assert a.read() == b.read()
+    other = list(settings)
+    other[9] = 1  # another seed: the cache no longer applies
+    with pytest.raises(app.gr.Error):
+        app.export_cells_ui(last, state, False, *other)
+
+
+def test_importing_the_app_does_no_work():
+    """No libraries loaded and no interface built at import time."""
+    import subprocess
+    import sys
+
+    from tests.conftest import REPO_ROOT
+
+    code = ("import importlib.util, sys; "
+            "spec = importlib.util.spec_from_file_location('a', r'%s'); "
+            "m = importlib.util.module_from_spec(spec); "
+            "spec.loader.exec_module(m); "
+            "from gol_mosaics.patterns import _load_pattern_library as f; "
+            "print(f.cache_info().currsize, m._demo)"
+            % (REPO_ROOT / "app" / "app.py"))
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                         text=True, check=True)
+    assert out.stdout.split() == ["0", "None"]
