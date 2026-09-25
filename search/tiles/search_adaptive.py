@@ -48,6 +48,7 @@ import numpy as np
 from encoding import Encoding, build_cnf, cube_units, enumerate_all
 from search import default_workers, manifest_for
 from verify import check_batch, compare_sets
+from gol_mosaics._atomic import atomic_save
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_SOLVER = "cadical195"
@@ -64,9 +65,15 @@ def leaf_name(k: int, cube: int) -> str:
 _ws = {}
 
 
-def _worker_init(level, solver_name, leaves_dir, cap, nice):
-    if nice:
+def _renice(nice):
+    """Lower this process's priority; a no-op where os.nice does not exist
+    (Windows), which the --nice help says."""
+    if nice and hasattr(os, "nice"):
         os.nice(nice)
+
+
+def _worker_init(level, solver_name, leaves_dir, cap, nice):
+    _renice(nice)
     _ws["enc"] = build_cnf(level)
     _ws["level"] = level
     _ws["solver"] = solver_name
@@ -96,11 +103,7 @@ def _run_node(args):
                 f"#{start + int(np.where(~ok)[0][0])} fails independent "
                 f"verification")
     packed = np.packbits(bits, axis=1)
-    path = _ws["leaves"] / leaf_name(k, cube)
-    tmp = path.with_suffix(".npy.tmp")
-    with open(tmp, "wb") as f:
-        np.save(f, packed)
-    os.replace(tmp, path)
+    atomic_save(_ws["leaves"] / leaf_name(k, cube), packed)
     return k, cube, "leaf", len(bits), time.process_time() - t0
 
 
@@ -199,8 +202,7 @@ def cmd_run(args) -> int:
     if not pending:
         return cmd_merge(args)
 
-    if args.nice:
-        os.nice(args.nice)
+    _renice(args.nice)
     t0 = time.time()
     n_leaf = n_split = n_empty = 0
     found = found_before
@@ -361,10 +363,7 @@ def cmd_merge(args) -> int:
     packed = packed[order]
     t_sort = time.time() - t
     out = Path(args.output or f"solutions_pattern_level_{level}_orbits.npy")
-    tmp = out.with_suffix(".npy.tmp")
-    with open(tmp, "wb") as f:
-        np.save(f, packed)
-    os.replace(tmp, out)
+    atomic_save(out, packed)
     sha = hashlib.sha256(out.read_bytes()).hexdigest()
     print(f"merge phases: load {t_load:.1f}s, uniqueness {t_dedup:.1f}s, "
           f"alive counts {t_alive:.1f}s, sort {t_sort:.1f}s")
@@ -431,7 +430,8 @@ def main(argv=None) -> int:
     common.add_argument("--solver", default=DEFAULT_SOLVER)
     common.add_argument("--workers", type=int, default=None)
     common.add_argument("--nice", type=int, default=0,
-                        help="os.nice() increment for the main and worker processes")
+                        help="os.nice() increment for the main and worker processes "
+                             "(ignored on Windows)")
 
     p = sub.add_parser("self-test", parents=[common],
                        help="levels 5-6 through the adaptive path, byte-exact")

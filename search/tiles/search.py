@@ -31,6 +31,7 @@ from pathlib import Path
 import numpy as np
 
 from encoding import Encoding, build_cnf, cube_units, enumerate_all
+from gol_mosaics._atomic import atomic_save
 from verify import check_batch, compare_sets
 
 HERE = Path(__file__).resolve().parent
@@ -56,11 +57,7 @@ def _run_cube(args):
     bits = enumerate_all(enc, _worker_state["solver"],
                          extra_units=cube_units(cube, cube_bits))
     packed = np.packbits(bits, axis=1)
-    path = _worker_state["cubes_dir"] / f"cube_{cube:05d}.npy"
-    tmp = path.with_suffix(".npy.tmp")
-    with open(tmp, "wb") as f:
-        np.save(f, packed)
-    os.replace(tmp, path)
+    atomic_save(_worker_state["cubes_dir"] / f"cube_{cube:05d}.npy", packed)
     return cube, len(bits)
 
 

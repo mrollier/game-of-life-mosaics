@@ -36,6 +36,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 sys.path.insert(0, str(REPO / "src"))
 
+from gol_mosaics._atomic import atomic_save  # noqa: E402
 from gol_mosaics.nosym_tiles import (  # noqa: E402
     build_nosym_cnf,
     build_nosym_domain,
@@ -69,10 +70,7 @@ def _solve_cube(args):
         packed = np.packbits(bits, axis=1)
     else:
         packed = np.empty((0, (_worker_enc.n_vars + 7) // 8), dtype=np.uint8)
-    tmp = out_path.with_suffix(".tmp.npy")
-    with open(tmp, "wb") as f:
-        np.save(f, packed)
-    tmp.rename(out_path)
+    atomic_save(out_path, packed)
     return cube, len(rows), time.time() - t0
 
 
