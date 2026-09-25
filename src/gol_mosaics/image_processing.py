@@ -38,7 +38,7 @@ class ImageProcessor:
 
     @staticmethod
     def load_image(image_path: Union[str, Image.Image],
-                  alpha_color: str = 'white',
+                  alpha_colour: str = 'white',
                   return_alpha: bool = False,
                   remove_background: Union[bool, str] = 'auto',
                   contrast: float = 5.0) -> Union[Image.Image, Tuple[Image.Image, Image.Image]]:
@@ -55,7 +55,7 @@ class ImageProcessor:
             image_path: Path to an image file (PNG, JPG, etc.) or an already
                 loaded PIL Image. Accepting a PIL Image lets callers (e.g. a web
                 backend) pass an in-memory upload without writing a temp file.
-            alpha_color: Colour for transparent background (default: 'white')
+            alpha_colour: Colour for transparent background (default: 'white')
             return_alpha: If True, also return the alpha mask
             remove_background: Background removal mode (default: 'auto').
                 'auto' removes the background only when has_background() detects
@@ -98,7 +98,7 @@ class ImageProcessor:
         mask = img.split()[-1]
 
         # Composite onto background colour
-        bg = Image.new('RGBA', img.size, alpha_color)
+        bg = Image.new('RGBA', img.size, alpha_colour)
         bg.paste(img, mask=mask)
         img = bg
 
@@ -259,7 +259,7 @@ class ImageProcessor:
     @staticmethod
     def square_image(img: Image.Image,
                     return_aspect: bool = True,
-                    fill_color: str = 'white') -> Union[Image.Image, Tuple[Image.Image, float]]:
+                    fill_colour: str = 'white') -> Union[Image.Image, Tuple[Image.Image, float]]:
         """
         Make image square by padding with specified colour.
 
@@ -269,7 +269,7 @@ class ImageProcessor:
         Args:
             img: PIL Image to make square
             return_aspect: If True, also return original aspect ratio
-            fill_color: Colour for padding (default: 'white')
+            fill_colour: Colour for padding (default: 'white')
 
         Returns:
             If return_aspect=False: Square PIL Image
@@ -285,7 +285,7 @@ class ImageProcessor:
 
         if width != height:
             size = max(width, height)
-            img = ImageOps.pad(img, (size, size), color=fill_color)
+            img = ImageOps.pad(img, (size, size), color=fill_colour)
 
         if return_aspect:
             return img, width_over_height
@@ -393,8 +393,8 @@ class ImageProcessor:
     def preprocess_for_mosaic(cls,
                              image_path: Union[str, Image.Image],
                              grid_size: int,
-                             alpha_color: str = 'white',
-                             fill_color: str = 'white',
+                             alpha_colour: str = 'white',
+                             fill_colour: str = 'white',
                              remove_background: Union[bool, str] = 'auto',
                              contrast: float = 5.0) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float]:
         """
@@ -407,8 +407,8 @@ class ImageProcessor:
             image_path: Path to input image, or an already loaded PIL Image
                 (passed straight through to load_image).
             grid_size: Target grid size (must be even)
-            alpha_color: Background colour for transparent pixels
-            fill_color: Padding colour for squaring
+            alpha_colour: Background colour for transparent pixels
+            fill_colour: Padding colour for squaring
             remove_background: Background removal mode passed to load_image
                 ('auto', True or False; default 'auto')
             contrast: Sigmoid contrast strength passed to load_image
@@ -428,17 +428,17 @@ class ImageProcessor:
             >>> print(f"Aspect ratio: {aspect:.2f}")
         """
         # Load image and mask
-        img, mask = cls.load_image(image_path, alpha_color=alpha_color,
+        img, mask = cls.load_image(image_path, alpha_colour=alpha_colour,
                                    return_alpha=True, remove_background=remove_background,
                                    contrast=contrast)
 
         # Process greyscale image
-        square_img, aspect_ratio = cls.square_image(img, return_aspect=True, fill_color=fill_color)
+        square_img, aspect_ratio = cls.square_image(img, return_aspect=True, fill_colour=fill_colour)
         lowres = cls.rotate_and_pixelate(square_img, grid_size, expand=True)
         lowres_first, lowres_second = cls.extract_diagonal_patterns(lowres)
 
         # Process alpha mask
-        square_mask = cls.square_image(mask, return_aspect=False, fill_color='white')
+        square_mask = cls.square_image(mask, return_aspect=False, fill_colour='white')
         lowres_mask = cls.rotate_and_pixelate(square_mask, grid_size, expand=True)
         mask_first, mask_second = cls.extract_diagonal_patterns(lowres_mask)
 
@@ -448,7 +448,7 @@ class ImageProcessor:
     def preprocess_for_square_mosaic(cls,
                                      image_path: Union[str, Image.Image],
                                      grid_size: int,
-                                     alpha_color: str = 'white',
+                                     alpha_colour: str = 'white',
                                      remove_background: Union[bool, str] = 'auto',
                                      contrast: float = 5.0
                                      ) -> Tuple[np.ndarray, np.ndarray, float]:
@@ -466,7 +466,7 @@ class ImageProcessor:
                 (passed straight through to load_image).
             grid_size: Number of tile columns (any positive integer; the
                 even-grid restriction is diamond-specific)
-            alpha_color: Background colour for transparent pixels
+            alpha_colour: Background colour for transparent pixels
             remove_background: Background removal mode passed to load_image
                 ('auto', True or False; default 'auto')
             contrast: Sigmoid contrast strength passed to load_image
@@ -483,7 +483,7 @@ class ImageProcessor:
             >>> lowres, mask, aspect = ImageProcessor.preprocess_for_square_mosaic(
             ...     'portrait.png', grid_size=30)
         """
-        img, mask = cls.load_image(image_path, alpha_color=alpha_color,
+        img, mask = cls.load_image(image_path, alpha_colour=alpha_colour,
                                    return_alpha=True,
                                    remove_background=remove_background,
                                    contrast=contrast)

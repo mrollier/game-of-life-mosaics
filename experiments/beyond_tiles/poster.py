@@ -165,10 +165,10 @@ def main() -> None:
     report = {"image": args.image, "config": vars(args), **result.report}
     (out / "report.json").write_text(json.dumps(report, indent=2))
 
-    from gol_mosaics import ColorScheme, MosaicRenderer
+    from gol_mosaics import ColourScheme, MosaicRenderer
     from gol_mosaics.export import GollyExporter
 
-    render = MosaicRenderer(ColorScheme.ugent()).render_gol_mosaic(pattern)
+    render = MosaicRenderer(ColourScheme.ugent()).render_gol_mosaic(pattern)
     render.save(out / "render.png")
     if args.render_scale > 1:
         big = (render.width * args.render_scale, render.height * args.render_scale)

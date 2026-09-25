@@ -1,7 +1,7 @@
 """
 Colour scheme management for Game of Life mosaics.
 
-This module provides the ColorScheme dataclass for managing colour configurations
+This module provides the ColourScheme dataclass for managing colour configurations
 used in mosaic rendering.
 """
 
@@ -78,7 +78,7 @@ HAZE = 0.75
 
 
 @dataclass(frozen=True)
-class ColorScheme:
+class ColourScheme:
     """
     Immutable colour configuration for mosaic rendering.
 
@@ -96,7 +96,7 @@ class ColorScheme:
             to `eca_background`.
 
     Example:
-        >>> colors = ColorScheme(
+        >>> colors = ColourScheme(
         ...     gol_background='#FFFFFF',
         ...     gol_pixel='#000000',
         ...     eca_background='#FFD200',
@@ -121,7 +121,7 @@ class ColorScheme:
         field instead of stopping on one flat colour.
 
         Example:
-            >>> ColorScheme.ugent().fill
+            >>> ColourScheme.ugent().fill
             '#C7B632'
         """
         if self.fill_pixel:
@@ -129,7 +129,7 @@ class ColorScheme:
         return mix(self.eca_pixel, self.eca_background, HAZE)
 
     @classmethod
-    def ugent(cls) -> 'ColorScheme':
+    def ugent(cls) -> 'ColourScheme':
         """
         UGent (Ghent University) brand colours.
 
@@ -140,10 +140,10 @@ class ColorScheme:
         This is the default colour scheme.
 
         Returns:
-            ColorScheme with UGent brand colours
+            ColourScheme with UGent brand colours
 
         Example:
-            >>> colors = ColorScheme.ugent()
+            >>> colors = ColourScheme.ugent()
             >>> colors.eca_pixel  # UGent blue
             '#1E64C8'
         """
@@ -157,7 +157,7 @@ class ColorScheme:
     @classmethod
     def monochrome(cls,
                    foreground: str = '#000000',
-                   background: str = '#FFFFFF') -> 'ColorScheme':
+                   background: str = '#FFFFFF') -> 'ColourScheme':
         """
         Two-colour monochrome scheme.
 
@@ -169,14 +169,14 @@ class ColorScheme:
             background: Background colour (default: white)
 
         Returns:
-            ColorScheme with the same two colours for GoL and ECA
+            ColourScheme with the same two colours for GoL and ECA
 
         Example:
-            >>> colors = ColorScheme.monochrome()
+            >>> colors = ColourScheme.monochrome()
             >>> colors.gol_pixel
             '#000000'
             >>> # Red on green
-            >>> colors = ColorScheme.monochrome(foreground='#FF0000', background='#00FF00')
+            >>> colors = ColourScheme.monochrome(foreground='#FF0000', background='#00FF00')
         """
         return cls(
             gol_background=background,
@@ -189,7 +189,7 @@ class ColorScheme:
     def warhol(cls, force_white: bool = False,
                dark_on_light: bool = True,
                seed: int = None,
-               min_luma_gap: float = 0.35) -> 'ColorScheme':
+               min_luma_gap: float = 0.35) -> 'ColourScheme':
         """
         Warhol-inspired colour scheme.
 
@@ -207,14 +207,14 @@ class ColorScheme:
                 recolouring it. 0 disables the guard.
 
         Returns:
-            ColorScheme with Warhol-inspired colours
+            ColourScheme with Warhol-inspired colours
 
         Example:
-            >>> colors = ColorScheme.warhol()
+            >>> colors = ColourScheme.warhol()
             >>> colors.gol_pixel  # Bright magenta
             '#FF00FF'
             >>> # Reproducible: the same seed always gives the same scheme
-            >>> ColorScheme.warhol(seed=7) == ColorScheme.warhol(seed=7)
+            >>> ColourScheme.warhol(seed=7) == ColourScheme.warhol(seed=7)
             True
         """
 
@@ -331,7 +331,7 @@ class ColorScheme:
 
 
     @classmethod
-    def inverted(cls) -> 'ColorScheme':
+    def inverted(cls) -> 'ColourScheme':
         """
         Inverted UGent colours (light on dark).
 
@@ -339,10 +339,10 @@ class ColorScheme:
         blue background with yellow ECA overlay.
 
         Returns:
-            ColorScheme with inverted UGent colours
+            ColourScheme with inverted UGent colours
 
         Example:
-            >>> colors = ColorScheme.inverted()
+            >>> colors = ColourScheme.inverted()
             >>> colors.gol_background  # Black instead of white
             '#000000'
         """
@@ -364,7 +364,7 @@ class ColorScheme:
             Dictionary with colour configuration
 
         Example:
-            >>> colors = ColorScheme.ugent()
+            >>> colors = ColourScheme.ugent()
             >>> colors.to_dict()
             {'gol_background': '#FFFFFF', 'gol_pixel': '#000000', ...}
         """

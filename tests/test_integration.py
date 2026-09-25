@@ -5,7 +5,7 @@ import numpy as np
 from PIL import Image
 import tempfile
 import os
-from gol_mosaics import MosaicGenerator, ColorScheme
+from gol_mosaics import MosaicGenerator, ColourScheme
 
 
 @pytest.fixture
@@ -73,8 +73,8 @@ def test_full_pipeline(test_image_path):
 
 def test_custom_colors(test_image_path):
     """Test mosaic generation with custom colours."""
-    colors = ColorScheme.monochrome()
-    generator = MosaicGenerator(level=3, grid_size=10, color_scheme=colors)
+    colors = ColourScheme.monochrome()
+    generator = MosaicGenerator(level=3, grid_size=10, colours=colors)
     # Use supersample=12 which divides the mosaic width (144) evenly.
     # remove_background=False: this fixture is an opaque test pattern, not a
     # photo needing background removal (and avoids the optional rembg dep).

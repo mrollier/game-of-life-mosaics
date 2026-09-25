@@ -43,12 +43,12 @@ _MANUAL = (app.DEFAULT_MANUAL.gol_background, app.DEFAULT_MANUAL.gol_pixel,
            app.DEFAULT_MANUAL.eca_background, app.DEFAULT_MANUAL.eca_pixel)
 
 
-def _render(image, color_scheme=app.UGENT, auto_seed=0, manual=_MANUAL,
+def _render(image, colours=app.UGENT, auto_seed=0, manual=_MANUAL,
             eca_choice="random", eca_custom_rule=110,
             bg_pattern_size=app.DEFAULT_BG_SIZE, tile_shape=None):
     """Call render_mosaic with sensible defaults for the fixed settings."""
     tile_shape = tile_shape or app.DIAMONDS
-    return app.render_mosaic(image, tile_shape, 3, color_scheme, 40, 0.65, 0.5,
+    return app.render_mosaic(image, tile_shape, 3, colours, 40, 0.65, 0.5,
                              eca_choice, eca_custom_rule, bg_pattern_size,
                              auto_seed, *manual)
 
@@ -90,7 +90,7 @@ def test_manual_colors_are_applied():
     manual ECA colours must appear in the output — proving the manual palette is
     wired through (rather than a built-in scheme)."""
     manual = ("#ffffff", "#ff0000", "#00ff00", "#0000ff")  # bg, px, eca_bg, eca_px
-    result = _render(_subject_on_transparent(), color_scheme=app.MANUAL,
+    result = _render(_subject_on_transparent(), colours=app.MANUAL,
                      manual=manual)
     colors = {tuple(int(v) for v in c) for c in np.asarray(result).reshape(-1, 4)}
     assert (0, 255, 0, 255) in colors  # eca_background green

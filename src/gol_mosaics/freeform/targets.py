@@ -228,8 +228,8 @@ def grey_and_mask_from_image(
         remove_background=remove_background,
         contrast=contrast,
     )
-    img = ImageProcessor.square_image(img, return_aspect=False, fill_color=255)
-    mask = ImageProcessor.square_image(mask, return_aspect=False, fill_color=0)
+    img = ImageProcessor.square_image(img, return_aspect=False, fill_colour=255)
+    mask = ImageProcessor.square_image(mask, return_aspect=False, fill_colour=0)
     grey = np.asarray(
         img.resize((size, size), Image.Resampling.LANCZOS), dtype=np.uint8
     )

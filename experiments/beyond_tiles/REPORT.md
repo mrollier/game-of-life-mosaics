@@ -830,7 +830,7 @@ Facts worth not re-deriving:
 returning a plain mask. `compose` already builds its layer as
 `backdrop * (field + backdrop)`, which maps those to states 2 and 3, so the
 compositing arithmetic did not change at all — only `MosaicRenderer` gained a
-branch and `ColorScheme` an optional `fill_pixel`. Unset, it falls back to
+branch and `ColourScheme` an optional `fill_pixel`. Unset, it falls back to
 `eca_pixel` and every existing scheme renders exactly as before.
 
 ### Reproduction

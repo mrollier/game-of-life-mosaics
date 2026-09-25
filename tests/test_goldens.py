@@ -175,11 +175,11 @@ RENDER = "414268ec3c282c43"
 
 
 def render_digest():
-    from gol_mosaics import ColorScheme, MosaicRenderer
+    from gol_mosaics import ColourScheme, MosaicRenderer
     rng = np.random.default_rng(5)
     cells = rng.integers(0, 2, (19, 23))
     backdrop = rng.integers(0, 7, (19, 23))  # 5 and 6 sit above layers=3
-    renderer = MosaicRenderer(ColorScheme(fill_pixel="#123456"))
+    renderer = MosaicRenderer(ColourScheme(fill_pixel="#123456"))
     return sha(np.asarray(renderer.render_full_mosaic(cells, backdrop,
                                                       layers=3)),
                np.asarray(renderer.render_full_mosaic(cells, backdrop)))

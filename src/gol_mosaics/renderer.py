@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image
 from typing import Dict, Optional
 
-from .colors import ColorScheme, hex_to_rgb, mix
+from .colours import ColourScheme, hex_to_rgb, mix
 
 
 class MosaicRenderer:
@@ -21,29 +21,29 @@ class MosaicRenderer:
     mosaics and ECA overlays.
 
     Attributes:
-        color_scheme: ColorScheme instance defining colours to use
+        colours: ColourScheme instance defining colours to use
 
     Example:
-        >>> from gol_mosaics import ColorScheme, MosaicRenderer
-        >>> colors = ColorScheme.ugent()
+        >>> from gol_mosaics import ColourScheme, MosaicRenderer
+        >>> colors = ColourScheme.ugent()
         >>> renderer = MosaicRenderer(colors)
         >>> mosaic = np.random.randint(0, 2, (100, 100))
         >>> img = renderer.render_gol_mosaic(mosaic)
         >>> img.save('output.png')
     """
 
-    def __init__(self, color_scheme: ColorScheme):
+    def __init__(self, colours: ColourScheme):
         """
         Initialise renderer with colour scheme.
 
         Args:
-            color_scheme: ColorScheme instance defining colours
+            colours: ColourScheme instance defining colours
 
         Example:
-            >>> colors = ColorScheme.ugent()
+            >>> colors = ColourScheme.ugent()
             >>> renderer = MosaicRenderer(colors)
         """
-        self.color_scheme = color_scheme
+        self.colours = colours
 
     def render_gol_mosaic(self, mosaic: np.ndarray) -> Image.Image:
         """
@@ -70,8 +70,8 @@ class MosaicRenderer:
             )
 
         color_map = {
-            0: self.color_scheme.gol_background,
-            1: self.color_scheme.gol_pixel
+            0: self.colours.gol_background,
+            1: self.colours.gol_pixel
         }
 
         rgb_array = self._array_to_rgb(mosaic, color_map)
@@ -126,12 +126,12 @@ class MosaicRenderer:
         # (negative, above the ramp, or not an integer) stays transparent.
         top = int(eca_mask.max()) if layers is None else layers + 1
         palette = np.zeros((max(top, 2) + 1, 4), dtype=np.uint8)
-        palette[1] = (*hex_to_rgb(self.color_scheme.eca_background), 255)
-        palette[2] = (*hex_to_rgb(self.color_scheme.eca_pixel), 255)
+        palette[1] = (*hex_to_rgb(self.colours.eca_background), 255)
+        palette[2] = (*hex_to_rgb(self.colours.eca_pixel), 255)
         for value in range(3, top + 1):
             fraction = (value - 2) / max(top - 2, 1)
-            palette[value] = (*hex_to_rgb(mix(self.color_scheme.eca_pixel,
-                                              self.color_scheme.fill,
+            palette[value] = (*hex_to_rgb(mix(self.colours.eca_pixel,
+                                              self.colours.fill,
                                               fraction)), 255)
 
         index = eca_mask.astype(np.int64)
@@ -190,15 +190,10 @@ class MosaicRenderer:
 
         for value, hex_color in color_map.items():
             mask = (arr == value)
-            rgb_tuple = MosaicRenderer._hex_to_rgb(hex_color)
+            rgb_tuple = hex_to_rgb(hex_color)
             rgb_array[mask] = rgb_tuple
 
         return rgb_array
-
-    @staticmethod
-    def _hex_to_rgb(hex_color: str) -> tuple:
-        """Convert hex colour string to RGB tuple (see colors.hex_to_rgb)."""
-        return hex_to_rgb(hex_color)
 
     def render_full_mosaic(self,
                           gol_mosaic: np.ndarray,
@@ -231,6 +226,6 @@ class MosaicRenderer:
         """String representation of renderer."""
         return (
             f"MosaicRenderer("
-            f"gol_colors={self.color_scheme.gol_background}/{self.color_scheme.gol_pixel}, "
-            f"eca_colors={self.color_scheme.eca_background}/{self.color_scheme.eca_pixel})"
+            f"gol_colors={self.colours.gol_background}/{self.colours.gol_pixel}, "
+            f"eca_colors={self.colours.eca_background}/{self.colours.eca_pixel})"
         )

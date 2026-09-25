@@ -12,7 +12,7 @@ from typing import Optional, Tuple, Union
 from scipy.ndimage import binary_fill_holes, label
 
 from .patterns import PatternLibrary
-from .colors import ColorScheme
+from .colours import ColourScheme
 from .compose import compose
 from .image_processing import ImageProcessor
 from .eca import ECABackground
@@ -55,7 +55,7 @@ class MosaicGenerator:
     Attributes:
         level: Pattern complexity level (1-5 pre-computed, others need generation)
         grid_size: Number of tiles in the grid
-        color_scheme: ColorScheme for rendering
+        colours: ColourScheme for rendering
         eca_rule: Rule number for ECA background
         random_patterns: Whether to randomly select patterns
         invert: Whether to invert the density mapping
@@ -70,7 +70,7 @@ class MosaicGenerator:
     def __init__(self,
                  level: Optional[int] = None,
                  grid_size: Optional[int] = None,
-                 color_scheme: Optional[ColorScheme] = None,
+                 colours: Optional[ColourScheme] = None,
                  eca_rule: Optional[int] = None,
                  random_patterns: bool = True,
                  invert: bool = True,
@@ -83,7 +83,7 @@ class MosaicGenerator:
                 pre-computed)
             grid_size: Number of tiles in the grid (must be even for the
                 diamond layout; any positive integer for squares)
-            color_scheme: ColorScheme instance (defaults to UGent colours)
+            colours: ColourScheme instance (defaults to UGent colours)
             eca_rule: Rule number for Elementary Cellular Automaton background.
                      If None, randomly selects from interesting rules for variety.
             random_patterns: Use random pattern selection vs deterministic
@@ -97,12 +97,12 @@ class MosaicGenerator:
                 tile_shape is unknown
 
         Example:
-            >>> from gol_mosaics import MosaicGenerator, ColorScheme
-            >>> colors = ColorScheme.monochrome()
+            >>> from gol_mosaics import MosaicGenerator, ColourScheme
+            >>> colors = ColourScheme.monochrome()
             >>> generator = MosaicGenerator(
             ...     level=5,
             ...     grid_size=100,
-            ...     color_scheme=colors,
+            ...     colours=colors,
             ...     eca_rule=54
             ... )
         """
@@ -129,7 +129,7 @@ class MosaicGenerator:
                          else eca_rule)
 
         # Select default UGent colour scheme if not provided
-        self.color_scheme = color_scheme or ColorScheme.ugent()
+        self.colours = colours or ColourScheme.ugent()
 
         # Pick random patterns and invert colours.
         # These can be touched but generally look better with default values.
@@ -153,7 +153,7 @@ class MosaicGenerator:
     def renderer(self) -> MosaicRenderer:
         """Get renderer (lazy-loaded)."""
         if self._renderer is None:
-            self._renderer = MosaicRenderer(self.color_scheme)
+            self._renderer = MosaicRenderer(self.colours)
         return self._renderer
 
     @property
@@ -242,7 +242,7 @@ class MosaicGenerator:
                 tiling (default 5.0; 0 disables). See ImageProcessor.enhance_contrast.
             seed: Optional integer to seed numpy's global RNG before generation,
                 so the same image and settings reproduce the same mosaic.
-                Note: ColorScheme.warhol() uses its own np.random.default_rng()
+                Note: ColourScheme.warhol() uses its own np.random.default_rng()
                 and is therefore NOT made reproducible by this seed.
             return_arrays: If True, also return the binary GoL mosaic and the
                 transparency mask (both aspect-adjusted) alongside the image, as
@@ -632,7 +632,7 @@ class MosaicGenerator:
         return compose(
             gol_mosaic,
             transparency_mask,
-            self.color_scheme,
+            self.colours,
             style='flat' if no_eca else 'eca',
             rule=self.eca_rule,
             supersample=supersample

@@ -17,7 +17,7 @@ __author__ = "Michiel Rollier"
 
 from .mosaic import MosaicGenerator
 from .patterns import PatternLibrary
-from .colors import ColorScheme
+from .colours import ColourScheme
 from .export import GollyExporter
 from .image_processing import ImageProcessor
 from .eca import ECABackground
@@ -29,7 +29,7 @@ from .compose import (compose, agar_background, density_band,
 __all__ = [
     'MosaicGenerator',
     'PatternLibrary',
-    'ColorScheme',
+    'ColourScheme',
     'GollyExporter',
     'ImageProcessor',
     'ECABackground',

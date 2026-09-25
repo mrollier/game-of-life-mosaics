@@ -46,65 +46,65 @@ from common import contact_sheet
 from gol_mosaics.freeform.io import load_pattern_asset, save_pattern_asset
 from gol_mosaics.freeform.solver import verify_still_life
 from gol_mosaics.freeform.targets import load_rect_target
-from gol_mosaics import (ColorScheme, MosaicRenderer, compose,
+from gol_mosaics import (ColourScheme, MosaicRenderer, compose,
                          filled_background)
 
 WIDTH, HEIGHT, SCALE = 800, 200, 2
 BANNER = (1584, 396)  # LinkedIn's own size; the render is 1600x400
 
-ICE = ColorScheme.monochrome(foreground="#1E64C8", background="#FFFFFF")
-SLATE = ColorScheme.monochrome(foreground="#2B2B2B", background="#F2EFE9")
+ICE = ColourScheme.monochrome(foreground="#1E64C8", background="#FFFFFF")
+SLATE = ColourScheme.monochrome(foreground="#2B2B2B", background="#F2EFE9")
 
 # The two palettes picked from the avatar-matched set, kept fixed so the
 # BACKGROUNDS list below varies nothing but the backdrop.
-TEAL_RUST = ColorScheme(gol_background="#F4EDE2", gol_pixel="#2B3538",
+TEAL_RUST = ColourScheme(gol_background="#F4EDE2", gol_pixel="#2B3538",
                         eca_background="#1B5E5E", eca_pixel="#E8D9C0")
-CREAM_AUBURN = ColorScheme(gol_background="#F2E9DA", gol_pixel="#8C4A2F",
+CREAM_AUBURN = ColourScheme(gol_background="#F2E9DA", gol_pixel="#8C4A2F",
                            eca_background="#F2E9DA", eca_pixel="#8C4A2F")
 
 # (name, compose kwargs). Seeds are fixed so every render is reproducible.
 BANNER_1 = [
     ("mosaic-l2-open", dict(style="mosaic", level=2, density=(0.0, 1.0),
-                            seed=1, scheme=ColorScheme.ugent())),
+                            seed=1, colours=ColourScheme.ugent())),
     ("mosaic-l2-dense", dict(style="mosaic", level=2, density=(0.65, 1.0),
-                             seed=2, scheme=ColorScheme.warhol(seed=3))),
+                             seed=2, colours=ColourScheme.warhol(seed=3))),
     ("mosaic-l2-ramp", dict(style="mosaic", level=2, tone="linear",
-                            tone_angle=0.0, seed=3, scheme=ICE)),
+                            tone_angle=0.0, seed=3, colours=ICE)),
     ("mosaic-l3-sparse", dict(style="mosaic", level=3, density=(0.0, 0.40),
-                              seed=4, scheme=SLATE)),
+                              seed=4, colours=SLATE)),
     ("mosaic-l3-square", dict(style="mosaic", level=3, shape="square",
                               density=(0.5, 1.0), seed=5,
-                              scheme=ColorScheme.warhol(seed=11))),
+                              colours=ColourScheme.warhol(seed=11))),
     ("mosaic-l2-vignette", dict(style="mosaic", level=2, tone="vignette",
-                                seed=6, scheme=ColorScheme.inverted())),
+                                seed=6, colours=ColourScheme.inverted())),
     ("mosaic-l3-rise", dict(style="mosaic", level=3, tone="linear",
                             tone_angle=90.0, seed=7,
-                            scheme=ColorScheme.warhol(seed=21))),
-    ("eca", dict(style="eca", rule=110, scheme=ColorScheme.ugent())),
-    ("agar", dict(style="agar", scheme=ICE)),
-    ("flat", dict(style="flat", scheme=ColorScheme.warhol(seed=5))),
+                            colours=ColourScheme.warhol(seed=21))),
+    ("eca", dict(style="eca", rule=110, colours=ColourScheme.ugent())),
+    ("agar", dict(style="agar", colours=ICE)),
+    ("flat", dict(style="flat", colours=ColourScheme.warhol(seed=5))),
 ]
 
 BANNER_2 = [
     ("mosaic-l2-open", dict(style="mosaic", level=2, density=(0.0, 1.0),
-                            seed=1, scheme=ColorScheme.ugent())),
+                            seed=1, colours=ColourScheme.ugent())),
     ("mosaic-l3-vignette", dict(style="mosaic", level=3, density=(0.6, 1.0),
                                 tone="vignette", seed=2,
-                                scheme=ColorScheme.warhol(seed=3))),
+                                colours=ColourScheme.warhol(seed=3))),
     ("mosaic-l4-rise", dict(style="mosaic", level=4, tone="linear",
-                            tone_angle=90.0, seed=3, scheme=ICE)),
+                            tone_angle=90.0, seed=3, colours=ICE)),
     ("mosaic-l5-sparse", dict(style="mosaic", level=5, density=(0.0, 0.40),
-                              seed=4, scheme=SLATE)),
+                              seed=4, colours=SLATE)),
     ("mosaic-l6-radial", dict(style="mosaic", level=6, tone="radial", seed=5,
-                              scheme=ColorScheme.warhol(seed=11))),
+                              colours=ColourScheme.warhol(seed=11))),
     ("mosaic-l4-square", dict(style="mosaic", level=4, shape="square",
-                              seed=6, scheme=ColorScheme.ugent())),
+                              seed=6, colours=ColourScheme.ugent())),
     ("mosaic-l5-square", dict(style="mosaic", level=5, shape="square",
                               density=(0.5, 1.0), seed=7,
-                              scheme=ColorScheme.inverted())),
-    ("eca", dict(style="eca", rule=90, scheme=ColorScheme.ugent())),
-    ("agar", dict(style="agar", scheme=ICE)),
-    ("flat", dict(style="flat", scheme=ColorScheme.warhol(seed=5))),
+                              colours=ColourScheme.inverted())),
+    ("eca", dict(style="eca", rule=90, colours=ColourScheme.ugent())),
+    ("agar", dict(style="agar", colours=ICE)),
+    ("flat", dict(style="flat", colours=ColourScheme.warhol(seed=5))),
 ]
 
 # --- Avatar-matched set -----------------------------------------------------
@@ -126,56 +126,56 @@ AVATAR = [
     # Direct complement. Auburn sits near hue 18 degrees; teal near 198 is
     # opposite it. The photo's window glass already carries a dark teal, so
     # this extends a colour that is literally in the picture.
-    ("teal-rust", dict(style="mosaic", level=2, seed=1, scheme=TEAL_RUST)),
+    ("teal-rust", dict(style="mosaic", level=2, seed=1, colours=TEAL_RUST)),
     # Analogous warm: everything within about 25 degrees of the hair. Nothing
     # separates by hue, so the dark avatar separates by value instead. The
     # calm option.
-    ("sand-copper", dict(style="mosaic", level=3, seed=2, scheme=ColorScheme(
+    ("sand-copper", dict(style="mosaic", level=3, seed=2, colours=ColourScheme(
         gol_background="#FAF5EC", gol_pixel="#4A3628",
         eca_background="#E3CBA8", eca_pixel="#A5583A"))),
     # The shirt lifted to a field colour — the largest non-skin area of the
     # photo — with the hair's amber as the accent that ties them together.
     ("slate-amber", dict(style="mosaic", level=2, density=(0.55, 1.0), seed=3,
-                         scheme=ColorScheme(
+                         colours=ColourScheme(
                              gol_background="#EDEAE4", gol_pixel="#3F4750",
                              eca_background="#4A5560", eca_pixel="#D8A24A"))),
     # Monochromatic: one hue family at three values. The hair belongs to the
     # same family, so avatar and banner read as a single image.
-    ("terracotta", dict(style="mosaic", level=4, seed=4, scheme=ColorScheme(
+    ("terracotta", dict(style="mosaic", level=4, seed=4, colours=ColourScheme(
         gol_background="#F6EBE3", gol_pixel="#6B3324",
         eca_background="#B5654A", eca_pixel="#E0AE96"))),
     # Inverted value: pale mountain on a dark sky, so the dark avatar sinks
     # into the banner instead of sitting on it. Closest to the photo's own
     # filmic grade.
     ("forest-dusk", dict(style="mosaic", level=2, tone="linear",
-                         tone_angle=90.0, seed=5, scheme=ColorScheme(
+                         tone_angle=90.0, seed=5, colours=ColourScheme(
                              gol_background="#141A18", gol_pixel="#CBD8C6",
                              eca_background="#1E3A34", eca_pixel="#6E8C6A"))),
     # High-key and near-monochrome. Maximum value contrast against a dark
     # avatar, and the most legible of the ten at thumbnail size.
     ("cream-auburn", dict(style="mosaic", level=3, density=(0.0, 0.45), seed=6,
-                          scheme=CREAM_AUBURN)),
+                          colours=CREAM_AUBURN)),
     # The original UGent pairing you picked, desaturated to match the photo's
     # muted grade. Same geometry and seed as `banner2-mosaic-l2-open`, so it
     # is a pure recolour and the fair comparison.
-    ("ochre-ink", dict(style="mosaic", level=2, seed=1, scheme=ColorScheme(
+    ("ochre-ink", dict(style="mosaic", level=2, seed=1, colours=ColourScheme(
         gol_background="#F7F2E6", gol_pixel="#2E4756",
         eca_background="#D9B25C", eca_pixel="#2E4756"))),
     # One colour only, matched to the beard, on large level-5 tiles. Structure
     # carries the image rather than palette.
     ("copper-mono", dict(style="mosaic", level=5, seed=7,
-                         scheme=ColorScheme.monochrome("#9C5233", "#F5EFE6"))),
+                         colours=ColourScheme.monochrome("#9C5233", "#F5EFE6"))),
     # Split complement: instead of the teal directly opposite the hair, the
     # two hues flanking it. Less obvious than teal-and-orange.
     ("indigo-rust", dict(style="mosaic", level=3, shape="square", seed=8,
-                         scheme=ColorScheme(
+                         colours=ColourScheme(
                              gol_background="#EFEDE8", gol_pixel="#3A4661",
                              eca_background="#2F3E5C", eca_pixel="#B06A3E"))),
     # Neutral field, single warm accent: the wood slats' taupe as the sky, the
     # hair's ember as the only saturated note. Leaves the avatar as the most
     # colourful thing on the page.
     ("taupe-ember", dict(style="mosaic", level=2, tone="vignette", seed=9,
-                         scheme=ColorScheme(
+                         colours=ColourScheme(
                              gol_background="#F0EDE7", gol_pixel="#4B463F",
                              eca_background="#A9A096", eca_pixel="#C4633A"))),
 ]
@@ -197,41 +197,41 @@ AVATAR = [
 BACKGROUNDS = [
     # Tile size sweep: four times the area of the L2 you picked, so each
     # diamond reads as an ornament instead of a texture.
-    ("teal-l4", dict(style="mosaic", level=4, seed=11, scheme=TEAL_RUST)),
+    ("teal-l4", dict(style="mosaic", level=4, seed=11, colours=TEAL_RUST)),
     # Largest tiles in the bank, restricted to the emptiest third of it — a
     # wide open lattice with very few cells in it.
     ("teal-l6-sparse", dict(style="mosaic", level=6, density=(0.0, 0.35),
-                            seed=12, scheme=TEAL_RUST)),
+                            seed=12, colours=TEAL_RUST)),
     # Square lattice instead of diamond, graded so the sky packs towards the
     # top and thins as it meets the ridgeline.
     ("teal-l5-square-ramp", dict(style="mosaic", level=5, shape="square",
                                  tone="linear", tone_angle=90.0, seed=13,
-                                 scheme=TEAL_RUST)),
+                                 colours=TEAL_RUST)),
     # No tiles at all: the tightest safe block agar, a uniform fine weave.
-    ("teal-agar", dict(style="agar", pitch=(3, 4), scheme=TEAL_RUST)),
+    ("teal-agar", dict(style="agar", pitch=(3, 4), colours=TEAL_RUST)),
     # Rule 30 is the chaotic one; supersample 6 keeps it fine-grained rather
     # than the blocky default.
     ("teal-eca30", dict(style="eca", rule=30, supersample=6,
-                        scheme=TEAL_RUST)),
+                        colours=TEAL_RUST)),
     # Densest third of the level-2 bank: small tiles packed tight, closest to
     # a woven cloth.
     ("cream-l2-dense", dict(style="mosaic", level=2, density=(0.65, 1.0),
-                            seed=14, scheme=CREAM_AUBURN)),
+                            seed=14, colours=CREAM_AUBURN)),
     # Radial grade peaks at the canvas centre, which on this image is directly
     # behind the summit.
     ("cream-l4-radial", dict(style="mosaic", level=4, tone="radial", seed=15,
-                             scheme=CREAM_AUBURN)),
+                             colours=CREAM_AUBURN)),
     # Vignette is the inverse: dense at the edges, opening out over the peak.
     ("cream-l3-square-vignette", dict(style="mosaic", level=3, shape="square",
                                       tone="vignette", seed=16,
-                                      scheme=CREAM_AUBURN)),
+                                      colours=CREAM_AUBURN)),
     # Agar at double pitch — the same construction as `teal-agar`, four times
     # sparser, so it reads as scattered dots rather than a weave.
     ("cream-agar-sparse", dict(style="agar", pitch=(6, 8),
-                               scheme=CREAM_AUBURN)),
+                               colours=CREAM_AUBURN)),
     # Rule 110 is the complex one: structured triangles rather than noise.
     ("cream-eca110", dict(style="eca", rule=110, supersample=5,
-                          scheme=CREAM_AUBURN)),
+                          colours=CREAM_AUBURN)),
 ]
 
 # --- Filling the halo -------------------------------------------------------
@@ -251,42 +251,42 @@ CREAM_HAZE = replace(CREAM_AUBURN, fill_pixel="#C98F6B")
 # plain mosaic is one ragged row of diamonds over a wide empty field.
 FILLED_1 = [
     ("l3", dict(style="mosaic", level=3, fill="auto", seed=21,
-                scheme=TEAL_HAZE)),
+                colours=TEAL_HAZE)),
     ("l2-tight", dict(style="mosaic", level=2, fill="auto", fill_band=10,
-                      seed=22, scheme=CREAM_HAZE)),
+                      seed=22, colours=CREAM_HAZE)),
     # A band instead of the default: the filler hugs the ridgeline and the
     # sky above it stays open.
     ("l3-band", dict(style="mosaic", level=3, fill="auto", fill_band=18,
-                     seed=23, scheme=TEAL_HAZE)),
+                     seed=23, colours=TEAL_HAZE)),
     # fill=() skips the tile cascade — loose still lifes only, so the fringe is
     # all grain with no intermediate sizes.
     ("l3-scatter", dict(style="mosaic", level=3, fill=(), seed=24,
-                        scheme=CREAM_HAZE)),
+                        colours=CREAM_HAZE)),
     # Fading off: the band ends on a line instead of dissolving. The honest
     # comparison for whether the fade earns its keep.
     ("l2-hard", dict(style="mosaic", level=2, fill="auto", fill_band=14,
-                     fill_fade=False, seed=25, scheme=TEAL_HAZE)),
+                     fill_fade=False, seed=25, colours=TEAL_HAZE)),
 ]
 
 FILLED_2 = [
     # The largest tiles in the bank, whose halo is the worst of all, with every
     # smaller level cascaded in behind them.
     ("l6", dict(style="mosaic", level=6, fill="auto", seed=31,
-                scheme=TEAL_HAZE)),
+                colours=TEAL_HAZE)),
     ("l4", dict(style="mosaic", level=4, fill="auto", seed=32,
-                scheme=CREAM_HAZE)),
+                colours=CREAM_HAZE)),
     # Your favourite geometry, filled. L2 already had the tightest halo of the
     # three, so this is the smallest change of the set.
     ("l2", dict(style="mosaic", level=2, fill="auto", seed=33,
-                scheme=TEAL_HAZE)),
+                colours=TEAL_HAZE)),
     # Square tiles cascade down to level 3 only — the bank stops there — so the
     # scatter has more to do.
     ("l5-square", dict(style="mosaic", level=5, shape="square", fill="auto",
-                       seed=34, scheme=CREAM_HAZE)),
+                       seed=34, colours=CREAM_HAZE)),
     # The same geometry as `l4`, with the loose still lifes pulled back to a
     # fringe. The honest comparison for whether filling the whole sky is right.
     ("l4-band", dict(style="mosaic", level=4, fill="auto", fill_band=18,
-                     seed=35, scheme=TEAL_HAZE)),
+                     seed=35, colours=TEAL_HAZE)),
 ]
 
 # (variation-set name, source image, solve name, variations). The solve name
@@ -428,7 +428,7 @@ def halo_figure(here: Path, out: Path) -> None:
     for ax, (title, kwargs) in zip(axes, panels):
         image = to_banner(compose(pattern, background, scale=SCALE,
                                   style="mosaic", level=6, seed=31,
-                                  scheme=TEAL_HAZE, **kwargs))
+                                  colours=TEAL_HAZE, **kwargs))
         field = (mosaic_background(background, level=6, seed=31)
                  if kwargs["fill"] is None
                  else filled_background(background, level=6, seed=31))

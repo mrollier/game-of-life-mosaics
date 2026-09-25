@@ -68,7 +68,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from common import log
-from gol_mosaics import ColorScheme
+from gol_mosaics import ColourScheme
 from gol_mosaics.compose import centring_pad
 
 WIDTH, HEIGHT, SCALE = 360, 512, 3
@@ -76,7 +76,7 @@ D_MAX = 0.32  # peak free-form density; 0.40 was heavier than wanted and unpolis
 STRIP_ROWS = 64  # strip height; the seam pass derives the separator rows from it
 
 # The halo-figure palette (TEAL_HAZE in linkedin_banners.py), verbatim.
-FLYER = ColorScheme(gol_background="#F4EDE2", gol_pixel="#2B3538",
+FLYER = ColourScheme(gol_background="#F4EDE2", gol_pixel="#2B3538",
                     eca_background="#1B5E5E", eca_pixel="#E8D9C0",
                     fill_pixel="#7FA8A0")
 
@@ -947,36 +947,36 @@ PALETTES = {
     # UGent and USP both use blue and yellow. Complementary pair, both pulled
     # down in saturation: a deep ultramarine field with old-gold tiles, and a
     # navy grain on warm white. The one that reads as institutional.
-    "blue-gold": ColorScheme(gol_background="#F6F2E8", gol_pixel="#1C2B4A",
+    "blue-gold": ColourScheme(gol_background="#F6F2E8", gol_pixel="#1C2B4A",
                              eca_background="#17407E", eca_pixel="#E6B95A",
                              fill_pixel="#7F93B8"),
     # Analogous warm: terracotta, sand, umber. Earth colours, calm, with the
     # frame and the grain in the same family so nothing competes.
-    "terracotta": ColorScheme(gol_background="#F8F1E6", gol_pixel="#4A3628",
+    "terracotta": ColourScheme(gol_background="#F8F1E6", gol_pixel="#4A3628",
                               eca_background="#9C4F35", eca_pixel="#F1DFC2",
                               fill_pixel="#D6A283"),
     # Split complementary of copper: indigo field, copper grain. The tiles in
     # parchment so the frame stays quiet and the grain carries the warmth.
-    "indigo-copper": ColorScheme(gol_background="#F1EEE8", gol_pixel="#8C4A2F",
+    "indigo-copper": ColourScheme(gol_background="#F1EEE8", gol_pixel="#8C4A2F",
                                  eca_background="#2E3D5C", eca_pixel="#EADCC0",
                                  fill_pixel="#8E96B0"),
     # Muted complementary: plum against sage. The most unusual of the set.
-    "plum-sage": ColorScheme(gol_background="#F4F0E8", gol_pixel="#3A2A3A",
+    "plum-sage": ColourScheme(gol_background="#F4F0E8", gol_pixel="#3A2A3A",
                              eca_background="#4B2E4C", eca_pixel="#D6D2B4",
                              fill_pixel="#A08CA4"),
     # Monochrome navy at three values. One hue, so the structure does all the
     # work; the most formal option.
-    "navy-mono": ColorScheme(gol_background="#F3F5F8", gol_pixel="#1B3A5C",
+    "navy-mono": ColourScheme(gol_background="#F3F5F8", gol_pixel="#1B3A5C",
                              eca_background="#1B3A5C", eca_pixel="#B7CADF",
                              fill_pixel="#6F93B5"),
     # The reference palette with its values inverted: a dark slate text zone
     # with cream grain (light text in Canva) and a cream frame with teal
     # tiles. For a phone in dark mode.
-    "teal-dark": ColorScheme(gol_background="#1F2A2E", gol_pixel="#E8DFCB",
+    "teal-dark": ColourScheme(gol_background="#1F2A2E", gol_pixel="#E8DFCB",
                              eca_background="#EFE6D4", eca_pixel="#1B5E5E",
                              fill_pixel="#7FA8A0"),
     # Forest and gold: near-complementary, the gold kept dusty.
-    "forest-gold": ColorScheme(gol_background="#F7F2E4", gol_pixel="#2B3A2E",
+    "forest-gold": ColourScheme(gol_background="#F7F2E4", gol_pixel="#2B3A2E",
                                eca_background="#1F3D2B", eca_pixel="#D9B25C",
                                fill_pixel="#8AA48C"),
     # --- The quiet set (fourth round). The user found the first four heavy
@@ -988,38 +988,38 @@ PALETTES = {
     # same hue family, and the fields are tints. The silhouette then reads
     # as a soft textured shape and the text zone as an unbroken sheet.
     # Monochrome cool grey-blue: the most restful, near-neutral.
-    "mist": ColorScheme(gol_background="#F4F3EF", gol_pixel="#6E7D8A",
+    "mist": ColourScheme(gol_background="#F4F3EF", gol_pixel="#6E7D8A",
                         eca_background="#8497A8", eca_pixel="#B4C2CE",
                         fill_pixel="#9EAEBC"),
     # Warm neutral, sand and taupe: paper-like, no hue to tire of.
-    "sand": ColorScheme(gol_background="#FAF7F1", gol_pixel="#8A7A64",
+    "sand": ColourScheme(gol_background="#FAF7F1", gol_pixel="#8A7A64",
                         eca_background="#C6B394", eca_pixel="#E3D7C0",
                         fill_pixel="#D5C5A8"),
     # Sage: green-grey, the calmest of the chromatic hues.
-    "sage": ColorScheme(gol_background="#F5F7F1", gol_pixel="#6C7D6A",
+    "sage": ColourScheme(gol_background="#F5F7F1", gol_pixel="#6C7D6A",
                         eca_background="#8FA48F", eca_pixel="#B7C8B4",
                         fill_pixel="#A4B7A1"),
     # Heather: greyed mauve, soft and a little unusual.
-    "heather": ColorScheme(gol_background="#F7F5F8", gol_pixel="#75697F",
+    "heather": ColourScheme(gol_background="#F7F5F8", gol_pixel="#75697F",
                            eca_background="#9A8FA8", eca_pixel="#C3BACD",
                            fill_pixel="#AFA5BA"),
     # Slate: a dark field kept, but the tiles only a step lighter, so the
     # skyline is one calm dark mass with a faint weave rather than a grid
     # of bright diamonds.
-    "slate": ColorScheme(gol_background="#F2F1EC", gol_pixel="#5C6A73",
+    "slate": ColourScheme(gol_background="#F2F1EC", gol_pixel="#5C6A73",
                          eca_background="#435663", eca_pixel="#60737F",
                          fill_pixel="#526572"),
     # The reference teal with its contrast halved: same identity, the
     # tiles a mid-teal instead of cream, the grain a grey-teal.
-    "teal-soft": ColorScheme(gol_background="#F4EDE2", gol_pixel="#587274",
+    "teal-soft": ColourScheme(gol_background="#F4EDE2", gol_pixel="#587274",
                              eca_background="#2A6666", eca_pixel="#4F8886",
                              fill_pixel="#3E7A78"),
     # Ochre: dusty gold and tan, warm without the terracotta's weight.
-    "ochre": ColorScheme(gol_background="#FBF7EE", gol_pixel="#8C7448",
+    "ochre": ColourScheme(gol_background="#FBF7EE", gol_pixel="#8C7448",
                          eca_background="#C9A86E", eca_pixel="#E4CF9E",
                          fill_pixel="#D7BC85"),
     # Denim: a mid blue, tiles a tint of it; institutional blue, softened.
-    "denim": ColorScheme(gol_background="#F3F4F2", gol_pixel="#5E6C7B",
+    "denim": ColourScheme(gol_background="#F3F4F2", gol_pixel="#5E6C7B",
                          eca_background="#5F7A95", eca_pixel="#8AA1B8",
                          fill_pixel="#7590A8"),
 }

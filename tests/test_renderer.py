@@ -3,14 +3,14 @@
 import pytest
 import numpy as np
 from PIL import Image
-from gol_mosaics import ColorScheme, MosaicRenderer
-from gol_mosaics.renderer import hex_to_rgb
+from gol_mosaics import ColourScheme, MosaicRenderer
+from gol_mosaics.colours import hex_to_rgb
 
 
 @pytest.fixture
 def renderer():
     """Renderer with the default UGent scheme (white/black GoL, yellow/blue ECA)."""
-    return MosaicRenderer(ColorScheme.ugent())
+    return MosaicRenderer(ColourScheme.ugent())
 
 
 def test_render_gol_mosaic_colors(renderer):
@@ -75,10 +75,10 @@ def test_composite_rejects_size_and_mode_mismatch(renderer):
 
 def test_hex_to_rgb():
     """Hex parsing handles '#' prefix and both cases."""
-    assert MosaicRenderer._hex_to_rgb('#FFFFFF') == (255, 255, 255)
-    assert MosaicRenderer._hex_to_rgb('#1E64C8') == (30, 100, 200)
-    assert MosaicRenderer._hex_to_rgb('#ff0099') == (255, 0, 153)
-    assert MosaicRenderer._hex_to_rgb('000000') == (0, 0, 0)
+    assert hex_to_rgb('#FFFFFF') == (255, 255, 255)
+    assert hex_to_rgb('#1E64C8') == (30, 100, 200)
+    assert hex_to_rgb('#ff0099') == (255, 0, 153)
+    assert hex_to_rgb('000000') == (0, 0, 0)
 
 
 def test_render_full_mosaic_matches_manual_pipeline(renderer):
@@ -98,9 +98,9 @@ def test_render_full_mosaic_matches_manual_pipeline(renderer):
 def test_render_eca_overlay_paints_the_fill_state(renderer):
     """A lone filler state lands on the fill colour, ramp or no ramp."""
     overlay = np.asarray(renderer.render_eca_overlay(np.array([[2, 3]])))
-    assert tuple(overlay[0, 1])[:3] == hex_to_rgb(renderer.color_scheme.fill)
+    assert tuple(overlay[0, 1])[:3] == hex_to_rgb(renderer.colours.fill)
 
-    tinted = MosaicRenderer(ColorScheme(eca_pixel='#1E64C8',
+    tinted = MosaicRenderer(ColourScheme(eca_pixel='#1E64C8',
                                         fill_pixel='#FF0000'))
     painted = np.asarray(tinted.render_eca_overlay(np.array([[2, 3]])))
     assert tuple(painted[0, 0]) == (30, 100, 200, 255)
@@ -109,7 +109,7 @@ def test_render_eca_overlay_paints_the_fill_state(renderer):
 
 def test_render_eca_overlay_ramps_the_filler_levels():
     """Filler states walk from the ECA pixel colour to the fill colour."""
-    tinted = MosaicRenderer(ColorScheme(eca_pixel='#000000',
+    tinted = MosaicRenderer(ColourScheme(eca_pixel='#000000',
                                         fill_pixel='#FFFFFF'))
     row = np.arange(2, 8).reshape(1, 6)
     painted = np.asarray(tinted.render_eca_overlay(row, layers=6))[0, :, 0]
@@ -119,7 +119,7 @@ def test_render_eca_overlay_ramps_the_filler_levels():
 
 def test_render_eca_overlay_ramp_ignores_an_empty_top_layer():
     """`layers` is trusted over the mask, so a missing layer cannot shorten it."""
-    tinted = MosaicRenderer(ColorScheme(eca_pixel='#000000',
+    tinted = MosaicRenderer(ColourScheme(eca_pixel='#000000',
                                         fill_pixel='#FFFFFF'))
     full = np.asarray(tinted.render_eca_overlay(
         np.array([[3, 4, 5]]), layers=4))[0, :, 0]

@@ -32,8 +32,8 @@ exactly the still life that was verified. For a backdrop that is itself alive,
 use `life_safe_pattern`, whose output is a still life over the whole grid.
 
 Example:
-    >>> from gol_mosaics import ColorScheme, compose
-    >>> art = compose(pattern, ~free_mask, ColorScheme.warhol(seed=7),
+    >>> from gol_mosaics import ColourScheme, compose
+    >>> art = compose(pattern, ~free_mask, ColourScheme.warhol(seed=7),
     ...               style='eca', rule=110, scale=3)
     >>> art.save('poster.png')
 """
@@ -44,7 +44,7 @@ from typing import Optional, Tuple
 import numpy as np
 from PIL import Image
 
-from .colors import ColorScheme
+from .colours import ColourScheme
 from .eca import ECABackground
 from .renderer import MosaicRenderer
 
@@ -906,7 +906,7 @@ def life_safe_pattern(pattern: np.ndarray,
 
 def compose(pattern: np.ndarray,
             background_mask: np.ndarray,
-            scheme: Optional[ColorScheme] = None,
+            colours: Optional[ColourScheme] = None,
             style: str = 'eca',
             *,
             rule: Optional[int] = None,
@@ -933,7 +933,7 @@ def compose(pattern: np.ndarray,
         background_mask: Boolean array, True where the background is. The
             beyond-tiles pipeline carries the opposite convention in
             `free_mask` (True on the subject) — pass `~free_mask`.
-        scheme: ColorScheme to paint with (default: `ColorScheme.ugent()`).
+        colours: ColourScheme to paint with (default: `ColourScheme.ugent()`).
             The backdrop uses the scheme's two ECA colours.
         style: One of 'none' (transparent), 'flat', 'eca', 'agar', 'mosaic'
         rule: ECA rule for style='eca'. None picks an interesting rule at
@@ -979,7 +979,7 @@ def compose(pattern: np.ndarray,
             style is unknown, or the scale is not a positive integer
 
     Example:
-        >>> compose(pattern, ~free_mask, ColorScheme.warhol(seed=7),
+        >>> compose(pattern, ~free_mask, ColourScheme.warhol(seed=7),
         ...         style='agar', scale=3).save('art.png')
     """
     pattern = np.asarray(pattern)
@@ -1002,8 +1002,8 @@ def compose(pattern: np.ndarray,
     if int(scale) != scale or scale < 1:
         raise ValueError(f"Scale must be a positive integer, got {scale}")
 
-    renderer = MosaicRenderer(scheme if scheme is not None
-                              else ColorScheme.ugent())
+    renderer = MosaicRenderer(colours if colours is not None
+                              else ColourScheme.ugent())
 
     if style == 'none':
         rgba = np.asarray(renderer.render_gol_mosaic(pattern)).copy()

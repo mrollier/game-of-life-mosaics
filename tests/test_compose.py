@@ -5,7 +5,7 @@ Tests for gol_mosaics.compose (post-hoc backgrounds and recolouring).
 import numpy as np
 import pytest
 
-from gol_mosaics.colors import ColorScheme
+from gol_mosaics.colours import ColourScheme
 from gol_mosaics.compose import (
     BLOCK,
     ELEMENTARY,
@@ -19,9 +19,9 @@ from gol_mosaics.compose import (
     scatter_background,
 )
 from gol_mosaics.life import is_still_life
-from gol_mosaics.renderer import hex_to_rgb
+from gol_mosaics.colours import hex_to_rgb
 
-SCHEME = ColorScheme(gol_background='#FFFFFF', gol_pixel='#000000',
+SCHEME = ColourScheme(gol_background='#FFFFFF', gol_pixel='#000000',
                      eca_background='#FFD200', eca_pixel='#1E64C8')
 
 
@@ -162,7 +162,7 @@ def test_compose_defaults_to_ugent():
     """Omitting the scheme paints in the default UGent colours."""
     pattern, background = _subject_scene(size=20, radius=5)
     rgb = np.asarray(compose(pattern, background, style='flat'))[:, :, :3]
-    assert (rgb[background] == hex_to_rgb(ColorScheme.ugent().eca_background)).all()
+    assert (rgb[background] == hex_to_rgb(ColourScheme.ugent().eca_background)).all()
 
 
 # --------------------------------------------------------- tile backgrounds
@@ -634,7 +634,7 @@ def test_scatter_rejects_bad_arguments():
 def test_compose_grades_the_filler_levels():
     """Each filler level gets its own step along the ramp to `fill_pixel`."""
     pattern, background = _mosaic_scene()
-    scheme = ColorScheme(gol_background='#FFFFFF', gol_pixel='#000000',
+    scheme = ColourScheme(gol_background='#FFFFFF', gol_pixel='#000000',
                          eca_background='#FFD200', eca_pixel='#1E64C8',
                          fill_pixel='#FF0000')
     rgb = np.asarray(compose(pattern, background, scheme, style='mosaic',

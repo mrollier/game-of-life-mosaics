@@ -38,7 +38,7 @@ def _window_field(values, windows, shape) -> np.ndarray:
 
 def save_run(outdir, result, grey: np.ndarray, free_mask: np.ndarray) -> dict:
     """Write all artifacts for one solve; returns the metrics dict."""
-    from gol_mosaics.colors import ColorScheme
+    from gol_mosaics.colours import ColourScheme
     from gol_mosaics.export import GollyExporter
     from gol_mosaics.renderer import MosaicRenderer
 
@@ -50,7 +50,7 @@ def save_run(outdir, result, grey: np.ndarray, free_mask: np.ndarray) -> dict:
     pattern = result.pattern
 
     np.save(outdir / "pattern.npy", pattern)
-    MosaicRenderer(ColorScheme.ugent()).render_gol_mosaic(pattern).save(
+    MosaicRenderer(ColourScheme.ugent()).render_gol_mosaic(pattern).save(
         outdir / "render.png"
     )
     GollyExporter.export_to_cells(pattern, str(outdir / "pattern.cells"))

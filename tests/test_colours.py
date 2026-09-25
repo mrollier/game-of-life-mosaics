@@ -1,12 +1,12 @@
-"""Tests for ColorScheme class."""
+"""Tests for ColourScheme class."""
 
 import pytest
-from gol_mosaics.colors import HAZE, ColorScheme, mix
+from gol_mosaics.colours import HAZE, ColourScheme, mix
 
 
 def test_colorscheme_ugent():
     """Test UGent colour preset."""
-    colors = ColorScheme.ugent()
+    colors = ColourScheme.ugent()
     assert colors.gol_background == '#FFFFFF'
     assert colors.gol_pixel == '#000000'
     assert colors.eca_background == '#FFD200'
@@ -15,21 +15,21 @@ def test_colorscheme_ugent():
 
 def test_colorscheme_monochrome():
     """Test monochrome preset."""
-    colors = ColorScheme.monochrome()
+    colors = ColourScheme.monochrome()
     assert colors.gol_background == '#FFFFFF'
     assert colors.gol_pixel == '#000000'
     assert colors.eca_background == '#FFFFFF'
     assert colors.eca_pixel == '#000000'
 
     # Custom colours
-    colors = ColorScheme.monochrome(foreground='#FF0000', background='#00FF00')
+    colors = ColourScheme.monochrome(foreground='#FF0000', background='#00FF00')
     assert colors.gol_pixel == '#FF0000'
     assert colors.gol_background == '#00FF00'
 
 
 def test_colorscheme_inverted():
     """Test inverted preset."""
-    colors = ColorScheme.inverted()
+    colors = ColourScheme.inverted()
     assert colors.gol_background == '#000000'
     assert colors.gol_pixel == '#FFFFFF'
 
@@ -44,7 +44,7 @@ def _luminance(hex_color):
 def test_colorscheme_warhol_returns_valid_hex():
     """All four colours are '#rrggbb' strings."""
     import re
-    colors = ColorScheme.warhol()
+    colors = ColourScheme.warhol()
     for value in colors.to_dict().values():
         assert re.fullmatch(r'#[0-9a-fA-F]{6}', value), value
 
@@ -53,27 +53,27 @@ def test_colorscheme_warhol_dark_on_light():
     """dark_on_light picks a GoL pixel darker than its background (the dark
     and light palettes are disjoint in luminance)."""
     for _ in range(20):
-        colors = ColorScheme.warhol(dark_on_light=True)
+        colors = ColourScheme.warhol(dark_on_light=True)
         assert _luminance(colors.gol_pixel) < _luminance(colors.gol_background)
 
 
 def test_colorscheme_warhol_force_white():
     """force_white pins the GoL background to pure white."""
     for _ in range(5):
-        assert ColorScheme.warhol(force_white=True).gol_background == '#FFFFFF'
+        assert ColourScheme.warhol(force_white=True).gol_background == '#FFFFFF'
 
 
 def test_colorscheme_warhol_seed_is_reproducible():
     """The same seed always gives the same scheme; no seed varies."""
-    assert ColorScheme.warhol(seed=7) == ColorScheme.warhol(seed=7)
-    assert ColorScheme.warhol(seed=7) != ColorScheme.warhol(seed=8)
-    assert ColorScheme.warhol() != ColorScheme.warhol()
+    assert ColourScheme.warhol(seed=7) == ColourScheme.warhol(seed=7)
+    assert ColourScheme.warhol(seed=7) != ColourScheme.warhol(seed=8)
+    assert ColourScheme.warhol() != ColourScheme.warhol()
 
 
 def test_colorscheme_warhol_luma_gap_respected():
     """Both colour pairs stay far enough apart in brightness to read."""
     for seed in range(50):
-        colors = ColorScheme.warhol(seed=seed)
+        colors = ColourScheme.warhol(seed=seed)
         assert abs(_luminance(colors.gol_background)
                    - _luminance(colors.gol_pixel)) >= 0.35
         assert abs(_luminance(colors.eca_background)
@@ -83,7 +83,7 @@ def test_colorscheme_warhol_luma_gap_respected():
 def test_colorscheme_warhol_luma_gap_can_be_disabled():
     """min_luma_gap=0 restores the unguarded draw (some pairs land close)."""
     gaps = [abs(_luminance(c.gol_background) - _luminance(c.gol_pixel))
-            for c in (ColorScheme.warhol(seed=s, min_luma_gap=0)
+            for c in (ColourScheme.warhol(seed=s, min_luma_gap=0)
                       for s in range(50))]
     assert min(gaps) < 0.35
 
@@ -91,7 +91,7 @@ def test_colorscheme_warhol_luma_gap_can_be_disabled():
 def test_colorscheme_warhol_gap_holds_without_dark_on_light():
     """The guard also applies when both colours come from the merged palette."""
     for seed in range(20):
-        colors = ColorScheme.warhol(seed=seed, dark_on_light=False)
+        colors = ColourScheme.warhol(seed=seed, dark_on_light=False)
         assert abs(_luminance(colors.gol_background)
                    - _luminance(colors.gol_pixel)) >= 0.35
 
@@ -99,13 +99,13 @@ def test_colorscheme_warhol_gap_holds_without_dark_on_light():
 def test_colorscheme_warhol_eca_colors_distinct():
     """The two ECA colours are always distinct (drawn without replacement)."""
     for _ in range(10):
-        colors = ColorScheme.warhol()
+        colors = ColourScheme.warhol()
         assert colors.eca_background != colors.eca_pixel
 
 
 def test_colorscheme_to_dict():
     """Test conversion to dictionary."""
-    colors = ColorScheme.ugent()
+    colors = ColourScheme.ugent()
     d = colors.to_dict()
     assert isinstance(d, dict)
     assert 'gol_background' in d
@@ -117,8 +117,8 @@ def test_colorscheme_to_dict():
 
 def test_colorscheme_fill_derives_a_haze():
     """Without `fill_pixel` the ramp still has a far end to run to."""
-    assert ColorScheme(eca_pixel='#123456', fill_pixel='#ABCDEF').fill == '#ABCDEF'
-    scheme = ColorScheme(eca_pixel='#000000', eca_background='#FFFFFF')
+    assert ColourScheme(eca_pixel='#123456', fill_pixel='#ABCDEF').fill == '#ABCDEF'
+    scheme = ColourScheme(eca_pixel='#000000', eca_background='#FFFFFF')
     assert scheme.fill == mix('#000000', '#FFFFFF', HAZE)
     assert scheme.fill != scheme.eca_pixel, "a flat ramp would grade nothing"
 
@@ -131,12 +131,12 @@ def test_colorscheme_mix_interpolates_in_rgb():
 
 def test_colorscheme_to_dict_resolves_the_fill_colour():
     """to_dict promises hex strings, so it must not hand back None."""
-    assert ColorScheme.ugent().to_dict()['fill_pixel'] == ColorScheme.ugent().fill
-    assert ColorScheme.ugent().to_dict()['fill_pixel'].startswith('#')
+    assert ColourScheme.ugent().to_dict()['fill_pixel'] == ColourScheme.ugent().fill
+    assert ColourScheme.ugent().to_dict()['fill_pixel'].startswith('#')
 
 
 def test_colorscheme_immutable():
-    """Test that ColorScheme is immutable."""
-    colors = ColorScheme.ugent()
+    """Test that ColourScheme is immutable."""
+    colors = ColourScheme.ugent()
     with pytest.raises(Exception):  # FrozenInstanceError
         colors.gol_background = '#000000'

@@ -36,11 +36,11 @@ import numpy as np
 from PIL import Image
 import gradio as gr
 
-from gol_mosaics import MosaicGenerator, PatternLibrary, ColorScheme
+from gol_mosaics import MosaicGenerator, PatternLibrary, ColourScheme
 from gol_mosaics.eca import ECABackground
 from gol_mosaics.image_processing import ImageProcessor
 from gol_mosaics.export import GollyExporter
-from gol_mosaics.colors import hex_to_rgb
+from gol_mosaics.colours import hex_to_rgb
 
 # --- Safety / resource limits -------------------------------------------------
 
@@ -104,10 +104,10 @@ UGENT = "UGent (yellow/blue)"
 MONOCHROME = "Monochrome (black/white)"
 WARHOL = "Warhol (random pop colours)"
 MANUAL = "Manual (pick your own)"
-COLOR_SCHEME_LABELS = [UGENT, MONOCHROME, WARHOL, MANUAL]
+COLOUR_SCHEME_LABELS = [UGENT, MONOCHROME, WARHOL, MANUAL]
 
 # Default manual colours = the UGent palette (a sensible starting point).
-DEFAULT_MANUAL = ColorScheme.ugent()
+DEFAULT_MANUAL = ColourScheme.ugent()
 
 
 def _to_hex(color: str) -> str:
@@ -131,27 +131,27 @@ def _to_hex(color: str) -> str:
 
 
 @lru_cache(maxsize=256)
-def _warhol_for_seed(seed: int) -> ColorScheme:
+def _warhol_for_seed(seed: int) -> ColourScheme:
     """A Warhol palette that stays fixed for a given seed.
 
-    ColorScheme.warhol() draws from its own RNG (independent of numpy's global
+    ColourScheme.warhol() draws from its own RNG (independent of numpy's global
     seed), so it is seeded explicitly: the palette is then a function of the
     effective seed, stable while the user adjusts other settings and across
     restarts, and a new seed (the "New variation" button) yields fresh
     colours. The cache only saves the redraw.
     """
-    return ColorScheme.warhol(seed=seed)
+    return ColourScheme.warhol(seed=seed)
 
 
-def _scheme_for(label: str, seed: int, manual_colors=None) -> ColorScheme:
-    """Build the ColorScheme for a UI label, keeping Warhol stable per seed.
+def _scheme_for(label: str, seed: int, manual_colors=None) -> ColourScheme:
+    """Build the ColourScheme for a UI label, keeping Warhol stable per seed.
 
     manual_colors is a (gol_background, gol_pixel, eca_background, eca_pixel)
     tuple of colour-picker values, used only for the 'Manual' scheme.
     """
     if label == MANUAL:
         gol_bg, gol_px, eca_bg, eca_px = manual_colors
-        return ColorScheme(
+        return ColourScheme(
             gol_background=_to_hex(gol_bg),
             gol_pixel=_to_hex(gol_px),
             eca_background=_to_hex(eca_bg),
@@ -160,8 +160,8 @@ def _scheme_for(label: str, seed: int, manual_colors=None) -> ColorScheme:
     if label == WARHOL:
         return _warhol_for_seed(seed)
     if label == MONOCHROME:
-        return ColorScheme.monochrome()
-    return ColorScheme.ugent()
+        return ColourScheme.monochrome()
+    return ColourScheme.ugent()
 
 # ECA rule dropdown: a curated set of interesting rules, plus a random option and
 # a "Custom…" entry that reveals a 0-255 slider. Values are ints, the sentinel
@@ -231,7 +231,7 @@ def _resolve_eca_rule(eca_choice, eca_custom_rule):
     return int(eca_choice)
 
 
-def _prepare_generation(image, tile_shape, level, color_scheme, grid_size,
+def _prepare_generation(image, tile_shape, level, colours, grid_size,
                         eca_choice, eca_custom_rule, auto_seed, manual_colors):
     """Shared setup for the PNG and .cells paths.
 
@@ -254,7 +254,7 @@ def _prepare_generation(image, tile_shape, level, color_scheme, grid_size,
     effective_seed = int(auto_seed)
 
     image = _bound_input(image)
-    scheme = _scheme_for(color_scheme, effective_seed, manual_colors)
+    scheme = _scheme_for(colours, effective_seed, manual_colors)
     # Seed before constructing the generator: with a "random" ECA rule the rule is
     # drawn in __init__ (before generate_from_pil reseeds), so this keeps the
     # background stable across live tweaks.
@@ -262,14 +262,14 @@ def _prepare_generation(image, tile_shape, level, color_scheme, grid_size,
     generator = MosaicGenerator(
         level=level,
         grid_size=grid_size,
-        color_scheme=scheme,
+        colours=scheme,
         eca_rule=rule,
         tile_shape=shape_arg,
     )
     return generator, image, scheme, effective_seed
 
 
-def _generate_mosaic(image, tile_shape, level, color_scheme, grid_size,
+def _generate_mosaic(image, tile_shape, level, colours, grid_size,
                      empty_tiles_cutoff, alpha_cutoff, eca_choice,
                      eca_custom_rule, bg_pattern_size, auto_seed,
                      manual_colors, return_arrays=False):
@@ -281,7 +281,7 @@ def _generate_mosaic(image, tile_shape, level, color_scheme, grid_size,
     return_arrays is True.
     """
     generator, image, scheme, effective_seed = _prepare_generation(
-        image, tile_shape, level, color_scheme, grid_size, eca_choice,
+        image, tile_shape, level, colours, grid_size, eca_choice,
         eca_custom_rule, auto_seed, manual_colors,
     )
     result = generator.generate_from_pil(
@@ -296,7 +296,7 @@ def _generate_mosaic(image, tile_shape, level, color_scheme, grid_size,
     return result, scheme, image
 
 
-def render_mosaic(image, tile_shape, level, color_scheme, grid_size,
+def render_mosaic(image, tile_shape, level, colours, grid_size,
                   empty_tiles_cutoff, alpha_cutoff, eca_choice, eca_custom_rule,
                   bg_pattern_size, auto_seed,
                   gol_background, gol_pixel, eca_background, eca_pixel
@@ -313,13 +313,13 @@ def render_mosaic(image, tile_shape, level, color_scheme, grid_size,
     if image is None:
         return None
 
-    return _render(image, tile_shape, level, color_scheme, grid_size,
+    return _render(image, tile_shape, level, colours, grid_size,
                    empty_tiles_cutoff, alpha_cutoff, eca_choice,
                    eca_custom_rule, bg_pattern_size, auto_seed,
                    gol_background, gol_pixel, eca_background, eca_pixel)[0]
 
 
-def _render(image, tile_shape, level, color_scheme, grid_size,
+def _render(image, tile_shape, level, colours, grid_size,
             empty_tiles_cutoff, alpha_cutoff, eca_choice, eca_custom_rule,
             bg_pattern_size, auto_seed,
             gol_background, gol_pixel, eca_background, eca_pixel):
@@ -327,7 +327,7 @@ def _render(image, tile_shape, level, color_scheme, grid_size,
     manual_colors = (gol_background, gol_pixel, eca_background, eca_pixel)
     try:
         (mosaic, gol_mosaic, _), scheme, bounded = _generate_mosaic(
-            image, tile_shape, level, color_scheme, grid_size,
+            image, tile_shape, level, colours, grid_size,
             empty_tiles_cutoff, alpha_cutoff, eca_choice, eca_custom_rule,
             bg_pattern_size, auto_seed, manual_colors, return_arrays=True,
         )
@@ -470,7 +470,7 @@ def _binary_bbox(mosaic: np.ndarray) -> np.ndarray:
     return binary[r0:r1 + 1, c0:c1 + 1]
 
 
-def export_cells_ui(last, state, remove_bg, tile_shape, level, color_scheme,
+def export_cells_ui(last, state, remove_bg, tile_shape, level, colours,
                     grid_size, empty_tiles_cutoff, alpha_cutoff, eca_choice,
                     eca_custom_rule, bg_pattern_size, auto_seed,
                     gol_background, gol_pixel, eca_background, eca_pixel
@@ -487,7 +487,7 @@ def export_cells_ui(last, state, remove_bg, tile_shape, level, color_scheme,
     if image is None:
         raise gr.Error("Upload an image first, then download its .cells file.")
 
-    settings = (tile_shape, level, color_scheme, grid_size, empty_tiles_cutoff,
+    settings = (tile_shape, level, colours, grid_size, empty_tiles_cutoff,
                 alpha_cutoff, eca_choice, eca_custom_rule, bg_pattern_size,
                 auto_seed, gol_background, gol_pixel, eca_background, eca_pixel)
     if last and last.get("key") == _settings_key(image, settings):
@@ -498,7 +498,7 @@ def export_cells_ui(last, state, remove_bg, tile_shape, level, color_scheme,
         manual_colors = (gol_background, gol_pixel, eca_background, eca_pixel)
         try:
             (_, gol_mosaic, _), _, _ = _generate_mosaic(
-                image, tile_shape, level, color_scheme, grid_size,
+                image, tile_shape, level, colours, grid_size,
                 empty_tiles_cutoff, alpha_cutoff, eca_choice, eca_custom_rule,
                 bg_pattern_size, auto_seed, manual_colors, return_arrays=True,
             )
@@ -644,7 +644,7 @@ def build_demo() -> gr.Blocks:
                 )
                 color_in = gr.Dropdown(
                     label="Colour scheme",
-                    choices=COLOR_SCHEME_LABELS,
+                    choices=COLOUR_SCHEME_LABELS,
                     value=UGENT,
                 )
                 # Manual colour pickers, shown only when "Manual" is selected.
