@@ -497,10 +497,8 @@ class MosaicGenerator:
 
     def _assemble_tiles(self, patterns: np.ndarray) -> np.ndarray:
         """Assemble a (rows, cols, H, W) array of tiles into one 2D grid."""
-        return np.block([
-            [patterns[i, j] for j in range(patterns.shape[1])]
-            for i in range(patterns.shape[0])
-        ])
+        rows, cols, h, w = patterns.shape
+        return patterns.transpose(0, 2, 1, 3).reshape(rows * h, cols * w)
 
     def _pad_diagonals(self,
                        first: np.ndarray,

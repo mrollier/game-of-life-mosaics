@@ -110,3 +110,14 @@ def test_encode_rle_row_units():
     assert GollyExporter._encode_rle_row(np.array([0])) == 'b'
     assert GollyExporter._encode_rle_row(np.array([1, 1, 1])) == '3o'
     assert GollyExporter._encode_rle_row(np.array([1, 0, 0, 1, 1])) == 'o2b2o'
+
+
+def test_exports_use_unix_newlines_on_every_platform(tmp_path):
+    """Golly reads either, but a byte-identical file is diffable and
+    hashable across machines (.gitattributes stores .cells as-is)."""
+    mosaic = np.array([[0, 1], [1, 0]])
+    GollyExporter.export_to_cells(mosaic, str(tmp_path / "a.cells"))
+    GollyExporter.export_to_rle(mosaic, str(tmp_path / "a.rle"))
+    assert (tmp_path / "a.cells").read_bytes() == (
+        b"!Generated from Game of Life Mosaic\n.O\nO.\n")
+    assert b"\r" not in (tmp_path / "a.rle").read_bytes()

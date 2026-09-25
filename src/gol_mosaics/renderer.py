@@ -121,34 +121,22 @@ class MosaicRenderer:
                 f"ECA mask must be 2D array, got shape {eca_mask.shape}"
             )
 
-        h, w = eca_mask.shape
-        overlay = np.zeros((h, w, 4), dtype=np.uint8)
-
-        # Convert hex colours to RGB
-        rgb1 = self._hex_to_rgb(self.color_scheme.eca_background)
-        rgb2 = self._hex_to_rgb(self.color_scheme.eca_pixel)
-
-        # Value 1 -> eca_background, opaque
-        mask1 = (eca_mask == 1)
-        overlay[mask1, :3] = rgb1
-        overlay[mask1, 3] = 255
-
-        # Value 2 -> eca_pixel, opaque
-        mask2 = (eca_mask == 2)
-        overlay[mask2, :3] = rgb2
-        overlay[mask2, 3] = 255
-
-        # Values 3.. -> the filler ramp, one step per layer, opaque
+        # One RGBA row per layer value: 0 transparent, 1 eca_background,
+        # 2 eca_pixel, 3.. the filler ramp. Any value outside the table
+        # (negative, above the ramp, or not an integer) stays transparent.
         top = int(eca_mask.max()) if layers is None else layers + 1
+        palette = np.zeros((max(top, 2) + 1, 4), dtype=np.uint8)
+        palette[1] = (*hex_to_rgb(self.color_scheme.eca_background), 255)
+        palette[2] = (*hex_to_rgb(self.color_scheme.eca_pixel), 255)
         for value in range(3, top + 1):
             fraction = (value - 2) / max(top - 2, 1)
-            painted = (eca_mask == value)
-            overlay[painted, :3] = self._hex_to_rgb(
-                mix(self.color_scheme.eca_pixel, self.color_scheme.fill,
-                    fraction))
-            overlay[painted, 3] = 255
+            palette[value] = (*hex_to_rgb(mix(self.color_scheme.eca_pixel,
+                                              self.color_scheme.fill,
+                                              fraction)), 255)
 
-        # Value 0 stays (0,0,0,0) fully transparent
+        index = eca_mask.astype(np.int64)
+        known = (index == eca_mask) & (index >= 0) & (index < len(palette))
+        overlay = palette[np.where(known, index, 0)]
 
         return Image.fromarray(overlay, mode='RGBA')
 

@@ -74,12 +74,13 @@ class GollyExporter:
             mosaic = mosaic.copy()
             mosaic = GollyExporter._add_glider_pattern(mosaic, add_glider)
 
-        # Write to file
-        with open(filename, 'w') as f:
+        # One byte per cell, then one line per row. newline='\n' keeps the
+        # file identical on every platform.
+        chars = np.where(mosaic == 1, ord('O'), ord('.')).astype(np.uint8)
+        with open(filename, 'w', newline='\n') as f:
             f.write('!Generated from Game of Life Mosaic\n')
-            for row in mosaic:
-                line = ''.join('O' if cell else '.' for cell in row)
-                f.write(line + '\n')
+            for row in chars:
+                f.write(row.tobytes().decode('ascii') + '\n')
 
     @staticmethod
     def _add_glider_pattern(mosaic: np.ndarray, add_glider: str = 'bottom right') -> np.ndarray:
@@ -177,7 +178,7 @@ class GollyExporter:
 
         height, width = mosaic.shape
 
-        with open(filename, 'w') as f:
+        with open(filename, 'w', newline='\n') as f:
             # Write header
             if name:
                 f.write(f'#N {name}\n')
@@ -212,32 +213,13 @@ class GollyExporter:
         Returns:
             RLE-encoded string (b=dead, o=alive)
         """
+        row = np.asarray(row)
         if len(row) == 0:
             return ''
 
-        encoded = []
-        current_val = row[0]
-        count = 1
-
-        for val in row[1:]:
-            if val == current_val:
-                count += 1
-            else:
-                # Output the run
-                symbol = 'o' if current_val == 1 else 'b'
-                if count > 1:
-                    encoded.append(f'{count}{symbol}')
-                else:
-                    encoded.append(symbol)
-
-                current_val = val
-                count = 1
-
-        # Output final run
-        symbol = 'o' if current_val == 1 else 'b'
-        if count > 1:
-            encoded.append(f'{count}{symbol}')
-        else:
-            encoded.append(symbol)
-
-        return ''.join(encoded)
+        # Runs start at 0 and wherever the value changes
+        starts = np.concatenate(([0], np.flatnonzero(row[1:] != row[:-1]) + 1))
+        lengths = np.diff(np.append(starts, len(row)))
+        return ''.join(
+            (str(count) if count > 1 else '') + ('o' if value == 1 else 'b')
+            for count, value in zip(lengths.tolist(), row[starts].tolist()))
