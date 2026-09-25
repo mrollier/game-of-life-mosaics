@@ -49,7 +49,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-for p in (REPO / "src", REPO / "experiments"):
+for p in (REPO / "src", REPO / "experiments", REPO / "studies"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
@@ -1239,7 +1239,7 @@ def load_solve(name: str):
 
 
 def render(labels=None) -> None:
-    from beyond_tiles.linkedin_banners import contact_sheet
+    from common import contact_sheet
     from gol_mosaics.freeform.solver import verify_still_life
     from gol_mosaics import compose, filled_background, life_safe_pattern
     from gol_mosaics.export import GollyExporter
@@ -1293,7 +1293,7 @@ def render(labels=None) -> None:
 def palette_sheet(name: str, level: int = 4, seed: int = 1,
                   symmetric: bool = True) -> Path:
     """One design, every palette; the geometry is identical across panels."""
-    from beyond_tiles.linkedin_banners import contact_sheet
+    from common import contact_sheet
     from gol_mosaics import compose, filled_background
 
     out = REPO / "output/images/flyer"

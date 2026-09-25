@@ -783,7 +783,7 @@ background cell:
 Marilyn is the extreme because a portrait is full of concavities no large tile
 reaches at all; a landscape silhouette is kinder.
 
-![filling the halo](figures/linkedin_halo_filling.png)
+![filling the halo](../../studies/linkedin/figures/linkedin_halo_filling.png)
 
 *Banner 2 at level 6, plain above and filled below. Filler cells carry their
 own colour, so the smaller tiles recede into haze as they approach the ridge.*
@@ -836,13 +836,13 @@ branch and `ColorScheme` an optional `fill_pixel`. Unset, it falls back to
 ### Reproduction
 
 ```bash
-python experiments/beyond_tiles/linkedin_banners.py   # ~40 s, no solver
+python studies/linkedin/linkedin_banners.py   # ~40 s, no solver
 ```
 
 Fifty banner renders at LinkedIn's 1584×396, four contact sheets and the
 figure above, all from the committed `assets/banner{1,2}_800x200_pipeline.npz`.
 The renders themselves are gitignored (~16 MB, regenerable); the chosen one is
-kept as `figures/linkedin_banner_filled_l6.png`.
+kept as `studies/linkedin/figures/linkedin_banner_filled_l6.png`.
 
 ## 7. Killing the diagonal trails (2026-08-29)
 
@@ -997,7 +997,7 @@ distance from each silhouette cell to the nearest field cell):
 | Marilyn (1000²) | 5 | 44,196 | 48,488 | 68,131 | 16.6 / 91 | 4.5 / 20 |
 
 The largest tiles gain most — +49% on Marilyn at 400², where a portrait's
-concavities are exactly where a box test fails. `figures/linkedin_fit_rule.png`
+concavities are exactly where a box test fails. `studies/linkedin/figures/linkedin_fit_rule.png`
 is the picture: banner 2 at level 6, both panels plain mosaics, so the only
 difference on show is which sites the test accepts.
 
@@ -1055,7 +1055,7 @@ level 6.
 ### Reproduction
 
 ```bash
-python experiments/beyond_tiles/linkedin_banners.py   # ~40 s, no solver
+python studies/linkedin/linkedin_banners.py   # ~40 s, no solver
 ```
 
 No CP-SAT run: every pattern is the one already committed, and this section

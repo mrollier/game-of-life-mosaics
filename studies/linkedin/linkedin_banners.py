@@ -4,7 +4,10 @@ The still lifes come from `poster.py` at 800x200 (see REPORT.md); this
 script only does the post-hoc colouring, so it needs no solver and runs in
 seconds:
 
-    python experiments/beyond_tiles/linkedin_banners.py
+    python studies/linkedin/linkedin_banners.py
+
+Renders land in studies/linkedin/output/ (not versioned); the figures that
+REPORT.md cites are written to figures/ next to this script.
 
 Two geometry notes, both learned here:
 
@@ -30,18 +33,19 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
-for p in (REPO / "src", REPO / "experiments"):
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parents[1]
+for p in (REPO / "src", HERE.parent):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
 import numpy as np
 from PIL import Image
 
-from beyond_tiles.artifacts import (load_pattern_asset,
-                                    save_pattern_asset)
-from beyond_tiles.poster import load_rect
+from common import contact_sheet
+from gol_mosaics.freeform.io import load_pattern_asset, save_pattern_asset
 from gol_mosaics.freeform.solver import verify_still_life
+from gol_mosaics.freeform.targets import load_rect_target
 from gol_mosaics import (ColorScheme, MosaicRenderer, compose,
                          filled_background)
 
@@ -305,7 +309,8 @@ SOURCES = [
 def load_solve(here: Path, solve: str, saved: set) -> np.ndarray:
     """The 800x200 still life, from the run directory or from the asset.
 
-    `results/` is gitignored, so a fresh clone has only the bit-packed asset.
+    `results/` (the poster.py runs, --out studies/linkedin/results/linkedinN)
+    is gitignored, so a fresh clone has only the bit-packed asset.
     When the run *is* present it wins and the asset is rewritten from it, once
     per solve however many variation sets share it.
     """
@@ -334,8 +339,8 @@ def to_banner(image: Image.Image) -> Image.Image:
 
 
 def main() -> None:
-    here = Path(__file__).resolve().parent
-    out = REPO / "output/images/linkedin"
+    here = HERE
+    out = HERE / "output"
     out.mkdir(parents=True, exist_ok=True)
     sheet, saved = {}, set()
 
@@ -344,7 +349,7 @@ def main() -> None:
         assert pattern.shape == (HEIGHT, WIDTH), pattern.shape
         ver = verify_still_life(pattern)
         assert ver["bounded"] and ver["toroidal"], f"{name}: {ver}"
-        _, free = load_rect(str(REPO / src), WIDTH, HEIGHT, "eq", 5.0)
+        _, free = load_rect_target(str(REPO / src), WIDTH, HEIGHT, "eq", 5.0)
         print(f"{name}: {int(pattern.sum()):,} live cells, "
               f"background {float((~free).mean()):.3f}, verify OK")
 
@@ -411,7 +416,7 @@ def halo_figure(here: Path, out: Path) -> None:
     from gol_mosaics import mosaic_background
 
     pattern = load_solve(here, "banner2", set())
-    _, free = load_rect(
+    _, free = load_rect_target(
         str(REPO / "input/images/linkedin-background-2.png"),
         WIDTH, HEIGHT, "eq", 5.0)
     background = ~free
@@ -433,7 +438,7 @@ def halo_figure(here: Path, out: Path) -> None:
                      f"max {spread.max()} cells", fontsize=10)
         ax.axis("off")
     fig.tight_layout(pad=0.5)
-    path = REPO / "experiments/beyond_tiles/figures/linkedin_halo_filling.png"
+    path = HERE / "figures/linkedin_halo_filling.png"
     fig.savefig(path, dpi=110, facecolor="white")
     plt.close(fig)
     print(f"halo figure   -> {path.relative_to(REPO)}")
@@ -442,7 +447,7 @@ def halo_figure(here: Path, out: Path) -> None:
     # the deliverable without the whole regenerable variation set.
     chosen = out / "banner2-filled-l6.png"
     Image.open(chosen).save(
-        REPO / "experiments/beyond_tiles/figures/linkedin_banner_filled_l6.png")
+        HERE / "figures/linkedin_banner_filled_l6.png")
 
 
 def box_rule_field(background, level, seed=None, shape="diamond"):
@@ -509,7 +514,7 @@ def rule_figure(here: Path) -> None:
     from gol_mosaics import mosaic_background
 
     pattern = load_solve(here, "banner2", set())
-    _, free = load_rect(
+    _, free = load_rect_target(
         str(REPO / "input/images/linkedin-background-2.png"),
         WIDTH, HEIGHT, "eq", 5.0)
     background = ~free
@@ -532,32 +537,10 @@ def rule_figure(here: Path) -> None:
                      fontsize=10)
         ax.axis("off")
     fig.tight_layout(pad=0.5)
-    path = REPO / "experiments/beyond_tiles/figures/linkedin_fit_rule.png"
+    path = HERE / "figures/linkedin_fit_rule.png"
     fig.savefig(path, dpi=110, facecolor="white")
     plt.close(fig)
     print(f"fit-rule fig  -> {path.relative_to(REPO)}")
-
-
-def contact_sheet(columns, path, width=16, panel_h=1.35) -> None:
-    """One sheet, a column per variation set, so sets compare row by row."""
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    rows = max(len(c) for c in columns)
-    fig, axes = plt.subplots(rows, len(columns),
-                             figsize=(width, panel_h * rows), squeeze=False)
-    for j, column in enumerate(columns):
-        for i in range(rows):
-            ax = axes[i, j]
-            ax.axis("off")
-            if i < len(column):
-                title, image = column[i]
-                ax.imshow(np.asarray(image.convert("RGB")))
-                ax.set_title(title, fontsize=8, pad=2)
-    fig.tight_layout(pad=0.4)
-    fig.savefig(path, dpi=150, facecolor="white")
-    plt.close(fig)
 
 
 if __name__ == "__main__":
