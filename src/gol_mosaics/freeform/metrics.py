@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from .targets import Window
+from .targets import Window, box_sums, window_bounds, window_live_counts
 
 
 def motif_stats(
@@ -131,16 +131,14 @@ def deviation_stats(
     MAD restricted to the quarter of windows with the highest targets —
     the regime closest to the Elkies density ceiling.
     """
-    achieved, target = [], []
-    for si, sj in windows:
-        free = free_mask[si, sj]
-        n_free = int(free.sum())
-        if n_free == 0:
-            continue
-        achieved.append(pattern[si, sj][free].sum() / n_free)
-        target.append(cell_t[si, sj][free].sum() / n_free)
-    a = np.asarray(achieved)
-    t = np.asarray(target)
+    bounds = window_bounds(windows)
+    free = np.asarray(free_mask, dtype=bool)
+    n_free = box_sums(free, bounds)
+    live = window_live_counts(pattern, free, windows)
+    wanted = box_sums(np.where(free, cell_t, 0.0), bounds)
+    some = n_free > 0
+    a = live[some] / n_free[some]
+    t = wanted[some] / n_free[some]
     dev = np.abs(a - t)
 
     darkest = np.argsort(t)[::-1][: max(1, int(np.ceil(len(t) / 4)))]

@@ -1062,3 +1062,37 @@ def test_filled_background_on_the_shipped_marilyn_asset():
     assert verify_still_life(pattern | (field != 0)) == {
         "bounded": True, "toroidal": True}
     assert (field != 0).sum() > mosaic_background(~free, level=4, seed=0).sum()
+
+
+def test_window_live_counts_matches_a_direct_loop():
+    """Overlapping windows (stride < k) and a clamped edge included."""
+    from gol_mosaics.freeform.targets import window_live_counts
+
+    rng = np.random.default_rng(4)
+    pattern = rng.integers(0, 2, (37, 45)).astype(np.uint8)
+    free = rng.random((37, 45)) < 0.8
+    windows = window_slices((37, 45), k=8, stride=3)
+    direct = [int(pattern[si, sj][free[si, sj]].sum()) for si, sj in windows]
+    assert window_live_counts(pattern, free, windows).tolist() == direct
+
+
+def test_incremental_window_devs_match_a_full_recompute():
+    """What improve() does after a patch: rescore only the patch windows."""
+    from gol_mosaics.freeform.lns import (LnsConfig, _members, _updated_devs,
+                                          _window_grid, window_devs)
+
+    rng = np.random.default_rng(5)
+    pattern = rng.integers(0, 2, (64, 64)).astype(np.uint8)
+    free = rng.random((64, 64)) < 0.9
+    windows = window_slices((64, 64), k=8, stride=8)
+    targets = rng.integers(0, 20, len(windows))
+    lcfg = LnsConfig(seam_rows=(22,), seam_cols=(38,))
+    devs = window_devs(pattern, free, windows, targets, 0, lcfg)
+    _, _, index = _window_grid(windows)
+    box = (2, 5, 3, 6)  # window rows 2-4, cols 3-5: cells 16-40, 24-48
+    candidate = pattern.copy()
+    candidate[16:40, 24:48] = rng.integers(0, 2, (24, 24))
+    assert np.array_equal(
+        _updated_devs(devs, candidate, free, windows, targets,
+                      _members(index, box), 0, lcfg),
+        window_devs(candidate, free, windows, targets, 0, lcfg))

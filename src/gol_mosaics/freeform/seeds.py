@@ -22,7 +22,7 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
-from .targets import Window
+from .targets import Window, window_live_counts
 
 PERIOD_ROWS = 3  # 2x2 block + 1 dead row
 PERIOD_COLS = 4  # 2x2 block + 2 dead columns
@@ -69,11 +69,9 @@ def seed_objective(
     slack: int = 0,
 ) -> int:
     """The seed's own value of the solver objective."""
-    total = 0
-    for t, (si, sj) in zip(targets, windows):
-        live = int(seed[si, sj][free_mask[si, sj]].sum())
-        total += max(0, abs(live - int(t)) - slack)
-    return total
+    live = window_live_counts(seed, free_mask, windows)
+    return int(np.maximum(0, np.abs(live - np.asarray(targets, dtype=np.int64))
+                          - slack).sum())
 
 
 def best_seed(

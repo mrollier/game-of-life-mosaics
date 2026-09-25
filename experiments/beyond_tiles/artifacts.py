@@ -15,7 +15,9 @@ from matplotlib.figure import Figure
 from gol_mosaics.freeform.io import (load_pattern_asset, load_snapshots,  # noqa: F401
                                      save_pattern_asset, save_snapshots)
 from gol_mosaics.freeform.metrics import deviation_stats
-from gol_mosaics.freeform.targets import cell_targets, window_slices, window_targets
+from gol_mosaics.freeform.targets import (box_sums, cell_targets, window_bounds,
+                                         window_live_counts, window_slices,
+                                         window_targets)
 
 # Committed extracts of the headline runs (the full results/ tree is
 # gitignored). Small enough to version: bit-packed patterns, ~16 kB total.
@@ -70,17 +72,15 @@ def save_run(outdir, result, grey: np.ndarray, free_mask: np.ndarray) -> dict:
             grey.shape, cfg.k, cfg.stride, edge=getattr(cfg, "edge_windows", "clamp")
         )
         targets, kept = window_targets(cell_t, free_mask, windows)
-    achieved, wanted, plotted = [], [], []
-    for t, (si, sj) in zip(targets, kept):
-        n_free = free_mask[si, sj].sum()
-        if n_free == 0:
-            # Possible when result.windows came from a soft_zero/none
-            # solve (all-ones model mask) but the caller's mask has a
-            # fully-masked window.
-            continue
-        achieved.append(pattern[si, sj][free_mask[si, sj]].sum() / n_free)
-        wanted.append(t / n_free)
-        plotted.append((si, sj))
+    n_free = box_sums(np.asarray(free_mask, dtype=bool), window_bounds(kept))
+    live = window_live_counts(pattern, free_mask, kept)
+    # A window can hold no free cell when result.windows came from a
+    # soft_zero/none solve (all-ones model mask) but the caller's mask has
+    # a fully-masked window.
+    some = n_free > 0
+    achieved = live[some] / n_free[some]
+    wanted = np.asarray(targets)[some] / n_free[some]
+    plotted = [w for w, keep in zip(kept, some) if keep]
     # Pure object-oriented matplotlib: no pyplot import, so importing this
     # module never hijacks a notebook's inline backend.
     fig = Figure(figsize=(12, 4))

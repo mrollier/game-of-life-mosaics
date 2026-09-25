@@ -47,6 +47,61 @@ def window_slices(
     ]
 
 
+def window_bounds(windows: List[Window]) -> np.ndarray:
+    """(n, 4) int64 array of (i0, i1, j0, j1) per window."""
+    if not windows:
+        return np.zeros((0, 4), dtype=np.int64)
+    return np.array([(si.start, si.stop, sj.start, sj.stop)
+                     for si, sj in windows], dtype=np.int64)
+
+
+def summed_area(values: np.ndarray) -> np.ndarray:
+    """Summed-area table with a zero first row and column: entry (i, j) is
+    the sum of values[:i, :j]. int64 for integer input, float64 for float."""
+    values = np.asarray(values)
+    dtype = np.float64 if values.dtype.kind == "f" else np.int64
+    table = np.zeros((values.shape[0] + 1, values.shape[1] + 1), dtype=dtype)
+    table[1:, 1:] = values.astype(dtype).cumsum(axis=0).cumsum(axis=1)
+    return table
+
+
+def box_sums(values: np.ndarray, bounds: np.ndarray, table=None) -> np.ndarray:
+    """Sum of `values` over each (i0, i1, j0, j1) box: four lookups per box
+    in a summed-area table (pass `table` to reuse one across calls).
+
+    Integer inputs give exact integer sums; float sums can differ from a
+    direct per-box sum in the last bits.
+    """
+    if table is None:
+        table = summed_area(values)
+    i0, i1, j0, j1 = np.asarray(bounds).T
+    return table[i1, j1] - table[i0, j1] - table[i1, j0] + table[i0, j0]
+
+
+def live_table(pattern: np.ndarray, free_mask: np.ndarray,
+               bounds: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Summed-area table of live free cells over the bounding box of
+    `bounds` only, and the bounds shifted into it.
+
+    Restricting the table to the boxes' extent keeps an update of a few
+    windows (one LNS patch) proportional to the patch, not the canvas.
+    """
+    if len(bounds) == 0:
+        return np.zeros((1, 1), dtype=np.int64), bounds
+    i0, j0 = bounds[:, 0].min(), bounds[:, 2].min()
+    i1, j1 = bounds[:, 1].max(), bounds[:, 3].max()
+    live = (np.asarray(pattern[i0:i1, j0:j1], dtype=np.int64)
+            * np.asarray(free_mask[i0:i1, j0:j1], dtype=bool))
+    return summed_area(live), bounds - np.array([i0, i0, j0, j0])
+
+
+def window_live_counts(pattern: np.ndarray, free_mask: np.ndarray,
+                       windows: List[Window]) -> np.ndarray:
+    """Live free cells per window: the quantity every objective counts."""
+    table, local = live_table(pattern, free_mask, window_bounds(windows))
+    return box_sums(None, local, table)
+
+
 def cell_targets(grey: np.ndarray, d_max: float) -> np.ndarray:
     """Per-cell target density: black (0) -> d_max, white (255) -> 0."""
     return d_max * (1.0 - np.asarray(grey, dtype=np.float64) / 255.0)

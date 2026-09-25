@@ -22,7 +22,7 @@ from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from .targets import Window
+from .targets import Window, box_sums, live_table, window_bounds
 
 _MARGIN = 2  # frozen context shipped around a patch; radius-1 constraints
 # read one ring, and the ring's own constraints read a second one.
@@ -106,15 +106,28 @@ def window_devs(
     `seam_weight` per cell its separator sub-box falls short of its share
     (deficit only: a full separator is never penalised).
     """
-    devs = np.zeros(len(windows), dtype=np.int64)
-    seams = lcfg is not None and (lcfg.seam_rows or lcfg.seam_cols)
-    for idx, (t, (si, sj)) in enumerate(zip(targets, windows)):
-        live = int(pattern[si, sj][free_mask[si, sj]].sum())
-        devs[idx] = max(0, abs(live - int(t)) - int(slack))
-        if seams:
-            for i0, i1, j0, j1, share in seam_boxes((si, sj), int(t), lcfg):
-                got = int(pattern[i0:i1, j0:j1][free_mask[i0:i1, j0:j1]].sum())
-                devs[idx] += lcfg.seam_weight * max(0, share - got)
+    targets = np.asarray(targets, dtype=np.int64)
+    bounds = window_bounds(windows)
+    table, local = live_table(pattern, free_mask, bounds)
+    live = box_sums(None, local, table)
+    devs = np.maximum(0, np.abs(live - targets) - int(slack))
+    if lcfg is None or not (lcfg.seam_rows or lcfg.seam_cols):
+        return devs
+
+    origin = bounds[:, [0, 0, 2, 2]].min(axis=0) if len(bounds) else 0
+    w = lcfg.seam_width
+    # The same sub-boxes as seam_boxes(), for every window at once
+    for axis, seams in ((0, lcfg.seam_rows), (1, lcfg.seam_cols)):
+        lo, hi = bounds[:, 2 * axis], bounds[:, 2 * axis + 1]
+        for s in seams:
+            hit = (lo <= s) & (s + w <= hi)
+            if not hit.any():
+                continue
+            share = np.round(targets[hit] * w / (hi[hit] - lo[hit])).astype(np.int64)
+            boxes = bounds[hit].copy()
+            boxes[:, 2 * axis], boxes[:, 2 * axis + 1] = s, s + w
+            got = box_sums(None, boxes - origin, table)
+            devs[hit] += lcfg.seam_weight * np.maximum(0, share - got)
     return devs
 
 
@@ -288,9 +301,12 @@ def _solve_patch_task(payload: dict) -> Optional[np.ndarray]:
     status = solver.Solve(model)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         return None
+    # One read of the solution vector instead of a Value() call per cell
+    cells = np.array(list(x), dtype=np.int64).reshape(-1, 2)
+    index = np.array([var.Index() for var in x.values()], dtype=np.int64)
+    solution = np.asarray(solver.ResponseProto().solution, dtype=np.int64)
     out = region.copy()
-    for (i, j), var in x.items():
-        out[i, j] = solver.Value(var)
+    out[cells[:, 0], cells[:, 1]] = solution[index]
     return out
 
 
@@ -336,11 +352,52 @@ def _patch_payload(pattern, free_mask, windows, targets, index, box, cbox, lcfg)
     )
 
 
-def _solve_patches(payloads, lcfg):
-    if lcfg.n_procs > 1 and len(payloads) > 1:
-        with ProcessPoolExecutor(max_workers=lcfg.n_procs) as pool:
-            return list(pool.map(_solve_patch_task, payloads))
+def _solve_patches(payloads, lcfg, pool=None):
+    """Solve patch payloads, in `pool` when there is one and it pays."""
+    if pool is not None and len(payloads) > 1:
+        return list(pool.map(_solve_patch_task, payloads))
     return [_solve_patch_task(p) for p in payloads]
+
+
+class _PatchPool:
+    """One worker pool for a whole improve() or repair call.
+
+    Spawning processes costs a re-import of numpy and OR-Tools per worker,
+    which on Windows (spawn, no fork) is paid every round if the pool is
+    rebuilt per round. None when a single process is asked for.
+    """
+
+    def __init__(self, lcfg):
+        self.pool = (ProcessPoolExecutor(max_workers=lcfg.n_procs)
+                     if lcfg.n_procs > 1 else None)
+
+    def __enter__(self):
+        return self.pool
+
+    def __exit__(self, *exc):
+        if self.pool is not None:
+            self.pool.shutdown(wait=True, cancel_futures=True)
+        return False
+
+
+def _members(index: np.ndarray, box) -> np.ndarray:
+    """Window indices inside a window-grid box."""
+    members = index[box[0]: box[1], box[2]: box[3]].ravel()
+    return members[members >= 0]
+
+
+def _updated_devs(devs, candidate, free_mask, windows, targets, members,
+                  slack, lcfg):
+    """`devs` after a patch whose changes lie inside the `members` windows.
+
+    Windows are disjoint and a patch only rewrites cells of its own member
+    windows (their bounding box), so every other window keeps its term.
+    """
+    new = devs.copy()
+    new[members] = window_devs(candidate, free_mask,
+                               [windows[k] for k in members],
+                               np.asarray(targets)[members], slack, lcfg)
+    return new
 
 
 def _splice(pattern, payload, out):
@@ -446,13 +503,16 @@ def repair_diagonal_runs(
             _patch_payload(pattern, free_mask, windows, targets, index, box, cbox, lcfg)
             for _, box, cbox in chosen
         ]
-        outs = _solve_patches(payloads, lcfg)
-        for payload, out in zip(payloads, outs):
+        with _PatchPool(lcfg) as pool:
+            outs = _solve_patches(payloads, lcfg, pool)
+        for (_, box, _), payload, out in zip(chosen, payloads, outs):
             result.patches_solved += 1
             if out is None:
                 continue
             candidate = _splice(pattern, payload, out)
-            new_devs = window_devs(candidate, free_mask, windows, targets, lcfg.slack, lcfg)
+            new_devs = _updated_devs(devs, candidate, free_mask, windows,
+                                     targets, _members(index, box),
+                                     lcfg.slack, lcfg)
             if new_devs.sum() - devs.sum() <= max_cost:
                 pattern, devs = candidate, new_devs
                 result.patches_improved += 1
@@ -486,6 +546,11 @@ def improve(
     devs = window_devs(pattern, free_mask, windows, targets, lcfg.slack, lcfg)
     result.obj_history.append((0.0, int(devs.sum())))
 
+    # Patch geometry is fixed for the whole call: compute each box's member
+    # windows and cell bounding box once, not every round.
+    members = {box: _members(index, box) for box in boxes}
+    cell_boxes = {box: _cell_box(box, windows, index) for box in boxes}
+
     # Boxes that failed to improve go stale and are skipped until an
     # accepted patch nearby invalidates their context. Without this, a
     # few high-deviation but locally-optimal regions (dark windows at
@@ -493,58 +558,61 @@ def improve(
     # while plenty of improvable patches never got a turn.
     stale: set = set()
 
-    while time.perf_counter() - t0 < lcfg.budget_s:
-        scored = []
-        for box in boxes:
-            if box in stale:
-                continue
-            members = index[box[0] : box[1], box[2] : box[3]].ravel()
-            members = members[members >= 0]
-            score = int(devs[members].sum())
-            if score > 0:
-                scored.append((score, box, _cell_box(box, windows, index)))
-        if not scored:
-            break
-        chosen = _select_disjoint(scored, limit=max(1, lcfg.n_procs) * 2, margin=m)
+    with _PatchPool(lcfg) as pool:
+        while time.perf_counter() - t0 < lcfg.budget_s:
+            scored = []
+            for box in boxes:
+                if box in stale:
+                    continue
+                score = int(devs[members[box]].sum())
+                if score > 0:
+                    scored.append((score, box, cell_boxes[box]))
+            if not scored:
+                break
+            chosen = _select_disjoint(scored, limit=max(1, lcfg.n_procs) * 2,
+                                      margin=m)
 
-        payloads = [
-            _patch_payload(pattern, free_mask, windows, targets, index, box, cbox, lcfg)
-            for _, box, cbox in chosen
-        ]
-        outs = _solve_patches(payloads, lcfg)
+            payloads = [
+                _patch_payload(pattern, free_mask, windows, targets, index,
+                               box, cbox, lcfg)
+                for _, box, cbox in chosen
+            ]
+            outs = _solve_patches(payloads, lcfg, pool)
 
-        accepted_boxes = []
-        for (_, wbox, cbox), payload, out in zip(chosen, payloads, outs):
-            result.patches_solved += 1
-            improved = False
-            if out is not None:
-                candidate = _splice(pattern, payload, out)
-                new_devs = window_devs(
-                    candidate, free_mask, windows, targets, lcfg.slack, lcfg
-                )
-                if new_devs.sum() < devs.sum():
-                    pattern, devs = candidate, new_devs
-                    result.patches_improved += 1
-                    improved = True
-                    accepted_boxes.append(cbox)
-            if not improved:
-                stale.add(wbox)
-        # A change of context wakes up nearby stale boxes.
-        if accepted_boxes:
-            for box in list(stale):
-                b0, b1, c0, c1 = _cell_box(box, windows, index)
-                for a0, a1, d0, d1 in accepted_boxes:
-                    if b0 < a1 + m and a0 < b1 + m and c0 < d1 + m and d0 < c1 + m:
-                        stale.discard(box)
-                        break
-        result.rounds += 1
-        result.obj_history.append(
-            (time.perf_counter() - t0, int(devs.sum()))
-        )
-        log(
-            f"lns round {result.rounds}: objective {int(devs.sum())} "
-            f"({result.patches_improved}/{result.patches_solved} patches improved)"
-        )
+            accepted_boxes = []
+            for (_, wbox, cbox), payload, out in zip(chosen, payloads, outs):
+                result.patches_solved += 1
+                improved = False
+                if out is not None:
+                    candidate = _splice(pattern, payload, out)
+                    new_devs = _updated_devs(devs, candidate, free_mask,
+                                             windows, targets, members[wbox],
+                                             lcfg.slack, lcfg)
+                    if new_devs.sum() < devs.sum():
+                        pattern, devs = candidate, new_devs
+                        result.patches_improved += 1
+                        improved = True
+                        accepted_boxes.append(cbox)
+                if not improved:
+                    stale.add(wbox)
+            # A change of context wakes up nearby stale boxes.
+            if accepted_boxes:
+                for box in list(stale):
+                    b0, b1, c0, c1 = cell_boxes[box]
+                    for a0, a1, d0, d1 in accepted_boxes:
+                        if (b0 < a1 + m and a0 < b1 + m and c0 < d1 + m
+                                and d0 < c1 + m):
+                            stale.discard(box)
+                            break
+            result.rounds += 1
+            result.obj_history.append(
+                (time.perf_counter() - t0, int(devs.sum()))
+            )
+            log(
+                f"lns round {result.rounds}: objective {int(devs.sum())} "
+                f"({result.patches_improved}/{result.patches_solved} patches "
+                f"improved)"
+            )
 
     result.pattern = pattern
     result.objective = int(devs.sum())
