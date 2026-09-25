@@ -25,6 +25,69 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def nearest_density_indices(densities: np.ndarray,
+                            wanted: np.ndarray,
+                            rng=None,
+                            random: bool = True,
+                            candidates: Optional[np.ndarray] = None
+                            ) -> np.ndarray:
+    """Index of a tile whose density is nearest each wanted value.
+
+    Tile densities are quantised (live cells over a fixed box), so many tiles
+    share a value. Working on the sorted unique values costs O(n log n) once
+    plus O(log u) per wanted value, and allocates nothing of size
+    (len(wanted), len(densities)): the dense difference matrix this replaces
+    ran to about 14 GB for a 60-tile grid at level 6 (332,321 tiles).
+
+    Args:
+        densities: (N,) density per tile
+        wanted: Values to match, any shape
+        rng: Source of uniform draws with a ``random(size)`` method, such as
+            a ``np.random.Generator``. None uses numpy's global RNG, so
+            ``np.random.seed`` makes the draw reproducible.
+        random: Draw uniformly among the tiles sharing the nearest density.
+            When two density values are equally near, the lower one wins.
+            False returns the lowest-index tile among all nearest ones, as
+            ``argmin`` over the full difference matrix would.
+        candidates: Ascending tile indices to choose from (default: all)
+
+    Returns:
+        int64 array of tile indices, shaped like `wanted`
+    """
+    densities = np.asarray(densities)
+    wanted = np.asarray(wanted, dtype=float)
+    shape = wanted.shape
+    wanted = wanted.ravel()
+    if candidates is None:
+        candidates = np.arange(len(densities))
+    candidates = np.asarray(candidates)
+
+    order = candidates[np.argsort(densities[candidates], kind='stable')]
+    values, first = np.unique(densities[order], return_index=True)
+    sizes = np.diff(np.append(first, len(order)))
+
+    right = np.clip(np.searchsorted(values, wanted), 0, len(values) - 1)
+    left = np.clip(right - 1, 0, len(values) - 1)
+    left_gap = np.abs(values[left] - wanted)
+    right_gap = np.abs(values[right] - wanted)
+
+    if random:
+        if rng is None:
+            rng = np.random
+        nearest = np.where(left_gap <= right_gap, left, right)
+        offset = (rng.random(len(wanted)) * sizes[nearest]).astype(np.int64)
+        chosen = order[first[nearest] + np.minimum(offset, sizes[nearest] - 1)]
+    else:
+        # Within a group the stable sort keeps indices ascending, so a
+        # group's first entry is its lowest index. An exact tie between two
+        # values takes the lower index of the two groups.
+        lowest = order[first]
+        chosen = np.where(left_gap < right_gap, lowest[left],
+                          np.where(right_gap < left_gap, lowest[right],
+                                   np.minimum(lowest[left], lowest[right])))
+    return chosen.astype(np.int64).reshape(shape)
+
+
 class PatternLibrary:
     """
     Manages Game of Life still-life patterns.
@@ -457,11 +520,8 @@ class PatternLibrary:
         Ties are broken randomly when random=True; otherwise the first
         (lowest-index) match wins.
         """
-        diffs = np.abs(self.densities - adjusted_value)
-        indices = np.where(diffs == diffs.min())[0]
-        if random:
-            return int(np.random.choice(indices))
-        return int(indices[0])
+        return int(nearest_density_indices(self.densities, adjusted_value,
+                                           random=random))
 
     def get_patterns_for_values(self,
                                 greyscale_values: np.ndarray,
@@ -543,18 +603,8 @@ class PatternLibrary:
         if invert:
             adjusted = 1.0 - adjusted
 
-        # Nearest-density pattern per tile, vectorised over all tiles.
-        diffs = np.abs(self.densities[None, :] - adjusted[:, None])
-        if random:
-            # Uniform pick among each row's ties: random scores on the tie
-            # positions, -1 elsewhere, then argmax.
-            ties = diffs == diffs.min(axis=1, keepdims=True)
-            scores = np.where(ties, np.random.random(diffs.shape), -1.0)
-            indices = scores.argmax(axis=1)
-        else:
-            indices = diffs.argmin(axis=1)  # first tie wins
-
-        indices = indices.astype(np.int64)
+        indices = nearest_density_indices(self.densities, adjusted,
+                                          random=random)
         indices[empty] = -1
         return indices.reshape(greyscale_values.shape)
 

@@ -322,7 +322,7 @@ def mosaic_background(background_mask: np.ndarray,
     """
     from scipy.ndimage import binary_dilation
 
-    from .patterns import PatternLibrary
+    from .patterns import PatternLibrary, nearest_density_indices
     from .tile_scheme import assemble, diamond_scheme, pond_square_scheme
 
     mask = np.asarray(background_mask, dtype=bool)
@@ -408,9 +408,9 @@ def mosaic_background(background_mask: np.ndarray,
             wanted = field[np.asarray(corner_i) + middle,
                            np.asarray(corner_j) + middle]
             low, high = float(density[0]), float(density[1])
-            chosen = _draw_by_density(
-                PatternLibrary.load(level, shape=shape).densities, indices,
-                low + wanted * (high - low), rng)
+            chosen = nearest_density_indices(
+                PatternLibrary.load(level, shape=shape).densities,
+                low + wanted * (high - low), rng=rng, candidates=indices)
         index_grid[rows, cols] = chosen
 
     origin_i = min(a_lo * u_i, a_hi * u_i) + min(b_lo * v_i, b_hi * v_i)
@@ -425,32 +425,6 @@ def mosaic_background(background_mask: np.ndarray,
         f"cropped mosaic {field.shape} does not match mask {mask.shape}"
     )
     return np.ascontiguousarray(field)
-
-
-def _draw_by_density(normalised: np.ndarray,
-                     indices: np.ndarray,
-                     wanted: np.ndarray,
-                     rng: np.random.Generator) -> np.ndarray:
-    """Pick a random band tile of the density nearest each wanted value.
-
-    Tile densities are quantised (live cells over a fixed box), so many tiles
-    share a value: matching the nearest one and then drawing uniformly among
-    its ties gives a graded field that still varies from site to site. Working
-    on the sorted unique values also avoids the (n_sites, n_tiles) difference
-    matrix `PatternLibrary.get_indices_for_values` builds, which is 1.6 GB
-    against the 10,398-tile level-5 square bank at poster size.
-    """
-    order = indices[np.argsort(normalised[indices], kind='stable')]
-    values, first = np.unique(normalised[order], return_index=True)
-    sizes = np.diff(np.append(first, len(order)))
-
-    right = np.clip(np.searchsorted(values, wanted), 0, len(values) - 1)
-    left = np.clip(right - 1, 0, len(values) - 1)
-    nearest = np.where(
-        np.abs(values[left] - wanted) <= np.abs(values[right] - wanted),
-        left, right)
-    offset = (rng.random(len(wanted)) * sizes[nearest]).astype(np.int64)
-    return order[first[nearest] + np.minimum(offset, sizes[nearest] - 1)]
 
 
 def scatter_background(background_mask: np.ndarray,

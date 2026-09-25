@@ -361,3 +361,52 @@ def test_small_levels_by_exhaustive_expansion():
         assert len(tiles) == expected
         reference = PatternLibrary.load(level).solutions.astype(np.uint8)
         assert np.array_equal(tiles, canonical(reference))
+
+
+def test_nearest_density_indices_matches_dense_argmin():
+    """The deterministic path equals argmin over the full difference matrix,
+    including exact ties between two density values (0.5 between 0.25 and
+    0.75 here), where the lowest index across both groups wins."""
+    from gol_mosaics.patterns import nearest_density_indices
+
+    rng = np.random.default_rng(0)
+    densities = rng.choice([0.0, 0.25, 0.75, 1.0], size=200)
+    wanted = np.concatenate([rng.random(500), [0.5, 0.125, 0.875, 0.0, 1.0]])
+    dense = np.abs(densities[None, :] - wanted[:, None]).argmin(axis=1)
+    got = nearest_density_indices(densities, wanted, random=False)
+    assert np.array_equal(got, dense)
+
+
+def test_nearest_density_indices_random_stays_in_nearest_group():
+    from gol_mosaics.patterns import nearest_density_indices
+
+    rng = np.random.default_rng(1)
+    densities = rng.choice(np.linspace(0, 1, 9), size=300)
+    wanted = rng.random(2000)
+    got = nearest_density_indices(densities, wanted, rng=rng)
+    gaps = np.abs(densities[got] - wanted)
+    best = np.abs(densities[None, :] - wanted[:, None]).min(axis=1)
+    assert np.allclose(gaps, best)
+    # every member of a large tie group gets drawn
+    group = np.flatnonzero(densities == densities[got[0]])
+    hits = nearest_density_indices(densities,
+                                   np.full(4000, densities[got[0]]), rng=rng)
+    assert set(hits) == set(group)
+
+
+def test_level_6_selection_does_not_allocate_a_dense_matrix():
+    """120 x 120 tiles against 332,321 level-6 densities: the old dense
+    difference matrix alone was 115 GB. The search allocates O(tiles)."""
+    import tracemalloc
+
+    library = PatternLibrary.load(level=6)
+    library.densities  # computed and cached outside the measurement
+    values = np.random.default_rng(2).random((120, 120))
+    tracemalloc.start()
+    try:
+        indices = library.get_indices_for_values(values)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert indices.shape == (120, 120)
+    assert peak < 64 * 2 ** 20, f"peak {peak / 2 ** 20:.0f} MB"

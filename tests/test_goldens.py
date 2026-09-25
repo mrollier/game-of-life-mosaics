@@ -145,9 +145,9 @@ def synthetic_portrait(size=(90, 70)) -> Image.Image:
 
 MOSAICS = {
     ("diamond", False): "d71d9c982c92dd92",
-    ("diamond", True): "f6f734f0a4eba4de",
+    ("diamond", True): "e05d9edf80698e0b",  # 2.x: f6f734f0a4eba4de
     ("square", False): "f32de4ae48d20329",
-    ("square", True): "e6b07429eb0975fb",
+    ("square", True): "dbefb6e5c7e4c156",  # 2.x: e6b07429eb0975fb
 }
 
 
