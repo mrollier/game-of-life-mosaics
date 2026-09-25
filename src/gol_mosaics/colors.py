@@ -15,6 +15,24 @@ import numpy as np
 _MAX_DRAWS = 200
 
 
+def hex_to_rgb(hex_color: str) -> tuple:
+    """
+    Convert a hex colour string to an RGB tuple.
+
+    Args:
+        hex_color: Hex colour string, with or without '#' (e.g. '#FFFFFF')
+
+    Returns:
+        RGB tuple (e.g. (255, 255, 255))
+
+    Example:
+        >>> hex_to_rgb('#1E64C8')
+        (30, 100, 200)
+    """
+    hex_color = hex_color.lstrip('#')
+    return tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+
+
 def _luma(hex_color: str) -> float:
     """
     Perceived brightness of a hex colour, in 0..1 (ITU-R BT.601 luma).
@@ -29,8 +47,7 @@ def _luma(hex_color: str) -> float:
         >>> round(_luma('#FFFFFF'), 3)
         1.0
     """
-    h = hex_color.lstrip('#')
-    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    r, g, b = hex_to_rgb(hex_color)
     return (0.299 * r + 0.587 * g + 0.114 * b) / 255
 
 
@@ -50,8 +67,7 @@ def mix(first: str, second: str, weight: float) -> str:
         >>> mix('#000000', '#FFFFFF', 0.5)
         '#808080'
     """
-    a, b = (np.array([int(c.lstrip('#')[i:i + 2], 16) for i in (0, 2, 4)],
-                     dtype=float) for c in (first, second))
+    a, b = (np.array(hex_to_rgb(c), dtype=float) for c in (first, second))
     return '#%02X%02X%02X' % tuple(np.round(a + weight * (b - a)).astype(int))
 
 

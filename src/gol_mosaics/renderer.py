@@ -9,25 +9,7 @@ import numpy as np
 from PIL import Image
 from typing import Dict, Optional
 
-from .colors import ColorScheme, mix
-
-
-def hex_to_rgb(hex_color: str) -> tuple:
-    """
-    Convert a hex colour string to an RGB tuple.
-
-    Args:
-        hex_color: Hex colour string, with or without '#' (e.g. '#FFFFFF')
-
-    Returns:
-        RGB tuple (e.g. (255, 255, 255))
-
-    Example:
-        >>> hex_to_rgb('#1E64C8')
-        (30, 100, 200)
-    """
-    hex_color = hex_color.lstrip('#')
-    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+from .colors import ColorScheme, hex_to_rgb, mix
 
 
 class MosaicRenderer:
@@ -227,7 +209,7 @@ class MosaicRenderer:
 
     @staticmethod
     def _hex_to_rgb(hex_color: str) -> tuple:
-        """Convert hex colour string to RGB tuple (see module-level hex_to_rgb)."""
+        """Convert hex colour string to RGB tuple (see colors.hex_to_rgb)."""
         return hex_to_rgb(hex_color)
 
     def render_full_mosaic(self,

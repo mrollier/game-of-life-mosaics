@@ -33,7 +33,7 @@ from gol_mosaics import MosaicGenerator, PatternLibrary, ColorScheme
 from gol_mosaics.eca import ECABackground
 from gol_mosaics.image_processing import ImageProcessor
 from gol_mosaics.export import GollyExporter
-from gol_mosaics.renderer import hex_to_rgb
+from gol_mosaics.colors import hex_to_rgb
 
 # --- Safety / resource limits -------------------------------------------------
 
