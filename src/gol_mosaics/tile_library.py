@@ -369,18 +369,20 @@ class TileLibrary:
                        mask: np.ndarray,
                        alpha_cutoff: float = 0.5) -> np.ndarray:
         """
-        Map a transparency mask to solid and empty tiles.
+        Map an alpha mask to a per-tile background mask.
 
-        Values below alpha_cutoff (opaque) get the densest tile with its
-        interior holes filled, values at or above it an empty tile. The
-        diamond layout builds its subject mask from these.
+        Sites whose alpha is below alpha_cutoff (transparent: background)
+        get a solid diamond, 1 on every cell of the tile's support; opaque
+        sites get an empty tile. The diamond layout assembles these into the
+        mask of where the background is drawn. Any tile filled in gives the
+        same solid diamond, because the frame encloses the whole support.
 
         Args:
             mask: Array of alpha values in [0, 1]
             alpha_cutoff: Threshold for transparency
 
         Returns:
-            Array of tiles with shape (*mask.shape, H, W)
+            Array with shape (*mask.shape, H, W), 1 on background cells
 
         Raises:
             ValueError: If any value is outside [0, 1]
@@ -397,8 +399,8 @@ class TileLibrary:
             self._filled_tile = binary_fill_holes(tiles[-1]).astype(tiles.dtype)
         empty_tile = np.zeros_like(tiles[0])
 
-        transparent = (flat >= alpha_cutoff)[:, None, None]
-        chosen = np.where(transparent, empty_tile, self._filled_tile)
+        opaque = (flat >= alpha_cutoff)[:, None, None]
+        chosen = np.where(opaque, empty_tile, self._filled_tile)
         return chosen.reshape(mask.shape + tiles.shape[1:]).astype(
             tiles.dtype, copy=False)
 

@@ -8,7 +8,7 @@ afterwards, from the stored pattern alone.
 
 The backdrop is drawn from a layer stack (0 = subject, 1 = field background,
 2 = field pixel, 3 and up for the filler levels) that
-`MosaicRenderer.render` already knows how to paint. Four styles
+`MosaicRenderer.render` already knows how to paint. Five styles
 are available:
 
 - ``'none'``  transparent, so the piece can be placed on any canvas

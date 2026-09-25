@@ -253,9 +253,6 @@ class MosaicGenerator:
             PIL Image in RGBA mode with mosaic and ECA background. If
             return_arrays is True, a tuple (image, gol_mosaic, transparency_mask).
 
-        Raises:
-            ValueError: If supersample doesn't divide mosaic width evenly
-
         Example:
             >>> from PIL import Image
             >>> generator = MosaicGenerator(level=5, grid_size=100)
@@ -643,9 +640,6 @@ class MosaicGenerator:
             no_eca: Whether to skip ECA background generation
         Returns:
             Final composited RGBA image
-
-        Raises:
-            ValueError: If supersample doesn't divide dimensions evenly
         """
         # Any positive supersample works: compose() crops the upsampled ECA
         # pattern to the exact mosaic size, so it need not divide the width
