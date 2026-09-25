@@ -5,7 +5,7 @@ skyline at 540x768 cells and 2 px per cell. One size for WhatsApp, e-mail and
 a Facebook event; the text goes on afterwards in Canva, so every design keeps
 the middle of the canvas close to empty.
 
-The palette is the one from `figures/linkedin_halo_filling.png`: a teal field
+The palette is the one from `studies/linkedin/figures/linkedin_halo_filling.png`: a teal field
 with cream pond tiles and a haze tone for the filler, a cream field with slate
 cells for the free-form still life.
 
@@ -15,14 +15,22 @@ life goes and where the tile mosaic goes. Dark = tiles, mid = free-form
 graded by the tone, light = empty, so the flyer reads as one field thinning
 out towards the text.
 
-    python experiments/beyond_tiles/flyer.py preview          # base designs, no solver
-    python experiments/beyond_tiles/flyer.py solve [name ...]  # CP-SAT, minutes each
-    python experiments/beyond_tiles/flyer.py polish [name ...] # extra LNS rounds
-    python experiments/beyond_tiles/flyer.py render            # the ten flyers + sheet
+    python studies/flyer/flyer.py preview          # base designs, no solver
+    python studies/flyer/flyer.py solve [name ...]  # CP-SAT, ~30 min each
+    python studies/flyer/flyer.py polish [name ...] # extra LNS rounds
+    python studies/flyer/flyer.py render            # the flyers + contact sheet
 
-Solves land under `results/flyer/<design>/` (gitignored), renders under
-`output/images/flyer/`. Every render is also merged with its tile field,
-verified as a single still life, and exported to `output/golly/`.
+Solves land under `results/<design>/` (gitignored); the delivered ones are
+kept bit-packed in `solves/`, so a fresh clone renders without solving. The
+final designs (vignette2, skyline2) render to `renders/` and export to
+`golly/`; everything else (previews, sheets, dropped designs) goes to
+`output/` (gitignored). Every render is merged with its tile field and
+verified as a single still life before it is exported.
+
+`solve` runs the library pipeline, gol_mosaics.freeform.solve_poster, with
+the seam rounds that the first rounds had to add by hand; the delivered
+solves were made before that (commits cecbffe and 7139228), so a fresh
+solve will not reproduce them cell for cell.
 
 Lessons from the first round (2026-09-09), all folded in below:
 
@@ -48,8 +56,9 @@ import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
-for p in (REPO / "src", REPO / "experiments", REPO / "studies"):
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parents[1]
+for p in (REPO / "src", HERE.parent):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
@@ -58,12 +67,10 @@ from contextlib import contextmanager
 import numpy as np
 from PIL import Image, ImageDraw
 
-from gol_mosaics.freeform.lns import _MARGIN as LNS_MARGIN
-from gol_mosaics.freeform.lns import _solve_patch_task as ORIGINAL_PATCH_TASK
+from common import log
 from gol_mosaics import ColorScheme
 from gol_mosaics.compose import centring_pad
 
-HERE = Path(__file__).resolve().parent
 WIDTH, HEIGHT, SCALE = 360, 512, 3
 D_MAX = 0.32  # peak free-form density; 0.40 was heavier than wanted and unpolishable
 STRIP_ROWS = 64  # strip height; the seam pass derives the separator rows from it
@@ -72,10 +79,6 @@ STRIP_ROWS = 64  # strip height; the seam pass derives the separator rows from i
 FLYER = ColorScheme(gol_background="#F4EDE2", gol_pixel="#2B3538",
                     eca_background="#1B5E5E", eca_pixel="#E8D9C0",
                     fill_pixel="#7FA8A0")
-
-
-def log(msg: str) -> None:
-    print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
 # --- Base designs -------------------------------------------------------------
@@ -709,7 +712,7 @@ def preview(names) -> Path:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    out = REPO / "output/images/flyer"
+    out = HERE / "output"
     out.mkdir(parents=True, exist_ok=True)
     fig, axes = plt.subplots(1, len(names), figsize=(2.6 * len(names), 4.4))
     for ax, name in zip(np.atleast_1d(axes), names):
@@ -776,7 +779,14 @@ def _targets(design: Design, dither: str):
     return cell_t, targets, kept
 
 
-def _polish_rounds(pattern, free, kept, targets, args, seed0, obj, stop=0.98):
+def _polish_rounds(pattern, free, kept, targets, args, seed0, obj, stop=0.98,
+                   seams=()):
+    """LNS rounds while each keeps improving by more than 1 - `stop`.
+
+    With `seams` (the first row of each two-row separator), every window
+    crossing a separator also gets a sub-target there, weighted 3x: the
+    seam pass. See `polish`.
+    """
     from gol_mosaics.freeform.lns import LnsConfig, improve
 
     rounds = []
@@ -785,7 +795,8 @@ def _polish_rounds(pattern, free, kept, targets, args, seed0, obj, stop=0.98):
             break
         lcfg = LnsConfig(patch_windows=5, patch_time_s=args.patch_time,
                          budget_s=args.polish_budget, n_procs=args.polish_procs,
-                         seed=seed0 + rnd, max_diag_run=5)
+                         seed=seed0 + rnd, max_diag_run=5,
+                         seam_rows=tuple(seams), seam_weight=3)
         t0 = time.perf_counter()
         res = improve(pattern, free, kept, targets, lcfg,
                       log=lambda *a, **k: None)
@@ -802,162 +813,47 @@ def _polish_rounds(pattern, free, kept, targets, args, seed0, obj, stop=0.98):
     return pattern, obj, rounds
 
 
-def solve_strips_safe(grey, free, cfg, plan, n_procs: int, retries: int = 2):
-    """`decompose.solve_strips`, one process per strip, with retries.
-
-    The first skyline2 solve (2026-09-10) died in `solve_strips`: one CP-SAT
-    worker aborted with a C-runtime fail-fast about two minutes in, and a
-    `ProcessPoolExecutor` then discards every strip with it. Here each strip
-    gets a pool of its own, so an abort costs one retry with another seed.
-    """
-    from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-    from concurrent.futures.process import BrokenProcessPool
-    from gol_mosaics.freeform.decompose import _check_cfg, _solve_strip_task
-
-    cfg = _check_cfg(cfg)
-    payloads = []
-    for idx, (r0, r1) in enumerate(plan.spans):
-        f = free[r0:r1].copy()
-        if idx < len(plan.spans) - 1 and plan.gap:
-            f[-plan.gap:] = False
-        payloads.append(dict(grey=grey[r0:r1], free=f, cfg=cfg))
-
-    def run(idx):
-        payload = payloads[idx]
-        for attempt in range(retries + 1):
-            try:
-                with ProcessPoolExecutor(max_workers=1) as pool:
-                    return idx, pool.submit(_solve_strip_task, payload).result()
-            except BrokenProcessPool:
-                r0, r1 = plan.spans[idx]
-                log(f"strip {idx} (rows {r0}-{r1}) aborted on attempt "
-                    f"{attempt + 1}; retrying with another seed")
-                payload = dict(payload, cfg=replace(cfg, seed=cfg.seed + 100 * (attempt + 1)))
-        raise RuntimeError(f"strip {idx} aborted {retries + 1} times")
-
-    with ThreadPoolExecutor(max_workers=n_procs) as tp:
-        outs = [o for _, o in sorted(tp.map(run, range(len(payloads))))]
-    return {
-        "pattern": np.vstack([o["pattern"] for o in outs]).astype(np.uint8),
-        "objective": int(sum(o["objective"] for o in outs)),
-        "statuses": [o["status"] for o in outs],
-        "wall_time_s": max(o["wall_time_s"] for o in outs),
-    }
-
-
 def solve(design: Design, args) -> Path:
-    """poster.py's strips + LNS pipeline on a synthetic tone target."""
-    from gol_mosaics.freeform.decompose import plan_strips, solve_strips
-    from gol_mosaics.freeform.lns import window_devs
-    from gol_mosaics.freeform.metrics import deviation_stats, max_diagonal_run
-    from gol_mosaics.freeform.solver import SpikeConfig, verify_still_life
+    """The library pipeline (freeform.solve_poster) on a synthetic tone target."""
+    from gol_mosaics.freeform.poster import PosterConfig, solve_poster
 
-    out = HERE / "results/flyer" / design.name
+    out = HERE / "results" / design.name
     out.mkdir(parents=True, exist_ok=True)
     grey, free = design.grey, design.free
     log(f"{design.name}: {grey.shape} grid, {int(free.sum()):,} free cells")
 
-    cell_t, targets, kept = _targets(design, args.dither)
-    log(f"{len(kept):,} windows, live-cell target {int(targets.sum()):,} "
-        f"({args.dither} dither)")
-
-    plan = plan_strips(grey.shape[0], 8, strip_rows=args.strip_rows, gap=2)
-    cfg = SpikeConfig(k=8, stride=8, d_max=D_MAX, seed=args.seed,
-                      time_limit_s=args.strip_time, workers=args.strip_workers,
-                      max_diag_run=5, dither=args.dither, edge_windows="partial")
-    if args.resume and (out / "strips_pattern.npy").exists():
-        # A polish that failed after the strips (the 540-wide skyline hit
-        # the LNS's disjoint-window check) picks up from the saved strips.
-        pattern = np.load(out / "strips_pattern.npy")
-        strips = dict(statuses=["resumed"] * len(plan.spans), wall_time_s=0.0)
-        n_opt = 0
-        obj = int(window_devs(pattern, free, kept, targets).sum())
-        log(f"resumed from strips_pattern.npy: objective {obj:,}")
-    else:
-        t0 = time.perf_counter()
-        strips = solve_strips_safe(grey, free, cfg, plan, args.strip_procs)
-        wall = time.perf_counter() - t0
-        n_opt = sum(s == "OPTIMAL" for s in strips["statuses"])
-        pattern = strips["pattern"]
-        obj = int(window_devs(pattern, free, kept, targets).sum())
-        np.save(out / "strips_pattern.npy", pattern)
-        log(f"strips done in {wall:.0f}s: {n_opt}/{len(plan.spans)} OPTIMAL, "
-            f"objective {obj:,}")
-
-    pattern, obj, rounds = _polish_rounds(pattern, free, kept, targets, args,
-                                          args.seed, obj)
-
-    ver = verify_still_life(pattern)
-    assert ver["bounded"] and ver["toroidal"], f"verification failed: {ver}"
+    # "partial": the 540-wide skyline is not a multiple of 8, and the LNS
+    # needs disjoint windows (clamped edge windows overlap their neighbour).
+    # isolate: one process per strip, so a CP-SAT abort costs one retry
+    # instead of the batch (the first skyline2 solve, 2026-09-10).
+    cfg = PosterConfig(
+        d_max=D_MAX, seed=args.seed, dither=args.dither, edge_windows="partial",
+        max_diag_run=5, strip_rows=args.strip_rows, strip_time=args.strip_time,
+        strip_procs=args.strip_procs, strip_workers=args.strip_workers,
+        isolate=True, polish_rounds=args.polish_rounds,
+        polish_budget=args.polish_budget, patch_time=args.patch_time,
+        polish_procs=args.polish_procs, seam_budget=args.polish_budget)
+    result = solve_poster(grey, free, cfg, out=out, resume=args.resume, log=log)
+    pattern = result.pattern
     assert int(pattern[~free].sum()) == 0, "live cells in the tile region"
-    stats = deviation_stats(pattern, cell_t, free, kept)
     seams = seam_report(pattern, args.strip_rows, free, verbose=True)
     np.save(out / "pattern.npy", pattern)
-    report = dict(design=design.name, note=design.note,
-                  grid=[HEIGHT, WIDTH], d_max=D_MAX, config=vars(args),
-                  strips=dict(n_optimal=n_opt, statuses=strips["statuses"],
-                              wall_time_s=strips["wall_time_s"]),
-                  polish_rounds=rounds, objective=obj, deviation=stats,
-                  verify=ver, max_diagonal_run=max_diagonal_run(pattern),
-                  seam_occupancy=seams, live_cells=int(pattern.sum()))
+    report = dict(design=design.name, note=design.note, d_max=D_MAX,
+                  config=vars(args), seam_occupancy=seams, **result.report)
     (out / "report.json").write_text(json.dumps(report, indent=2))
+    stats = result.report["deviation"]
     log(f"{design.name} DONE: {int(pattern.sum()):,} live cells, objective "
-        f"{obj:,}, MAD {stats['mad']:.4f}, Pearson {stats['pearson']:.4f}, "
-        f"seam occupancy {seams:.2f}")
+        f"{result.objective:,}, MAD {stats['mad']:.4f}, Pearson "
+        f"{stats['pearson']:.4f}, seam occupancy {seams:.2f}")
     return out
 
 
-def seam_rows(strip_rows: int = STRIP_ROWS, height: int = None):
-    """First row of every two-row strip separator, top to bottom.
+def seam_rows(strip_rows: int = STRIP_ROWS, height: int = HEIGHT):
+    """First row of every two-row strip separator, top to bottom."""
+    from gol_mosaics.freeform.decompose import plan_strips
 
-    Pure arithmetic rather than `plan_strips`, because worker processes call
-    this per patch; `polish` checks it against the plan once. The canvas
-    height reaches the workers through the environment (`FLYER_HEIGHT`),
-    which `polish` sets before the pool is spawned.
-    """
-    import os
-
-    if height is None:
-        height = int(os.environ.get("FLYER_HEIGHT", HEIGHT))
-    return tuple(r1 - 2 for r1 in range(strip_rows, height, strip_rows))
-
-
-def _seam_target(target: int, rows: int) -> int:
-    """The share of a window's target that two of its rows should carry."""
-    return int(round(target * 2 / rows))
-
-
-# Weight of the seam sub-targets against the window targets, on both sides of
-# the LNS (the patch solver's objective and the acceptance rule). Probed on
-# the vignette: at weight 3 with the incumbent as hint, a seam patch solves
-# to optimality in about ten seconds, leaves the window deviations untouched
-# and fills the separator rows to their share. Blanking the hint instead
-# filled the seams too, but the from-scratch re-solve left the windows
-# hundreds of cells off target within the time limit.
-SEAM_WEIGHT = 3
-
-
-def patch_task_seam(payload: dict):
-    """`lns._solve_patch_task` with a sub-window target on each seam.
-
-    Runs in a worker process. For every window box that contains a strip
-    separator, an extra two-row box with a proportional target is appended,
-    so the patch solver has to move cells *into* the separator rows rather
-    than merely meet the window total around them.
-    """
-    # `ORIGINAL_PATCH_TASK` is captured at import time: `polish` rebinds
-    # `lns._solve_patch_task` to this function in the main process, so any
-    # lookup through the module at call time would recurse.
-    i0 = payload["box"][0]
-    extra = []
-    for s0 in seam_rows():
-        sr = s0 - i0 + payload.get("margin", LNS_MARGIN)
-        for a0, a1, b0, b1, target in payload["windows"]:
-            if a0 <= sr and sr + 2 <= a1:
-                box = (sr, sr + 2, b0, b1, _seam_target(target, a1 - a0))
-                extra += [box] * SEAM_WEIGHT
-    payload = dict(payload, windows=list(payload["windows"]) + extra)
-    return ORIGINAL_PATCH_TASK(payload)
+    spans = plan_strips(height, 8, strip_rows=strip_rows, gap=2).spans
+    return tuple(r1 - 2 for _, r1 in spans[:-1])
 
 
 def polish(design: Design, args) -> None:
@@ -971,13 +867,14 @@ def polish(design: Design, args) -> None:
     with nothing to improve. The seams survive as two empty rows across a
     dense band, which is the faint horizontal stripe the eye picks up.
 
-    `--seams-only` therefore changes the objective, not just the patch
-    selection: `window_devs` gains a one-sided deficit term for the separator
-    rows of each seam window, the patch solver gets a matching sub-window
-    target (`patch_task_seam`), and the candidate patches are the boxes
-    centred on a seam. The incumbent then scores badly exactly at the seams,
-    each re-solve has to weave cells across them, and the LNS acceptance rule
-    (strictly lower deviation) sees the improvement. Everything else about
+    `--seams-only` therefore changes the objective: through
+    `LnsConfig.seam_rows`, `window_devs` gains a one-sided deficit term for
+    the separator rows of each seam window, weighted 3x, and the patch
+    solver a matching sub-window target. The incumbent then scores badly
+    exactly at the seams, patches are chosen there, each re-solve has to
+    weave cells across them, and the LNS acceptance rule (strictly lower
+    deviation) sees the improvement. (This began as a monkey-patch of the
+    lns module here and was generalised into the library for the Lam Gods.) Everything else about
     the still-life guarantee is unchanged: patches are re-solved against a
     frozen, stable context, as always.
 
@@ -985,77 +882,35 @@ def polish(design: Design, args) -> None:
     lands on the fringe of the fade and the polish re-solves the dotted line
     there.
     """
-    from gol_mosaics.freeform import lns
+    from gol_mosaics.freeform.lns import LnsConfig, window_devs
     from gol_mosaics.freeform.metrics import deviation_stats, max_diagonal_run
     from gol_mosaics.freeform.solver import verify_still_life
 
-    from gol_mosaics.freeform.decompose import plan_strips
-
-    import os
-
-    if args.strip_rows != STRIP_ROWS:
-        raise SystemExit(f"the seam pass assumes --strip-rows {STRIP_ROWS}")
     height = design.grey.shape[0]
-    os.environ["FLYER_HEIGHT"] = str(height)  # for the patch workers
-    plan = plan_strips(height, 8, strip_rows=STRIP_ROWS, gap=2)
-    assert seam_rows(STRIP_ROWS, height) == \
-        tuple(r1 - 2 for _, r1 in plan.spans[:-1]), plan.spans
-    out = HERE / "results/flyer" / design.name
-    pattern = np.load(out / "pattern.npy")
+    out = HERE / "results" / design.name
+    pattern = load_solve(design.name)
+    out.mkdir(parents=True, exist_ok=True)
     np.save(out / "pattern_prepolish.npy", pattern)
     free = design.free
     cell_t, targets, kept = _targets(design, args.dither)
-    plain_devs = lns.window_devs
+    plain_devs = window_devs
     obj = int(plain_devs(pattern, free, kept, targets).sum())
     seams_before = seam_report(pattern, args.strip_rows, free)
 
-    original = (lns._patch_boxes, lns.window_devs, lns._solve_patch_task)
-    if args.seams_only:
-        rows = seam_rows(args.strip_rows, height)
-        # The LNS window grid spans only the windows that hold free cells, so
-        # its row index is offset from the canvas: map each seam through the
-        # grid's row starts rather than dividing by 8.
-        grid_rows = lns._window_grid(kept)[0]
-        seam_grid_rows = sorted({grid_rows.index((r // 8) * 8) for r in rows
-                                 if (r // 8) * 8 in grid_rows})
-
-        def seam_boxes(n_rows, n_cols, patch):
-            boxes = original[0](n_rows, n_cols, patch)
-            # Every box that holds the seam with at least one window row of
-            # variables on either side of it; a seam in the grid's first row
-            # (the skyline's, right under the ribbon) has only the frozen
-            # tiles above it, and a box starting on it will do.
-            return [b for b in boxes for g in seam_grid_rows
-                    if (b[0] + 1 <= g or (g == 0 and b[0] == 0)) and g <= b[1] - 2]
-
-        def window_devs_seam(pattern, free_mask, windows, targets, slack=0):
-            devs = np.array(plain_devs(pattern, free_mask, windows, targets,
-                                       slack), copy=True)
-            for m, (si, sj) in enumerate(windows):
-                for s0 in rows:
-                    if si.start <= s0 and s0 + 2 <= si.stop:
-                        want = _seam_target(int(targets[m]), si.stop - si.start)
-                        have = int(pattern[s0:s0 + 2, sj].sum())
-                        devs[m] += SEAM_WEIGHT * max(0, want - have)
-            return devs
-
-        lns._patch_boxes = seam_boxes
-        lns.window_devs = window_devs_seam
-        lns._solve_patch_task = patch_task_seam
-        obj_seam = int(window_devs_seam(pattern, free, kept, targets).sum())
+    rows = seam_rows(args.strip_rows, height) if args.seams_only else ()
+    if rows:
+        seam_cfg = LnsConfig(seam_rows=rows, seam_weight=3)
+        start = int(window_devs(pattern, free, kept, targets, 0, seam_cfg).sum())
         log(f"{design.name}: seam pass from objective {obj:,} "
-            f"(+{obj_seam - obj:,} seam deficit), seam occupancy "
+            f"(+{start - obj:,} seam deficit), seam occupancy "
             f"{seams_before:.2f} ({args.dither} dither)")
-        start = obj_seam
     else:
+        start = obj
         log(f"{design.name}: polish from objective {obj:,}, seam occupancy "
             f"{seams_before:.2f} ({args.dither} dither)")
-        start = obj
-    try:
-        pattern, _, rounds = _polish_rounds(pattern, free, kept, targets, args,
-                                            args.seed + 100, start, stop=0.995)
-    finally:
-        lns._patch_boxes, lns.window_devs, lns._solve_patch_task = original
+    pattern, _, rounds = _polish_rounds(pattern, free, kept, targets, args,
+                                        args.seed + 100, start, stop=0.995,
+                                        seams=rows)
 
     obj = int(plain_devs(pattern, free, kept, targets).sum())
     ver = verify_still_life(pattern)
@@ -1063,7 +918,8 @@ def polish(design: Design, args) -> None:
     assert int(pattern[~free].sum()) == 0, "live cells in the tile region"
     seams = seam_report(pattern, args.strip_rows, free, verbose=True)
     np.save(out / "pattern.npy", pattern)
-    report = json.loads((out / "report.json").read_text())
+    report_path = out / "report.json"
+    report = json.loads(report_path.read_text()) if report_path.exists() else {}
     report.setdefault("extra_polish", []).append(dict(
         seams_only=args.seams_only, dither=args.dither, objective=obj,
         rounds=rounds, deviation=deviation_stats(pattern, cell_t, free, kept),
@@ -1232,10 +1088,17 @@ ROUND2 = [
 
 
 def load_solve(name: str):
-    path = HERE / "results/flyer" / name / "pattern.npy"
-    if not path.exists():
-        raise SystemExit(f"no solve for {name!r}: run `flyer.py solve {name}`")
-    return np.load(path)
+    """A design's solve: the local run if there is one, else the delivered
+    bit-packed copy in solves/."""
+    from gol_mosaics.freeform.io import load_pattern_asset
+
+    run = HERE / "results" / name / "pattern.npy"
+    if run.exists():
+        return np.load(run)
+    packed = HERE / "solves" / f"{name}.npz"
+    if packed.exists():
+        return load_pattern_asset(packed)
+    raise SystemExit(f"no solve for {name!r}: run `flyer.py solve {name}`")
 
 
 def render(labels=None) -> None:
@@ -1244,10 +1107,8 @@ def render(labels=None) -> None:
     from gol_mosaics import compose, filled_background, life_safe_pattern
     from gol_mosaics.export import GollyExporter
 
-    out = REPO / "output/images/flyer"
-    out.mkdir(parents=True, exist_ok=True)
-    golly = REPO / "output/golly"
-    golly.mkdir(parents=True, exist_ok=True)
+    scratch = HERE / "output"
+    scratch.mkdir(parents=True, exist_ok=True)
     designs, patterns, panels = {}, {}, []
 
     for label, name, kwargs in RENDERS + ROUND2:
@@ -1271,6 +1132,11 @@ def render(labels=None) -> None:
                                   **kwargs)
         image = compose(pattern, background, scheme, style="mosaic",
                         fill="auto", field=field, scale=d.scale, **kwargs)
+        final = name in ACTIVE  # delivered: versioned next to the script
+        out = HERE / "renders" if final else scratch
+        golly = HERE / "golly" if final else scratch
+        out.mkdir(parents=True, exist_ok=True)
+        golly.mkdir(parents=True, exist_ok=True)
         image.convert("RGB").save(out / f"{label}.png")
 
         # The same field the render used, merged and checked as one still life.
@@ -1285,9 +1151,9 @@ def render(labels=None) -> None:
 
     if len(panels) > 1:
         half = (len(panels) + 1) // 2
-        contact_sheet([panels[:half], panels[half:]], out / "_contact_sheet.png",
-                      width=9, panel_h=5.6)
-        print(f"contact sheet -> {out / '_contact_sheet.png'}")
+        contact_sheet([panels[:half], panels[half:]],
+                      scratch / "contact_sheet.png", width=9, panel_h=5.6)
+        print(f"contact sheet -> {scratch / 'contact_sheet.png'}")
 
 
 def palette_sheet(name: str, level: int = 4, seed: int = 1,
@@ -1296,7 +1162,7 @@ def palette_sheet(name: str, level: int = 4, seed: int = 1,
     from common import contact_sheet
     from gol_mosaics import compose, filled_background
 
-    out = REPO / "output/images/flyer"
+    out = HERE / "output"
     out.mkdir(parents=True, exist_ok=True)
     d, pattern = DESIGNS[name](), load_solve(name)
     background = ~d.free
@@ -1306,10 +1172,10 @@ def palette_sheet(name: str, level: int = 4, seed: int = 1,
     for pname, scheme in PALETTES.items():
         image = compose(pattern, background, scheme, style="mosaic",
                         level=level, fill="auto", field=field)
-        image.convert("RGB").save(out / f"_palette_{name}_{pname}.png")
+        image.convert("RGB").save(out / f"palette_{name}_{pname}.png")
         panels.append((pname, image))
     half = (len(panels) + 1) // 2
-    path = out / f"_palettes_{name}.png"
+    path = out / f"palettes_{name}.png"
     contact_sheet([panels[:half], panels[half:]], path, width=9, panel_h=5.6)
     return path
 

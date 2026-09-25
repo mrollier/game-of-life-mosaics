@@ -1074,7 +1074,7 @@ survived four review rounds: `vignette2`, a rounded window in a tile frame
 (360×512 at 3 px), and `skyline2`, Ghent on the left and São Paulo on the
 right under a clean tile ribbon (540×768 at 2 px). Every render is merged
 with its tile field and verified as a single still life (38,076 cells for the
-skyline); the `.cells` files are in `output/golly/flyer-*.cells`.
+skyline); the `.cells` files are in `studies/flyer/golly/flyer-*.cells`.
 
 ### What the synthetic targets taught
 
@@ -1131,21 +1131,25 @@ saturated field with cream tiles, a lightness jump of about 50 points, and a
 near-black grain; the user found them heavy. The quiet set (`QUIET`) puts the
 tiles 13–16 points above their field, the filler halfway between, the grain
 at a mid-tone of the same hue, and the fields at tints: the silhouette reads
-as one soft textured shape. `output/images/flyer/_palette_skyline2_*.png`
+as one soft textured shape. `studies/flyer/renders/palettes/skyline2-*.png`
 has the skyline in each.
 
 ### Reproduction
 
 ```bash
-python experiments/beyond_tiles/flyer.py preview                       # designs, no solver
-python experiments/beyond_tiles/flyer.py solve skyline2 --strip-procs 2 --polish-procs 3
-python experiments/beyond_tiles/flyer.py polish skyline2 --seams-only --polish-procs 3
-python experiments/beyond_tiles/flyer.py render                        # all palettes + Golly
+python studies/flyer/flyer.py preview                       # designs, no solver
+python studies/flyer/flyer.py solve skyline2 --strip-procs 2 --polish-procs 3
+python studies/flyer/flyer.py polish skyline2 --seams-only --polish-procs 3
+python studies/flyer/flyer.py render                        # all palettes + Golly
 ```
 
 The skyline solve is about 14 min of strips and 12 min of polish on 12 cores
 at two strips at a time, the seam pass 10 min more. Solves land under
-`results/flyer/` (ignored); the finished renders are committed.
+`studies/flyer/results/` (ignored); the delivered solves are kept bit-packed in
+`studies/flyer/solves/` and the finished renders in `studies/flyer/renders/`.
+(Since 3.0, `solve` runs `freeform.solve_poster`, which includes the seam
+rounds, and `polish --seams-only` uses the library's `LnsConfig.seam_rows`
+instead of patching the lns module.)
 
 ## 10. Out of scope
 
