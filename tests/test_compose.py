@@ -673,3 +673,49 @@ def test_life_safe_pattern_accepts_a_layered_field():
     whole = life_safe_pattern(pattern, background, field=field)
     assert set(np.unique(whole)) <= {0, 1}
     assert whole.sum() == pattern.sum() + (field != 0).sum()
+
+
+def test_centred_lattice_is_mirror_symmetric():
+    """The level-1 bank holds a single tile, so every seated tile is the
+    same and a centred placement on a symmetric frame must give a
+    mirror-symmetric field. (Uncentred, the lattice starts at the origin.)"""
+    from gol_mosaics.compose import centring_pad, mosaic_background
+
+    size = (90, 76)  # even sides: the centre falls between cells
+    background = np.ones(size, dtype=bool)
+    background[30:60, 25:51] = False  # a centred subject
+    field = mosaic_background(background, level=1, centred=True, seed=0)
+    assert field.any()
+    assert np.array_equal(field, field[::-1, :])
+    assert np.array_equal(field, field[:, ::-1])
+    plain = mosaic_background(background, level=1, seed=0)
+    assert not np.array_equal(plain, plain[:, ::-1])
+    py, px = centring_pad(1, 'diamond', None, *size)
+    assert 0 <= py < 6 and 0 <= px < 6
+
+
+def test_centred_placement_is_diamond_only():
+    from gol_mosaics.compose import mosaic_background
+
+    with pytest.raises(ValueError, match="diamonds only"):
+        mosaic_background(np.ones((60, 60), dtype=bool), level=3,
+                          shape='square', centred=True)
+    with pytest.raises(ValueError, match="even canvas sides"):
+        mosaic_background(np.ones((61, 60), dtype=bool), level=3,
+                          centred=True)
+
+
+def test_compose_renders_a_supplied_field_like_its_own():
+    """compose(field=...) with the field compose would have made itself
+    renders the same image, so one verified field can be recoloured."""
+    from gol_mosaics.compose import compose, filled_background
+
+    pattern, background = _mosaic_scene()
+    field = filled_background(background, level=3, seed=4)
+    own = compose(pattern, background, SCHEME, style='mosaic', level=3,
+                  fill='auto', seed=4)
+    given = compose(pattern, background, SCHEME, style='mosaic', level=3,
+                    fill='auto', field=field)
+    assert np.array_equal(np.asarray(own), np.asarray(given))
+    with pytest.raises(ValueError, match="only used with style='mosaic'"):
+        compose(pattern, background, SCHEME, style='eca', field=field)

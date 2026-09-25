@@ -61,6 +61,7 @@ from PIL import Image, ImageDraw
 from gol_mosaics.freeform.lns import _MARGIN as LNS_MARGIN
 from gol_mosaics.freeform.lns import _solve_patch_task as ORIGINAL_PATCH_TASK
 from gol_mosaics import ColorScheme
+from gol_mosaics.compose import centring_pad
 
 HERE = Path(__file__).resolve().parent
 WIDTH, HEIGHT, SCALE = 360, 512, 3
@@ -371,7 +372,7 @@ def design_antipodes() -> Design:
 # tower's centre and width snapped to the level-4 diamond lattice so that a
 # symmetric stack of whole diamonds sits inside it. The lattice at level L
 # has box corners at rows 3L*s - py and columns 3L*m - px with s and m of
-# equal parity, where (py, px) is the padding `symmetric_pad` chooses for
+# equal parity, where (py, px) is the padding `compose.centring_pad` chooses for
 # this canvas; a tower centred on column 3L*m - px + (3L - 0.5) that is
 # 3L*(2k+2) + 4 cells wide holds 2k+1 stacks with the 2-cell gap on each
 # side, and a flat roof at row 3L*s - py - 2 (right parity) closes on a
@@ -380,11 +381,11 @@ SKY2 = dict(height=768, width=540, ground=40, ribbon=56, scale=2, level=4)
 
 
 class Lattice:
-    """Where the level-L diamonds fall on a canvas, after `symmetric_pad`."""
+    """Where the level-L diamonds fall on a canvas, after `centring_pad`."""
 
     def __init__(self, height, width, level=4):
         self.n = 3 * level
-        self.py, self.px = symmetric_pad(level, "diamond", "auto", height, width)
+        self.py, self.px = centring_pad(level, "diamond", "auto", height, width)
 
     def centre(self, m):
         """Column centre of lattice column m (a half-integer)."""
@@ -1172,68 +1173,6 @@ QUIET = ["teal", "teal-soft", "slate", "mist", "denim", "sage", "heather",
          "sand", "ochre"]
 
 
-# --- Symmetric tile placement ---------------------------------------------------
-
-def symmetric_pad(level: int, shape: str = "diamond", fill="auto",
-                  height: int = HEIGHT, width: int = WIDTH):
-    """Top/left padding that centres every cascade lattice on the canvas.
-
-    The diamond lattice at level L has sites at multiples of 3L on both axes
-    (a checkerboard of them), so it is mirror-symmetric about every line
-    through a row or column of site centres, i.e. rows 3L*k + (3L - 0.5).
-    A plain call to `mosaic_background` starts the lattice at the canvas
-    origin, and whether a symmetric window sees the same lattice at its top
-    and bottom edges is then luck: on the 360x512 vignette the level-4 row
-    touched the inner edge at the top and left a gap at the bottom.
-
-    Padding the mask by (py, px) before placing the tiles shifts the lattice
-    the other way. This searches the smallest padding that puts the canvas
-    centre on a mirror line of the main level and of every cascade level at
-    once, so the whole placement is symmetric top/bottom and left/right. Tile
-    *choices* stay random; it is the placement the eye compares.
-    """
-    from gol_mosaics.compose import _resolve_fill_levels
-
-    levels = [level] + list(_resolve_fill_levels(level, shape, fill) or ())
-    if shape != "diamond":
-        raise ValueError("symmetric placement is worked out for diamonds only")
-
-    def aligned(centre, pad):
-        return all((centre + pad - (3 * L - 0.5)) % (3 * L) == 0 for L in levels)
-
-    py = next(p for p in range(0, 4 * 36) if aligned((height - 1) / 2, p))
-    px = next(p for p in range(0, 4 * 36) if aligned((width - 1) / 2, p))
-    return py, px
-
-
-def symmetric_field(background: np.ndarray, level: int, shape: str = "diamond",
-                    fill="auto", **kwargs) -> np.ndarray:
-    """`filled_background` with the lattice centred on the canvas."""
-    from gol_mosaics import filled_background
-
-    py, px = symmetric_pad(level, shape, fill, *background.shape)
-    padded = np.pad(background, ((py, 0), (px, 0)))  # padding is subject: no tiles
-    field = filled_background(padded, level=level, shape=shape, fill=fill,
-                              **kwargs)
-    return np.ascontiguousarray(field[py:, px:])
-
-
-def render_field(pattern, background, field, scheme, level, shape="diamond",
-                 fill="auto", scale=SCALE) -> Image.Image:
-    """`compose(style="mosaic")` with a field supplied instead of generated."""
-    from gol_mosaics import MosaicRenderer
-    from gol_mosaics.compose import fill_layer_count
-
-    backdrop = background.astype(np.uint8)
-    image = MosaicRenderer(scheme).render_full_mosaic(
-        pattern, backdrop * (field + backdrop),
-        layers=fill_layer_count(level, shape, fill))
-    if scale > 1:
-        image = image.resize((image.width * scale, image.height * scale),
-                             Image.Resampling.NEAREST)
-    return image
-
-
 # --- Render -------------------------------------------------------------------
 
 HAZE_CREAM = replace(FLYER, fill_pixel="#D8CDB6")
@@ -1328,15 +1267,10 @@ def render(labels=None) -> None:
         symmetric = kwargs.pop("symmetric", False)
         background = ~d.free
 
-        if symmetric:
-            field = symmetric_field(background, fill="auto", **kwargs)
-            image = render_field(pattern, background, field, scheme,
-                                 kwargs["level"], kwargs.get("shape", "diamond"),
-                                 scale=d.scale)
-        else:
-            field = filled_background(background, fill="auto", **kwargs)
-            image = compose(pattern, background, scheme, style="mosaic",
-                            fill="auto", scale=d.scale, **kwargs)
+        field = filled_background(background, fill="auto", centred=symmetric,
+                                  **kwargs)
+        image = compose(pattern, background, scheme, style="mosaic",
+                        fill="auto", field=field, scale=d.scale, **kwargs)
         image.convert("RGB").save(out / f"{label}.png")
 
         # The same field the render used, merged and checked as one still life.
@@ -1366,11 +1300,12 @@ def palette_sheet(name: str, level: int = 4, seed: int = 1,
     out.mkdir(parents=True, exist_ok=True)
     d, pattern = DESIGNS[name](), load_solve(name)
     background = ~d.free
-    field = (symmetric_field(background, level=level, seed=seed) if symmetric
-             else filled_background(background, level=level, seed=seed))
+    field = filled_background(background, level=level, seed=seed,
+                              centred=symmetric)
     panels = []
     for pname, scheme in PALETTES.items():
-        image = render_field(pattern, background, field, scheme, level, scale=1)
+        image = compose(pattern, background, scheme, style="mosaic",
+                        level=level, fill="auto", field=field)
         image.convert("RGB").save(out / f"_palette_{name}_{pname}.png")
         panels.append((pname, image))
     half = (len(panels) + 1) // 2

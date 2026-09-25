@@ -254,6 +254,65 @@ def _tone_field(tone: str, angle: float, height: int, width: int) -> np.ndarray:
     return (field - field.min()) / span
 
 
+def centring_pad(level: int,
+                 shape: str = 'diamond',
+                 fill: Optional[object] = None,
+                 height: int = 0,
+                 width: int = 0) -> Tuple[int, int]:
+    """
+    Top/left padding that centres every tile lattice of a field on a canvas.
+
+    The diamond lattice at level L has sites at multiples of 3L on both
+    axes (a checkerboard of them), so it is mirror-symmetric about the lines
+    3L*k + (3L - 0.5). Placed from the canvas origin, whether a symmetric
+    frame sees the same lattice along opposite edges is luck: on a 360x512
+    flyer the level-4 row touched the inner edge at the top and left a gap
+    at the bottom. Padding the mask by (py, px) shifts the lattice; this
+    returns the smallest padding that puts the canvas centre on a mirror
+    line of the main level and of every cascade level of `fill` at once.
+    Tile *choices* stay random; it is the placement the eye compares.
+
+    Args:
+        level: Main tile level
+        shape: Only 'diamond' is supported
+        fill: The cascade, as for :func:`filled_background` (None: the main
+            level alone)
+        height, width: Canvas size in cells
+
+    Returns:
+        (py, px) rows and columns of padding
+
+    Raises:
+        ValueError: For square tiles, or a canvas side that is odd (the
+            mirror lines run between cells, so the centre must too)
+    """
+    if shape != 'diamond':
+        raise ValueError("centred placement is worked out for diamonds only")
+    if height % 2 or width % 2:
+        raise ValueError(
+            f"centred placement needs even canvas sides, got {height}x{width}"
+        )
+    levels = [level] + list(_resolve_fill_levels(level, shape, fill) or ())
+
+    def aligned(centre, pad):
+        return all((centre + pad - (3 * lv - 0.5)) % (3 * lv) == 0
+                   for lv in levels)
+
+    period = int(np.lcm.reduce([3 * lv for lv in levels])) * 2
+    py = next(p for p in range(period) if aligned((height - 1) / 2, p))
+    px = next(p for p in range(period) if aligned((width - 1) / 2, p))
+    return py, px
+
+
+def _centred(build, mask, level, shape, cascade, **kwargs):
+    """Run a background builder on the mask padded by centring_pad, then
+    crop. The padding counts as subject, so no tile is seated in it."""
+    py, px = centring_pad(level, shape, cascade, *mask.shape)
+    padded = np.pad(mask, ((py, 0), (px, 0)))
+    field = build(padded, level=level, shape=shape, **kwargs)
+    return np.ascontiguousarray(field[py:, px:])
+
+
 def mosaic_background(background_mask: np.ndarray,
                       level: int = 4,
                       shape: str = 'diamond',
@@ -261,7 +320,8 @@ def mosaic_background(background_mask: np.ndarray,
                       tone: Optional[str] = None,
                       tone_angle: float = 0.0,
                       gap: int = 2,
-                      seed: Optional[int] = None) -> np.ndarray:
+                      seed: Optional[int] = None,
+                      centred: bool = False) -> np.ndarray:
     """
     Fill the background region with a still-life tile mosaic.
 
@@ -305,11 +365,14 @@ def mosaic_background(background_mask: np.ndarray,
             bottom to top
         gap: Cells of clearance required around each tile box (default 2)
         seed: Seed for the tile draw, so a composition is reproducible
+        centred: Shift the lattice so its placement is mirror-symmetric
+            about the canvas centre (diamonds only; see
+            :func:`centring_pad`). By default it starts at the origin.
 
     Returns:
         Binary uint8 array of the same shape, 1 on mosaic cells. Empty when
-        no lattice site fits — the lattice is fixed rather than centred on
-        the canvas, so a small or crowded background can seat nothing.
+        no lattice site fits, so a small or crowded background can seat
+        nothing.
 
     Raises:
         ValueError: If the mask is not 2D, the shape or tone is unknown, the
@@ -330,6 +393,10 @@ def mosaic_background(background_mask: np.ndarray,
         raise ValueError(
             f"Background mask must be 2D array, got shape {mask.shape}"
         )
+    if centred:
+        return _centred(mosaic_background, mask, level, shape, None,
+                        density=density, tone=tone, tone_angle=tone_angle,
+                        gap=gap, seed=seed)
     if shape not in SHAPES:
         raise ValueError(f"Unknown shape {shape!r}, expected one of {SHAPES}")
     if tone not in TONES:
@@ -599,7 +666,8 @@ def filled_background(background_mask: np.ndarray,
                       fill_band: Optional[int] = None,
                       fill_fade: bool = True,
                       gap: int = 2,
-                      seed: Optional[int] = None) -> np.ndarray:
+                      seed: Optional[int] = None,
+                      centred: bool = False) -> np.ndarray:
     """
     A tile mosaic with the gap around the subject packed as tight as it goes.
 
@@ -639,6 +707,8 @@ def filled_background(background_mask: np.ndarray,
         gap: Cells of clearance required around every box (default 2)
         seed: Seed for the draws; each layer offsets it, so a composition is
             reproducible as a whole
+        centred: Place every lattice of the cascade mirror-symmetric about
+            the canvas centre (diamonds only; see :func:`centring_pad`)
 
     Returns:
         uint8 array of the same shape, one number per layer: 0 empty, 1 a
@@ -658,6 +728,11 @@ def filled_background(background_mask: np.ndarray,
         True
     """
     mask = np.asarray(background_mask, dtype=bool)
+    if centred:
+        return _centred(filled_background, mask, level, shape, fill,
+                        density=density, tone=tone, tone_angle=tone_angle,
+                        fill=fill, fill_band=fill_band, fill_fade=fill_fade,
+                        gap=gap, seed=seed)
     tiles = mosaic_background(mask, level=level, shape=shape, density=density,
                               tone=tone, tone_angle=tone_angle, gap=gap,
                               seed=seed)
@@ -847,6 +922,8 @@ def compose(pattern: np.ndarray,
             fill_band: Optional[int] = None,
             fill_fade: bool = True,
             seed: Optional[int] = None,
+            centred: bool = False,
+            field: Optional[np.ndarray] = None,
             scale: int = 1) -> Image.Image:
     """
     Render a finished pattern with a colour scheme and a backdrop.
@@ -883,6 +960,13 @@ def compose(pattern: np.ndarray,
         fill_fade: Thin those out towards the far edge of the band
         seed: Tile draw seed for style='mosaic', so a composition is
             reproducible
+        centred: Mirror-symmetric lattice placement for style='mosaic', see
+            :func:`centring_pad`
+        field: A background field made beforehand, as
+            :func:`filled_background` returns it, instead of generating one
+            (style='mosaic' only). Useful to render one verified field in
+            several colour schemes; `level`, `shape` and `fill` must be the
+            ones it was made with, since they set the colour ramp.
         scale: Integer nearest-neighbour upscale, applied last. The pattern
             renders at one pixel per cell, which is far below print
             resolution, so a poster wants 3 or more.
@@ -912,6 +996,8 @@ def compose(pattern: np.ndarray,
 
     if style not in STYLES:
         raise ValueError(f"Unknown style {style!r}, expected one of {STYLES}")
+    if field is not None and style != 'mosaic':
+        raise ValueError("a precomputed field is only used with style='mosaic'")
 
     if int(scale) != scale or scale < 1:
         raise ValueError(f"Scale must be a positive integer, got {scale}")
@@ -937,13 +1023,20 @@ def compose(pattern: np.ndarray,
             )
         elif style == 'agar':
             field = agar_background(mask, pitch=pitch, gap=gap)
+        elif field is not None:
+            field = np.asarray(field)
+            if field.shape != mask.shape:
+                raise ValueError(
+                    f"Field shape {field.shape} does not match mask "
+                    f"{mask.shape}"
+                )
         else:
             # fill=None makes this exactly mosaic_background, so one call
             # covers both.
             field = filled_background(
                 mask, level=level, shape=shape, density=density, tone=tone,
                 tone_angle=tone_angle, fill=fill, fill_band=fill_band,
-                fill_fade=fill_fade, gap=gap, seed=seed
+                fill_fade=fill_fade, gap=gap, seed=seed, centred=centred
             )
 
         # Layer stack: 0=subject (transparent), 1=field background, 2=field
