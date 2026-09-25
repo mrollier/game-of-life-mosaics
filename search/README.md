@@ -13,4 +13,4 @@ large for git.
 
 Everything here runs from its own folder in a checkout with the package
 installed (`pip install -e ".[sat]"`). Where results are reported and how to
-reproduce the paper's tables is described in [`REPRODUCE.md`](../REPRODUCE.md).
+reproduce the paper's tables is described in [`docs/reproduce.md`](../docs/reproduce.md).

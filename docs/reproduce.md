@@ -1,16 +1,21 @@
 # Reproducing the paper's numbers
 
-Every table and figure of the preprint *"Exhaustive enumeration of
-symmetric still-life tiles in Life-like cellular automata via
-orbit-reduced SAT solving"* regenerates from this repository. Commands
-run from the repository root; `PY` is a Python 3.13 with the packages
-pinned in `search/tiles/requirements-lock.txt`
-(measurements in the paper: Apple M4, 10 cores, 16 GB, macOS 26.5).
+Every table of the preprint *"Exhaustive enumeration of symmetric
+still-life tiles in Life-like cellular automata via orbit-reduced SAT
+solving"* regenerates from this repository. Commands run from the
+repository root; `PY` is a Python 3.13 with the package installed
+(`pip install -e ".[sat]"`) and the versions pinned in
+`search/tiles/requirements-lock.txt` (measurements in the paper: Apple M4,
+10 cores, 16 GB, macOS 26.5).
 
 ```bash
-PY="python"          # with numpy, scipy, python-sat, matplotlib
-export PYTHONPATH=src
+PY="python"          # with gol-mosaics[sat] installed
 ```
+
+Two items rely on the manuscript folder `paper/`, which is kept out of the
+public repository: the orbit-accounting evidence script and the figure
+script. They are marked *maintainer only* below; every number they produce
+also follows from the library calls given next to them.
 
 ## Validation battery (run first)
 
@@ -25,15 +30,15 @@ $PY -m pytest tests/                                          # incl. whole-mosa
 
 | Paper item | Command |
 |---|---|
-| Table 1 (census, CNF sizes, single-thread times) | `$PY -c "from gol_mosaics.sat_search import build_cnf, enumerate_all; ..."` — or run `notebooks/sat_tile_search.ipynb` end to end; timings: 3 runs of `enumerate_all(build_cnf(L))`, median |
-| Table 2 (orbit accounting) | evidence script `paper/ars/revision_data/` (archived with the release); equivalently `build_domain(L)` and count `constants` values |
+| Table 1 (census, CNF sizes, single-thread times) | `$PY -c "from gol_mosaics.sat_search import build_cnf, enumerate_all; ..."` — or run `notebooks/research/tiles/sat_tile_search.ipynb` end to end; timings: 3 runs of `enumerate_all(build_cnf(L))`, median |
+| Table 2 (orbit accounting) | `build_domain(L)` and count its `constants` values (maintainer only: the evidence script in `paper/ars/revision_data/`) |
 | Table 3 (hypothesis (H)) | `tests/test_tiling.py` harness; frame-only tile = `build_domain(L).expand(zeros)`; assembled check via `MosaicGenerator._build_mosaic` with a single-tile library |
 | Table 4 (level-6 benchmark) | `cd search/tiles && /usr/bin/time -l $PY search.py run --level 6 --work-dir /tmp/bench --output /tmp/bench_level6.npy` (phase timings are printed by `run`/`merge`) |
-| Table 5 (certificates) | `cd search/tiles && $PY certify.py --level L` for L = 3,4,5,6 (levels 3-5 auto-check with the bundled `rup_check.py`) |
-| Table 6 (population statistics) | populations = `PatternLibrary.load(L).solutions.sum((1,2))`; percentiles with lower interpolation |
+| Table 5 (certificates) | `cd search/tiles && $PY certify.py --level L` for L = 3,4,5,6 (levels 3-5 auto-check with the bundled `rup_check.py`; published hashes in `search/tiles/README.md`) |
+| Table 6 (population statistics) | populations = `TileLibrary.load(L).tiles.sum((1,2))`; percentiles with lower interpolation |
 | Appendix (interlock representatives) | `$PY -c "from gol_mosaics.tile_domain import derive_dead_edges; print(derive_dead_edges(L))"` |
 
-## Figures
+## Figures (maintainer only)
 
 ```bash
 $PY paper/figures/make_figures.py        # writes all six PDFs from live library data
@@ -48,7 +53,7 @@ checker's practical range. Check it with drat-trim:
 ```bash
 git clone https://github.com/marijnheule/drat-trim && (cd drat-trim && make)
 cd search/tiles
-PYTHONPATH=../../src $PY certify.py --level 6 --checker ../../drat-trim/drat-trim
+$PY certify.py --level 6 --checker ../../drat-trim/drat-trim
 ```
 
 ## SHA-256 hashes (full)
@@ -97,7 +102,7 @@ row `k` holds the 59 free-orbit bits of tile `k` packed
 most-significant-bit-first (`numpy.packbits` semantics), rows in the
 canonical order (live-cell count, then raw-grid byte order). Levels 1-5 use
 the same format but keep the order in which the original ILP found them. Expand with
-`gol_mosaics.tile_domain.unpack_solutions(packed, level=6)`; the free
+`gol_mosaics.tile_domain.build_domain(6).unpack(packed)`; the free
 orbits are enumerated by `build_domain(6).free_reps` (lexicographic by
 representative).
 
@@ -106,7 +111,7 @@ representative).
 The `nosym` variant drops the D4 symmetry requirement while keeping the
 frame, dead-edge, and stability constraints (module
 `gol_mosaics.nosym_tiles`; notebook
-`notebooks/tile_nosym_enumeration.ipynb`). Censuses: 1, 2, 1061 raw
+`notebooks/research/tiles/tile_nosym_enumeration.ipynb`). Censuses: 1, 2, 1061 raw
 grids at levels 1-3, forming 1, 2, 181 D4 equivalence classes (level-3
 class sizes {1: 7, 2: 9, 4: 71, 8: 94}; the singletons are exactly the
 symmetric census, and sum|Fix| = 1448 = 8 x 181 by Burnside).
@@ -115,7 +120,7 @@ symmetric census, and sum|Fix| = 1448 = 8 x 181 by Burnside).
 array: row `k` holds the 68 free-CELL bits of tile `k` (identity
 domain — one bit per unforced cell, no orbit reduction) packed
 MSB-first, rows in the same canonical order as above. Expand with
-`gol_mosaics.nosym_tiles.unpack_nosym_solutions(packed, level=3)`;
+`gol_mosaics.nosym_tiles.build_nosym_domain(3).unpack(packed)`;
 regenerate with `$PY tools/pack_tiles.py nosym --level 3`. Levels 1-2 ship
 no file (their nosym censuses equal the symmetric ones and re-derive in
 milliseconds).

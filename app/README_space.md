@@ -30,6 +30,9 @@ pick a few settings, and download the result.
   ponds, sharing their border ponds). Both stay a provable still life.
 - **Detail level** — higher is finer; diamonds offer 3–6 (level 6, 332k tiles,
   loads on first use), squares 3–5. Levels 5–6 are slower.
+- **Pixel-perfect** — the downloaded PNG has one Game of Life cell per pixel.
+  Viewers that smooth when zooming past 100 % make it look blurry; the file is
+  sharp. Export from Canva as PNG, without enlarging it past its native size.
 - **Colour scheme** — UGent, monochrome, random Warhol pop colours, or manual.
 - **Grid size** — number of tiles across (10–200; the diamond layout rounds it
   to even). Levels 5–6 at 200 are slow.
@@ -52,22 +55,6 @@ python app.py
 ```
 Then open the printed local URL (default http://127.0.0.1:7860).
 
-## Notes for deploying this Space
-- This app uses the runtime dependencies in `requirements.txt`
-  (numpy, scipy, cellpylib, Pillow, gradio, and `rembg[cpu]` for background
-  removal). It does **not** install `gurobipy` (pattern generation only).
-- `rembg` pulls in `onnxruntime`, which enlarges the build, and the u2net model
-  (~176 MB) downloads on the first background removal after a (re)start.
-- The pattern libraries ship inside the package at
-  `src/gol_mosaics/data/*.npy`. The level-5 file is ~19 MB; Hugging Face Spaces
-  require files over 10 MB to be tracked with **Git LFS**:
-  ```bash
-  brew install git-lfs      # or your platform's installer
-  git lfs install
-  git lfs track "*.npy"     # writes the rule into .gitattributes
-  git add .gitattributes src/gol_mosaics/data/*.npy
-  git commit -m "Track pattern libraries with Git LFS"
-  ```
-- To use this file as the Space landing page, it must be named `README.md` at
-  the Space repo root (Hugging Face reads the YAML front matter above). Either
-  rename it on the Space, or copy its contents into the root `README.md`.
+## Deploying
+This page is `app/README_space.md` in the source repository; `app/deploy.sh`
+publishes the app here. See `docs/deploy.md` there.
