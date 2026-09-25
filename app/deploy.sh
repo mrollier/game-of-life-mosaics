@@ -7,15 +7,16 @@
 # automatically). Run from anywhere; paths are resolved relative to this script.
 #
 # Usage:
-#   ./deploy.sh ["commit message"]
+#   app/deploy.sh ["commit message"]
 #
 # Prerequisites (one-time):
 #   hf auth login        # token with WRITE permission
 #
 set -euo pipefail
 
-# Resolve the repo root (directory containing this script).
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve the repo root (the parent of the app/ folder holding this script).
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$APP_DIR")"
 cd "$REPO_ROOT"
 
 SPACE_ID="mrollier/game-of-life-mosaics"
@@ -27,10 +28,10 @@ rm -rf "$STAGING"
 mkdir "$STAGING"
 
 # App entrypoint + runtime deps.
-cp app.py requirements.txt "$STAGING/"
+cp app/app.py app/requirements.txt "$STAGING/"
 
 # The Space reads its config from README.md's YAML front matter.
-cp README_HF.md "$STAGING/README.md"
+cp app/README_space.md "$STAGING/README.md"
 
 # Ship the package at the Space root so `import gol_mosaics` works with no
 # pip install (data files in gol_mosaics/data/ come along).

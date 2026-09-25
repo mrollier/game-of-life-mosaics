@@ -12,7 +12,22 @@ from PIL import Image
 
 pytest.importorskip("gradio")  # app-only dependency
 
-import app  # noqa: E402  (import after the skip guard)
+
+def _load_app():
+    """Import app/app.py by path: the app is not a package, and a bare
+    `import app` would find the app/ folder as a namespace package."""
+    import importlib.util
+
+    from tests.conftest import REPO_ROOT
+
+    spec = importlib.util.spec_from_file_location(
+        "gol_mosaics_app", REPO_ROOT / "app" / "app.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+app = _load_app()
 
 
 def _subject_on_transparent(size=80):
