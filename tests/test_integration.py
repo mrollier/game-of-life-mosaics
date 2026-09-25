@@ -328,3 +328,23 @@ def test_square_transparency_mask_marks_background(transparent_image_path):
     H, W = mask.shape
     assert mask[0, 0] == 1          # corner: background, ECA visible
     assert mask[H // 2, W // 2] == 0  # centre: subject, no ECA
+
+
+@pytest.mark.parametrize("size", [(100, 400), (400, 100), (70, 500), (200, 300)])
+@pytest.mark.parametrize("level", [3, 4])
+def test_cropped_diamond_mosaics_stay_still_lifes(size, level):
+    """The crop back to a non-square aspect ratio used to cut through tiles
+    along the edge, leaving a pattern that was not a still life (a solid
+    dark 4:1 image failed at every level). Tiles that do not fit the crop
+    are now left out instead."""
+    from gol_mosaics.life import is_still_life
+
+    height, width = size
+    dark = Image.fromarray(
+        np.full((height, width, 4), (20, 20, 20, 255), np.uint8), 'RGBA')
+    generator = MosaicGenerator(level=level, grid_size=20, eca_rule=30,
+                                random_tiles=False)
+    _, cells, _ = generator.generate_from_pil(
+        dark, remove_background=False, seed=0, return_arrays=True)
+    assert cells.any()
+    assert is_still_life(cells)

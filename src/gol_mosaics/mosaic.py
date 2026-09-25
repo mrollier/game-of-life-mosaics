@@ -289,11 +289,20 @@ class MosaicGenerator:
             )
             lowres_first, lowres_second, mask_first, mask_second, aspect_ratio = results
 
+            # The crop back to the image's aspect ratio is decided first, so
+            # that tiles it would cut through are left out of the mosaic.
+            n = self.library.tile_size[0]
+            full_shape = (lowres_first.shape[0] * n,
+                          lowres_first.shape[1] * n
+                          + 2 * self.library.lattice_offset)
+            window = self._crop_window(full_shape, aspect_ratio)
+
             # Build GoL mosaic
             gol_mosaic = self._build_mosaic(
                 lowres_first,
                 lowres_second,
-                empty_tiles_cutoff
+                empty_tiles_cutoff,
+                window=window
             )
 
             # Build transparency mask
@@ -303,12 +312,10 @@ class MosaicGenerator:
                 alpha_cutoff
             )
 
-            # Adjust for original aspect ratio
-            gol_mosaic, transparency_mask = self._adjust_aspect_ratio(
-                gol_mosaic,
-                transparency_mask,
-                aspect_ratio
-            )
+            # Crop to the original aspect ratio
+            rows, cols = slice(window[0], window[1]), slice(window[2], window[3])
+            gol_mosaic = gol_mosaic[rows, cols]
+            transparency_mask = transparency_mask[rows, cols]
 
         # Auto-select supersample if not provided: any positive value works
         # (the ECA is cropped to size), so use a 15-pixel cell target clamped
@@ -400,7 +407,9 @@ class MosaicGenerator:
     def _build_mosaic(self,
                      lowres_first: np.ndarray,
                      lowres_second: np.ndarray,
-                     empty_tiles_cutoff: float) -> np.ndarray:
+                     empty_tiles_cutoff: float,
+                     window: Optional[Tuple[int, int, int, int]] = None
+                     ) -> np.ndarray:
         """
         Build the mosaic from the two diagonal grids.
 
@@ -408,6 +417,9 @@ class MosaicGenerator:
             lowres_first: Grey values of the first diagonal grid
             lowres_second: Grey values of the second diagonal grid
             empty_tiles_cutoff: Threshold for empty tiles
+            window: (top, bottom, left, right) of the region that will be
+                kept; tiles not wholly inside it are left empty, because a
+                cut tile is no longer a still life. None keeps every tile.
 
         Returns:
             Complete GoL mosaic as binary array
@@ -426,6 +438,11 @@ class MosaicGenerator:
             invert=self.invert,
             empty_tiles_cutoff=empty_tiles_cutoff
         )
+
+        if window is not None:
+            pad = self.library.lattice_offset
+            tiles_first[~self._inside(tiles_first.shape[:2], 0, pad, window)] = 0
+            tiles_second[~self._inside(tiles_second.shape[:2], pad, 0, window)] = 0
 
         mosaic_first, mosaic_second = self._pad_diagonals(
             self._assemble_tiles(tiles_first),
@@ -563,49 +580,53 @@ class MosaicGenerator:
 
         return mask
 
-    def _adjust_aspect_ratio(self,
-                            mosaic: np.ndarray,
-                            mask: np.ndarray,
-                            aspect_ratio: float,
-                            offset: int = 0) -> tuple:
+    def _inside(self,
+                grid_shape: Tuple[int, int],
+                row_offset: int,
+                col_offset: int,
+                window: Tuple[int, int, int, int]) -> np.ndarray:
         """
-        Crop mosaic and mask to original aspect ratio.
+        Which tiles of one diagonal grid lie wholly inside the window.
+
+        Tile (r, c) occupies the box starting at (row_offset + r*n,
+        col_offset + c*n). Its outermost ring is always dead and the diamond
+        reaches every side of the ring's interior, so the tile survives an
+        axis-aligned crop exactly when the box minus that ring fits.
+        """
+        n = self.library.tile_size[0]
+        top, bottom, left, right = window
+        i0 = row_offset + np.arange(grid_shape[0]) * n
+        j0 = col_offset + np.arange(grid_shape[1]) * n
+        rows = (i0 + 1 >= top) & (i0 + n - 1 <= bottom)
+        cols = (j0 + 1 >= left) & (j0 + n - 1 <= right)
+        return rows[:, None] & cols[None, :]
+
+    def _crop_window(self,
+                     shape: Tuple[int, int],
+                     aspect_ratio: float) -> Tuple[int, int, int, int]:
+        """
+        (top, bottom, left, right) of the square diamond mosaic that matches
+        the original aspect ratio, rounded up to whole tiles and centred.
 
         Args:
-            mosaic: Square GoL mosaic
-            mask: Square transparency mask
-            aspect_ratio: Original width/height ratio
-            offset: Optional offset for cropping
-
-        Returns:
-            Tuple of (cropped_mosaic, cropped_mask)
+            shape: Shape of the square mosaic
+            aspect_ratio: Original width / height
         """
+        height, width = shape
         if aspect_ratio == 1.0:
-            # Already square
-            return mosaic, mask
-
-        # Get tile dimensions
+            return 0, height, 0, width
         tile_height, tile_width = self.library.tile_size
-
         if aspect_ratio > 1:
-            # Originally wider than tall: crop height
-            new_height = int(mosaic.shape[1] / aspect_ratio)
+            # Originally wider than tall: crop the height
+            new_height = int(width / aspect_ratio)
             new_height = int(math.ceil(new_height / tile_height) * tile_height)
-
-            start_idx = (mosaic.shape[1] - new_height) // 2
-            crop = slice(start_idx - offset, start_idx + new_height + offset)
-            mosaic, mask = mosaic[crop, :], mask[crop, :]
-
-        else:
-            # Originally taller than wide: crop width
-            new_width = int(mosaic.shape[0] * aspect_ratio)
-            new_width = int(math.ceil(new_width / tile_width) * tile_width)
-
-            start_idx = (mosaic.shape[0] - new_width) // 2
-            crop = slice(start_idx - offset, start_idx + new_width + offset)
-            mosaic, mask = mosaic[:, crop], mask[:, crop]
-
-        return mosaic, mask
+            start = (width - new_height) // 2
+            return start, start + new_height, 0, width
+        # Originally taller than wide: crop the width
+        new_width = int(height * aspect_ratio)
+        new_width = int(math.ceil(new_width / tile_width) * tile_width)
+        start = (height - new_width) // 2
+        return 0, height, start, start + new_width
 
     def _apply_eca_background(self,
                              gol_mosaic: np.ndarray,
