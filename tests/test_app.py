@@ -45,10 +45,10 @@ _MANUAL = (app.DEFAULT_MANUAL.gol_background, app.DEFAULT_MANUAL.gol_pixel,
 
 def _render(image, colours=app.UGENT, auto_seed=0, manual=_MANUAL,
             eca_choice="random", eca_custom_rule=110,
-            bg_pattern_size=app.DEFAULT_BG_SIZE, tile_shape=None):
+            bg_pattern_size=app.DEFAULT_BG_SIZE, layout=None):
     """Call render_mosaic with sensible defaults for the fixed settings."""
-    tile_shape = tile_shape or app.DIAMONDS
-    return app.render_mosaic(image, tile_shape, 3, colours, 40, 0.65, 0.5,
+    layout = layout or app.DIAMONDS
+    return app.render_mosaic(image, layout, 3, colours, 40, 0.65, 0.5,
                              eca_choice, eca_custom_rule, bg_pattern_size,
                              auto_seed, *manual)
 
@@ -243,7 +243,7 @@ def test_export_cells_writes_valid_golly_file():
 
 def test_render_square_tiles_returns_rgba():
     """The square tile shape renders end to end through the app path."""
-    result = _render(_subject_on_transparent(), tile_shape=app.SQUARES)
+    result = _render(_subject_on_transparent(), layout=app.SQUARES)
     assert isinstance(result, Image.Image)
     assert result.mode == 'RGBA'
 
@@ -271,12 +271,12 @@ def test_prepare_generation_grid_parity_per_shape():
     img = _subject_on_transparent()
     gen, *_ = app._prepare_generation(img, app.SQUARES, 3, app.UGENT, 25,
                                       "random", 110, 0, _MANUAL)
-    assert gen.tile_shape == "square"
+    assert gen.layout == "square"
     assert gen.grid_size == 25
 
     gen, *_ = app._prepare_generation(img, app.DIAMONDS, 3, app.UGENT, 25,
                                       "random", 110, 0, _MANUAL)
-    assert gen.tile_shape == "diamond"
+    assert gen.layout == "diamond"
     assert gen.grid_size == 26
 
 
@@ -325,7 +325,7 @@ def test_importing_the_app_does_no_work():
             "spec = importlib.util.spec_from_file_location('a', r'%s'); "
             "m = importlib.util.module_from_spec(spec); "
             "spec.loader.exec_module(m); "
-            "from gol_mosaics.patterns import _load_pattern_library as f; "
+            "from gol_mosaics.tile_library import _load_tile_library as f; "
             "print(f.cache_info().currsize, m._demo)"
             % (REPO_ROOT / "app" / "app.py"))
     out = subprocess.run([sys.executable, "-c", code], capture_output=True,

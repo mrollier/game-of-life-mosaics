@@ -131,7 +131,7 @@ Pearson 0.99) of an almost-empty target field: the Marilyn source is high-key
 density ≈ 0.03. The tile pipeline never shows this failure because its
 grey→tile mapping is *relative* (min–max-normalised tile densities plus the
 empty-tile cutoff stretch). The free-form analogue is **histogram
-equalization inside the subject mask** (`equalize_grey`), which centres the
+equalization inside the subject mask** (`equalise_grey`), which centres the
 subject's median at density ≈ 0.23 — the sweet spot for organic still-life
 texture. Percentile stretching alone does not help (the subject's range is
 already full; its *distribution* is the problem).
@@ -259,7 +259,7 @@ free-form pattern's broadband texture.*
 The E4 wall raised a practical question the objective curve alone cannot
 answer: at 400², is the run still *improving the picture* when the cap
 stops it? To find out, the solution callback now optionally keeps the
-incumbent patterns themselves (`SpikeConfig.snapshot_gap_s`, bulk-read from
+incumbent patterns themselves (`SolveConfig.snapshot_gap_s`, bulk-read from
 the CP-SAT response proto), and `animate.py` renders them as a GIF —
 incumbent beside the live convergence curve — or as a static filmstrip.
 
@@ -362,7 +362,7 @@ enforcement literal, only where a live neighbour is possible), drops
 fixed-dead variables from neighbour sums, leaves variables unnamed
 (160k+ name strings otherwise ship in the proto at 400²), and reads the
 final pattern out of the response proto in one slice instead of 160k
-`Value()` calls. `SpikeResult` now carries the solved window geometry
+`Value()` calls. `SolveResult` now carries the solved window geometry
 and targets so `save_run` stops re-deriving them (which also fixes
 `soft_zero` runs being scored against targets the model never saw).
 A/B: objectives and MAD bit-identical to the baseline, median
@@ -562,7 +562,7 @@ changes their context), which took the same run to 63.
 *The pipeline results: 400² (objective 3, MAD 0.0067, ~177 s) and the
 1000² flagship (objective 63, MAD 0.0048, ~13 min, 169,089 live cells).*
 
-Recommended recipes after the campaign (SpikeConfig defaults stay
+Recommended recipes after the campaign (SolveConfig defaults stay
 unchanged — the evidence favoured pipeline choice over parameter
 flips): up to ~200², plain `solve_image` (proves optimality in
 seconds to minutes); 400² and beyond, `e9 --lns-polish` (strips, then
@@ -811,7 +811,7 @@ Facts worth not re-deriving:
 - **`scatter_background` is the part that matters**, because it is on no
   lattice. Alone, on top of a plain level-4 mosaic, it reaches the same halo
   as the whole cascade plus a block agar.
-- **Filler levels must draw from the full density band.** `PatternLibrary`
+- **Filler levels must draw from the full density band.** `TileLibrary`
   normalises density min–max *per level*, and the level-1 bank holds one tile,
   so any narrower band selects nothing and raises.
 - **Lattice-phase alignment is a measured dead end.** 36 offsets swept on
@@ -894,7 +894,7 @@ frozen *dead* cell already satisfies the clause and it is skipped; frozen
 *live* cells drop out and the clause covers the remaining free literals; a run
 that is entirely frozen live already exists and cannot be broken from inside
 that sub-model, so it gets no clause — without that case an LNS patch adjacent
-to a pre-existing trail comes back infeasible. `SpikeConfig.max_diag_run` and
+to a pre-existing trail comes back infeasible. `SolveConfig.max_diag_run` and
 `LnsConfig.max_diag_run` both default to 5, and `poster.py --max-diag-run 0`
 lifts the cap. `decompose.solve_strips` needed no change: it calls
 `build_model`, and its two forced-dead separator rows mean no run crosses a
@@ -1025,9 +1025,9 @@ anything.
 one: `1` the main mosaic, `2 …` the cascade largest-first, and the scatter
 last — which keeps its number whether or not it placed anything, so the ramp
 cannot shift when a layer comes up empty. `field != 0` is still the pattern,
-so `life_safe_pattern` and every Golly export are untouched.
+so `merge_background` and every Golly export are untouched.
 
-`MosaicRenderer.render_eca_overlay` spreads those layers along a linear RGB
+`MosaicRenderer.render_backdrop` spreads those layers along a linear RGB
 ramp from `eca_pixel` to the scheme's `fill`. A scheme that sets no
 `fill_pixel` used to fall back to `eca_pixel`, which would make the ramp flat;
 it now derives a haze three quarters of the way from `eca_pixel` to

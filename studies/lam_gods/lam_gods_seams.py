@@ -31,7 +31,7 @@ from matplotlib.figure import Figure
 
 from gol_mosaics.freeform.lns import LnsConfig, seam_occupancy, window_devs
 from gol_mosaics.freeform.metrics import deviation_stats, max_diagonal_run
-from gol_mosaics.freeform.io import load_pattern_asset
+from gol_mosaics.freeform.io import load_packed
 from gol_mosaics.freeform.solver import verify_still_life
 from gol_mosaics.freeform.targets import (cell_targets, load_rect_target,
                                           window_slices, window_targets)
@@ -58,7 +58,7 @@ def crop(pattern, r0, c0, h=96, w=160, scale=3):
 def load(run: str, asset: str) -> np.ndarray:
     """A local run if present, else the committed bit-packed asset."""
     path = RES / run
-    return np.load(path) if path.exists() else load_pattern_asset(ASSETS / asset)
+    return np.load(path) if path.exists() else load_packed(ASSETS / asset)
 
 
 def main() -> None:

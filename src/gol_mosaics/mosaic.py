@@ -11,7 +11,7 @@ from PIL import Image
 from typing import Optional, Tuple, Union
 from scipy.ndimage import binary_fill_holes, label
 
-from .patterns import PatternLibrary
+from .tile_library import TileLibrary
 from .colours import ColourScheme
 from .compose import compose
 from .image_processing import ImageProcessor
@@ -50,14 +50,14 @@ class MosaicGenerator:
     Main API for generating Game of Life mosaics from images.
 
     This class orchestrates all components to produce the final artwork:
-    pattern library, image processing, ECA backgrounds, and rendering.
+    tile library, image processing, ECA backgrounds, and rendering.
 
     Attributes:
-        level: Pattern complexity level (1-5 pre-computed, others need generation)
+        level: Tile level (diamond 1-6, square 3-5); tiles are 6*level cells wide
         grid_size: Number of tiles in the grid
         colours: ColourScheme for rendering
         eca_rule: Rule number for ECA background
-        random_patterns: Whether to randomly select patterns
+        random_tiles: Whether to draw at random among equally dense tiles
         invert: Whether to invert the density mapping
 
     Example:
@@ -72,29 +72,29 @@ class MosaicGenerator:
                  grid_size: Optional[int] = None,
                  colours: Optional[ColourScheme] = None,
                  eca_rule: Optional[int] = None,
-                 random_patterns: bool = True,
+                 random_tiles: bool = True,
                  invert: bool = True,
-                 tile_shape: str = "diamond"):
+                 layout: str = "diamond"):
         """
         Initialise mosaic generator.
 
         Args:
-            level: Pattern complexity level (diamond: 1-6, square: 3-5
-                pre-computed)
+            level: Tile level (diamond: 1-6, square: 3-5)
             grid_size: Number of tiles in the grid (must be even for the
                 diamond layout; any positive integer for squares)
             colours: ColourScheme instance (defaults to UGent colours)
             eca_rule: Rule number for Elementary Cellular Automaton background.
                      If None, randomly selects from interesting rules for variety.
-            random_patterns: Use random pattern selection vs deterministic
-            invert: Invert the density mapping (dark = dense patterns)
-            tile_shape: Tile geometry, "diamond" (the historical 45-degree
+            random_tiles: Draw at random among equally dense tiles (else
+                the first one)
+            invert: Invert the density mapping (dark = dense tiles)
+            layout: Tile geometry, "diamond" (the historical 45-degree
                 pond-diamond layout) or "square" (axis-aligned pond-frame
                 square tiles)
 
         Raises:
             ValueError: If grid_size is odd for the diamond layout, or
-                tile_shape is unknown
+                layout is unknown
 
         Example:
             >>> from gol_mosaics import MosaicGenerator, ColourScheme
@@ -106,19 +106,19 @@ class MosaicGenerator:
             ...     eca_rule=54
             ... )
         """
-        if tile_shape not in ("diamond", "square"):
+        if layout not in ("diamond", "square"):
             raise ValueError(
-                f"Unknown tile shape {tile_shape!r}; expected 'diamond' or "
+                f"Unknown tile shape {layout!r}; expected 'diamond' or "
                 f"'square'."
             )
-        self.tile_shape = tile_shape
+        self.layout = layout
 
         # Pick random grid size, level, and ECA rule if not provided. Use
         # explicit None checks (not `or`): falsy values like eca_rule=0 (a
         # valid Wolfram rule) must not be silently replaced by a random pick.
         self.grid_size = (self._auto_select_grid_size() if grid_size is None
                           else grid_size)
-        if tile_shape == "diamond" and self.grid_size % 2 != 0:
+        if layout == "diamond" and self.grid_size % 2 != 0:
             raise ValueError(
                 f"grid_size must be even, got {self.grid_size}. "
                 "The diamond layout interlocks two diagonal grids and "
@@ -131,23 +131,23 @@ class MosaicGenerator:
         # Select default UGent colour scheme if not provided
         self.colours = colours or ColourScheme.ugent()
 
-        # Pick random patterns and invert colours.
+        # Draw tiles at random and invert the tone.
         # These can be touched but generally look better with default values.
-        self.random_patterns = random_patterns
+        self.random_tiles = random_tiles
         self.invert = invert
 
         # Lazy-initialized components
-        self._pattern_library: Optional[PatternLibrary] = None
+        self._library: Optional[TileLibrary] = None
         self._renderer: Optional[MosaicRenderer] = None
-        self._eca_generator: Optional[ECABackground] = None
+        self._eca: Optional[ECABackground] = None
 
     @property
-    def pattern_library(self) -> PatternLibrary:
-        """Get pattern library (lazy-loaded)."""
-        if self._pattern_library is None:
-            self._pattern_library = PatternLibrary.load(self.level,
-                                                        shape=self.tile_shape)
-        return self._pattern_library
+    def library(self) -> TileLibrary:
+        """The tile library (loaded on first use)."""
+        if self._library is None:
+            self._library = TileLibrary.load(self.level,
+                                                        layout=self.layout)
+        return self._library
 
     @property
     def renderer(self) -> MosaicRenderer:
@@ -157,11 +157,11 @@ class MosaicGenerator:
         return self._renderer
 
     @property
-    def eca_generator(self) -> ECABackground:
+    def eca(self) -> ECABackground:
         """Get ECA generator (lazy-loaded)."""
-        if self._eca_generator is None:
-            self._eca_generator = ECABackground(self.eca_rule)
-        return self._eca_generator
+        if self._eca is None:
+            self._eca = ECABackground(self.eca_rule)
+        return self._eca
 
     def generate_from_image(self,
                            image_path: str,
@@ -219,7 +219,7 @@ class MosaicGenerator:
         """
         Generate mosaic from an in-memory PIL image.
 
-        This is the main pipeline: preprocessing, pattern mapping, ECA background
+        This is the main pipeline: preprocessing, tile mapping, ECA background
         generation, and final rendering. It accepts an already-loaded image so a
         web backend can process an upload without writing a temp file.
 
@@ -267,10 +267,10 @@ class MosaicGenerator:
         if seed is not None:
             np.random.seed(seed)
 
-        if self.tile_shape == "square":
+        if self.layout == "square":
             # Axis-aligned lattice: one rectangular tile grid sized straight
             # from the aspect ratio, so no diagonal split and no later crop.
-            lowres, lowres_mask, _ = ImageProcessor.preprocess_for_square_mosaic(
+            lowres, lowres_mask, _ = ImageProcessor.preprocess_square(
                 img,
                 self.grid_size,
                 remove_background=remove_background,
@@ -281,7 +281,7 @@ class MosaicGenerator:
                 lowres_mask, alpha_cutoff, gol_mosaic.shape)
         else:
             # Preprocess image
-            results = ImageProcessor.preprocess_for_mosaic(
+            results = ImageProcessor.preprocess_diamond(
                 img,
                 self.grid_size,
                 remove_background=remove_background,
@@ -402,34 +402,34 @@ class MosaicGenerator:
                      lowres_second: np.ndarray,
                      empty_tiles_cutoff: float) -> np.ndarray:
         """
-        Build GoL mosaic from diagonal patterns.
+        Build the mosaic from the two diagonal grids.
 
         Args:
-            lowres_first: First diagonal greyscale pattern
-            lowres_second: Second diagonal greyscale pattern
+            lowres_first: Grey values of the first diagonal grid
+            lowres_second: Grey values of the second diagonal grid
             empty_tiles_cutoff: Threshold for empty tiles
 
         Returns:
             Complete GoL mosaic as binary array
         """
-        # Map to patterns
-        patterns_first = self.pattern_library.get_patterns_for_values(
+        # Map grey values to tiles
+        tiles_first = self.library.tiles_for_values(
             lowres_first / 255,
-            random=self.random_patterns,
+            random=self.random_tiles,
             invert=self.invert,
             empty_tiles_cutoff=empty_tiles_cutoff
         )
 
-        patterns_second = self.pattern_library.get_patterns_for_values(
+        tiles_second = self.library.tiles_for_values(
             lowres_second / 255,
-            random=self.random_patterns,
+            random=self.random_tiles,
             invert=self.invert,
             empty_tiles_cutoff=empty_tiles_cutoff
         )
 
         mosaic_first, mosaic_second = self._pad_diagonals(
-            self._assemble_tiles(patterns_first),
-            self._assemble_tiles(patterns_second)
+            self._assemble_tiles(tiles_first),
+            self._assemble_tiles(tiles_second)
         )
 
         # The offset grids interlock without overlap (each grid's live cells
@@ -456,14 +456,14 @@ class MosaicGenerator:
         Returns:
             Complete GoL mosaic as binary array
         """
-        library = self.pattern_library
-        indices = library.get_indices_for_values(
+        library = self.library
+        indices = library.indices_for_values(
             lowres / 255,
-            random=self.random_patterns,
+            random=self.random_tiles,
             invert=self.invert,
             empty_tiles_cutoff=empty_tiles_cutoff
         )
-        return _assemble_scheme(library.scheme, indices, library.solutions)
+        return _assemble_scheme(library.scheme, indices, library.tiles)
 
     def _build_square_mask(self,
                            lowres_mask: np.ndarray,
@@ -487,7 +487,7 @@ class MosaicGenerator:
             Complete transparency mask as binary array
         """
         background = (lowres_mask / 255 < alpha_cutoff).astype(np.uint8)
-        scheme = self.pattern_library.scheme
+        scheme = self.library.scheme
         n, pitch, pad = scheme.n, scheme.u[0], 2
         owners = []
         for size, count in zip(out_shape, background.shape):
@@ -495,10 +495,10 @@ class MosaicGenerator:
             owners.append(np.clip(owner, 0, count - 1))
         return background[np.ix_(owners[0], owners[1])]
 
-    def _assemble_tiles(self, patterns: np.ndarray) -> np.ndarray:
+    def _assemble_tiles(self, tiles: np.ndarray) -> np.ndarray:
         """Assemble a (rows, cols, H, W) array of tiles into one 2D grid."""
-        rows, cols, h, w = patterns.shape
-        return patterns.transpose(0, 2, 1, 3).reshape(rows * h, cols * w)
+        rows, cols, h, w = tiles.shape
+        return tiles.transpose(0, 2, 1, 3).reshape(rows * h, cols * w)
 
     def _pad_diagonals(self,
                        first: np.ndarray,
@@ -507,10 +507,10 @@ class MosaicGenerator:
         Offset the two diagonal grids so their tiles interlock.
 
         The first grid is padded horizontally and the second vertically by
-        the library's tile_pad_size, shifting them half a tile relative to
+        the library's lattice_offset, shifting them half a tile relative to
         each other.
         """
-        pad_tuple = (self.pattern_library.tile_pad_size,) * 2
+        pad_tuple = (self.library.lattice_offset,) * 2
         first_padded = np.pad(first, pad_width=((0, 0), pad_tuple),
                               constant_values=0)
         second_padded = np.pad(second, pad_width=(pad_tuple, (0, 0)),
@@ -522,7 +522,7 @@ class MosaicGenerator:
                    mask_second: np.ndarray,
                    alpha_cutoff: float) -> np.ndarray:
         """
-        Build transparency mask from diagonal patterns.
+        Build the transparency mask from the two diagonal grids.
 
         Args:
             mask_first: First diagonal alpha mask
@@ -532,20 +532,20 @@ class MosaicGenerator:
         Returns:
             Complete transparency mask as binary array
         """
-        # Map to patterns
-        patterns_first = self.pattern_library.get_patterns_for_mask(
+        # Map alpha values to solid and empty tiles
+        tiles_first = self.library.tiles_for_mask(
             mask_first / 255,
             alpha_cutoff=alpha_cutoff
         )
 
-        patterns_second = self.pattern_library.get_patterns_for_mask(
+        tiles_second = self.library.tiles_for_mask(
             mask_second / 255,
             alpha_cutoff=alpha_cutoff
         )
 
         mask_padded_first, mask_padded_second = self._pad_diagonals(
-            self._assemble_tiles(patterns_first),
-            self._assemble_tiles(patterns_second)
+            self._assemble_tiles(tiles_first),
+            self._assemble_tiles(tiles_second)
         )
 
         # Combine the two diagonal grids. Where their tiles' dead borders
@@ -555,7 +555,7 @@ class MosaicGenerator:
         # vastly larger one (at least about half a tile), so only fill holes
         # smaller than a quarter tile to keep the foreground intact.
         mask = (mask_padded_first + mask_padded_second) > 0
-        tile_h, tile_w = self.pattern_library.tile_shape
+        tile_h, tile_w = self.library.tile_size
         mask = _fill_small_holes(
             mask,
             max_hole_size=tile_h * tile_w // 4
@@ -585,7 +585,7 @@ class MosaicGenerator:
             return mosaic, mask
 
         # Get tile dimensions
-        tile_height, tile_width = self.pattern_library.tile_shape
+        tile_height, tile_width = self.library.tile_size
 
         if aspect_ratio > 1:
             # Originally wider than tall: crop height
@@ -644,7 +644,7 @@ class MosaicGenerator:
         return int(np.random.choice(GRID_SIZES))
     
     def _auto_select_level(self) -> int:
-        """Randomly select a pattern complexity level from predefined options."""
+        """Randomly select a tile level from predefined options."""
         LEVELS = [3, 4, 5]
         return int(np.random.choice(LEVELS))
     

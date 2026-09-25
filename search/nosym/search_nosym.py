@@ -41,7 +41,6 @@ from gol_mosaics.nosym_tiles import (  # noqa: E402
     build_nosym_cnf,
     build_nosym_domain,
     enumerate_nosym_tiles,
-    pack_nosym_solutions,
 )
 from gol_mosaics.sat_search import (  # noqa: E402
     cube_units,
@@ -196,8 +195,8 @@ def cmd_self_test() -> int:
     grids = grids[order]
     reference = enumerate_nosym_tiles(level)
     assert np.array_equal(grids, reference), "cube path != single-shot"
-    assert np.array_equal(pack_nosym_solutions(grids, level),
-                          pack_nosym_solutions(reference, level))
+    assert np.array_equal(build_nosym_domain(level).pack(grids),
+                          build_nosym_domain(level).pack(reference))
     print(f"self-test OK: {len(grids)} tiles via {1 << cube_bits} cubes "
           f"== single-shot census")
     return 0

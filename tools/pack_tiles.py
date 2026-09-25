@@ -55,10 +55,10 @@ def data_file(kind: str, level: int) -> Path:
 def domain_for(kind: str, level: int):
     from gol_mosaics.nosym_tiles import build_nosym_domain
     from gol_mosaics.tile_domain import build_domain
-    from gol_mosaics.tile_scheme import build_scheme_domain, pond_square_scheme
+    from gol_mosaics.tile_scheme import build_scheme_domain, square_scheme
 
     if kind == "square":
-        return build_scheme_domain(pond_square_scheme(level))
+        return build_scheme_domain(square_scheme(level))
     if kind == "nosym":
         return build_nosym_domain(level)
     return build_domain(level)
@@ -87,8 +87,8 @@ def cmd_pack(args) -> int:
         tiles = np.load(args.source)
     elif args.kind == "square":
         from gol_mosaics.tile_scheme import (enumerate_scheme_tiles,
-                                             pond_square_scheme)
-        tiles = enumerate_scheme_tiles(pond_square_scheme(args.level))
+                                             square_scheme)
+        tiles = enumerate_scheme_tiles(square_scheme(args.level))
     elif args.kind == "nosym":
         from gol_mosaics.nosym_tiles import enumerate_nosym_tiles
         tiles = enumerate_nosym_tiles(args.level)

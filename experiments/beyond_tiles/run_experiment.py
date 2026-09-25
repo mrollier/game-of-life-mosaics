@@ -36,11 +36,11 @@ for p in (REPO / "src", REPO / "experiments"):
 import numpy as np
 
 from beyond_tiles.artifacts import save_run
-from gol_mosaics.freeform.solver import SpikeConfig, solve_image, verify_still_life
+from gol_mosaics.freeform.solver import SolveConfig, solve_image, verify_still_life
 from gol_mosaics.freeform.targets import (
-    equalize_grey,
+    equalise_grey,
     grey_and_mask_from_image,
-    normalize_grey,
+    normalise_grey,
     ramp_grey,
     uniform_grey,
 )
@@ -49,7 +49,7 @@ MARILYN = REPO / "input" / "images" / "marilyn.png"
 RESULTS = Path(__file__).resolve().parent / "results"
 
 
-def _cfg(args, **overrides) -> SpikeConfig:
+def _cfg(args, **overrides) -> SolveConfig:
     kw = dict(
         k=getattr(args, "k", 8),
         stride=getattr(args, "stride", 8),
@@ -69,7 +69,7 @@ def _cfg(args, **overrides) -> SpikeConfig:
         hint_mode=getattr(args, "hint_mode", "none"),
     )
     kw.update(overrides)
-    return SpikeConfig(**kw)
+    return SolveConfig(**kw)
 
 
 def _run_one(name: str, grey, free, cfg, outbase: Path) -> dict:
@@ -102,9 +102,9 @@ def cmd_e1(args) -> None:
 def _marilyn(args):
     grey, free = grey_and_mask_from_image(MARILYN, args.size)
     if args.tone == "norm":
-        grey = normalize_grey(grey, free)
+        grey = normalise_grey(grey, free)
     elif args.tone == "eq":
-        grey = equalize_grey(grey, free)
+        grey = equalise_grey(grey, free)
     return grey, free
 
 
@@ -160,7 +160,7 @@ def cmd_e5(args) -> None:
 
     free_form = np.load(Path(args.pattern))
     gen = MosaicGenerator(
-        level=3, grid_size=args.tile_grid, tile_shape="square"
+        level=3, grid_size=args.tile_grid, layout="square"
     )
     _, tile_mosaic, _ = gen.generate_from_pil(
         Image.open(MARILYN), no_eca=True, return_arrays=True, seed=0
@@ -480,14 +480,14 @@ def cmd_lns(args) -> None:
     import dataclasses
 
     from gol_mosaics.freeform import lns as lns_mod
-    from gol_mosaics.freeform.solver import SpikeConfig, SpikeResult, _max_rss_mb
+    from gol_mosaics.freeform.solver import SolveConfig, SolveResult, max_rss_mb
     from gol_mosaics.freeform.targets import cell_targets, window_slices, window_targets
 
     run_dir = Path(args.run_dir)
     pattern = np.load(run_dir / "pattern.npy")
     saved = json.loads((run_dir / "metrics.json").read_text())
-    known = {f.name for f in dataclasses.fields(SpikeConfig)}
-    cfg = SpikeConfig(**{k: v for k, v in saved["config"].items() if k in known})
+    known = {f.name for f in dataclasses.fields(SolveConfig)}
+    cfg = SolveConfig(**{k: v for k, v in saved["config"].items() if k in known})
 
     sized = argparse.Namespace(size=pattern.shape[0], tone=args.tone)
     grey, free = _marilyn(sized)
@@ -524,14 +524,14 @@ def cmd_lns(args) -> None:
             "tone the run was solved with."
         )
     res = lns_mod.improve(pattern, free, kept, targets, lcfg)
-    out = SpikeResult(
+    out = SolveResult(
         pattern=res.pattern,
         status="LNS",
         objective=res.objective,
         best_bound=saved.get("best_bound", 0),
         wall_time_s=res.obj_history[-1][0],
         obj_history=res.obj_history,
-        max_rss_mb=_max_rss_mb(),
+        max_rss_mb=max_rss_mb(),
         config=cfg,
         windows=kept,
         targets=targets,
@@ -617,7 +617,7 @@ def main() -> None:
     pb.add_argument("--tag", default="untagged",
                     help="results land in results/bench/<tag>/")
     pb.add_argument("--overrides", nargs="*", default=None, metavar="KEY=VAL",
-                    help="SpikeConfig overrides, e.g. workers=4 d_max=0.4")
+                    help="SolveConfig overrides, e.g. workers=4 d_max=0.4")
     pb.add_argument("--seeds", type=int, nargs="*", default=None)
     pb.add_argument("--compare", nargs="*", default=None, metavar="TAG_DIR",
                     help="print a markdown table over these tag dirs instead")

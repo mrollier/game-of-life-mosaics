@@ -39,15 +39,16 @@ def motif_stats(
     }
 
 
-def tile_db_overlap(pattern: np.ndarray, level: int = 1) -> float:
+def tile_db_overlap(pattern: np.ndarray, level: int = 1,
+                    layout: str = "diamond") -> float:
     """Fraction of non-empty 6L x 6L blocks that ARE a level-L tile (mod D4).
 
     Quantifies the "beyond tiles" claim: a tile mosaic scores near 1,
     a free-form solve should score near 0.
     """
-    from ..patterns import PatternLibrary
+    from ..tile_library import TileLibrary
 
-    tiles = PatternLibrary.load(level).solutions
+    tiles = TileLibrary.load(level, layout=layout).tiles
     images = set()
     for t in tiles:
         for g in (t, np.rot90(t), np.rot90(t, 2), np.rot90(t, 3)):
@@ -111,7 +112,7 @@ def max_run(pattern: np.ndarray, di: int, dj: int) -> int:
 def max_diagonal_run(pattern: np.ndarray) -> int:
     """Longest solid diagonal chain, over both diagonal directions.
 
-    The texture metric behind `SpikeConfig.max_diag_run`: a diagonal chain
+    The texture metric behind `SolveConfig.max_diag_run`: a diagonal chain
     is self-supporting (every interior cell takes its 2 live neighbours
     from the chain itself), so unlike a horizontal or vertical run it can
     float across empty background and read as a drawn line.

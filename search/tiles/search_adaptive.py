@@ -380,8 +380,8 @@ def cmd_self_test(args) -> int:
     against the shipped *packed* file, which also checks the ordering)."""
     import shutil
     import tempfile
-    from gol_mosaics.patterns import PatternLibrary
-    from gol_mosaics.tile_domain import unpack_solutions
+    from gol_mosaics.tile_library import TileLibrary
+    from gol_mosaics.tile_domain import build_domain
 
     data = HERE.parents[1] / "src" / "gol_mosaics" / "data"
     ok_all = True
@@ -409,8 +409,8 @@ def cmd_self_test(args) -> int:
                 # the level <= 5 databases keep the order the original ILP
                 # found them in, so compare as sets (as search.py validate
                 # does)
-                ref = PatternLibrary.load(level).solutions
-                same, what = compare_sets(unpack_solutions(mine, level=level), ref)
+                ref = TileLibrary.load(level).tiles
+                same, what = compare_sets(build_domain(level).unpack(mine), ref)
             print(f"level {level} (adaptive, cap {cap}): "
                   f"{'PASS' if same else 'FAIL'} — {len(mine)} tiles, {what}: "
                   f"{same}, {elapsed:.1f}s")

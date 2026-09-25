@@ -16,7 +16,7 @@ Typical session:
 Levels >= 7 default to --packed output: the artifact holds one bit per free
 symmetry orbit per tile (level 7: 11 bytes/tile instead of a 42x42 grid),
 because ~10^8 expected level-7 tiles would be hundreds of GB as raw grids.
-Expand with gol_mosaics.tile_domain.unpack_solutions (in chunks!).
+Expand with gol_mosaics.tile_domain.build_domain(L).unpack (in chunks!).
 """
 
 import argparse
@@ -224,7 +224,7 @@ def cmd_merge(args) -> int:
         n_free = enc.n_vars
         print(f"saved {out}: {m} solutions as packed orbit bits "
               f"({n_free} bits/tile), {out.stat().st_size / 1e6:.1f} MB. "
-              f"Expand with gol_mosaics.tile_domain.unpack_solutions "
+              f"Expand with gol_mosaics.tile_domain.build_domain(L).unpack "
               f"(in chunks: full level-{level} grids would be "
               f"{m * domain.n * domain.n / 1e9:.0f} GB).")
         return 0
@@ -313,8 +313,8 @@ def _reference_grids(level: int) -> np.ndarray:
     local = HERE / "reference" / f"tiles_diamond_level_{level}.npy"
     if local.exists():
         return np.load(local)
-    from gol_mosaics.patterns import PatternLibrary
-    return PatternLibrary.load(level).solutions
+    from gol_mosaics.tile_library import TileLibrary
+    return TileLibrary.load(level).tiles
 
 
 def _check_against_reference(grids, level, elapsed, suffix="") -> bool:

@@ -36,7 +36,7 @@ def test_render_gol_mosaic_rejects_non_2d(renderer):
 
 def test_render_eca_overlay_values(renderer):
     """0 stays transparent; 1 and 2 map to the opaque ECA colours."""
-    overlay = renderer.render_eca_overlay(np.array([[0, 1, 2]]))
+    overlay = renderer.render_backdrop(np.array([[0, 1, 2]]))
 
     assert overlay.mode == 'RGBA'
     arr = np.array(overlay)
@@ -48,14 +48,14 @@ def test_render_eca_overlay_values(renderer):
 def test_render_eca_overlay_rejects_non_2d(renderer):
     """Non-2D input raises ValueError."""
     with pytest.raises(ValueError):
-        renderer.render_eca_overlay(np.zeros(4))
+        renderer.render_backdrop(np.zeros(4))
 
 
 def test_composite_respects_overlay_transparency(renderer):
     """Composite shows the base through transparent overlay pixels and the
     overlay colour where it is opaque."""
     base = renderer.render_gol_mosaic(np.zeros((2, 2), dtype=int))  # all white
-    overlay = renderer.render_eca_overlay(np.array([[0, 1], [2, 0]]))
+    overlay = renderer.render_backdrop(np.array([[0, 1], [2, 0]]))
 
     result = np.array(renderer.composite(base, overlay))
     assert tuple(result[0, 0]) == (255, 255, 255, 255)  # base shows through
@@ -82,27 +82,27 @@ def test_hex_to_rgb():
 
 
 def test_render_full_mosaic_matches_manual_pipeline(renderer):
-    """render_full_mosaic is exactly render_gol_mosaic + render_eca_overlay
+    """render is exactly render_gol_mosaic + render_backdrop
     + composite (the pipeline uses it as the single rendering entry point)."""
     gol = np.array([[0, 1, 0], [1, 0, 1]])
     eca = np.array([[0, 0, 2], [1, 0, 0]])
 
-    combined = renderer.render_full_mosaic(gol, eca)
+    combined = renderer.render(gol, eca)
     manual = renderer.composite(
         renderer.render_gol_mosaic(gol),
-        renderer.render_eca_overlay(eca)
+        renderer.render_backdrop(eca)
     )
     assert np.array_equal(np.array(combined), np.array(manual))
 
 
 def test_render_eca_overlay_paints_the_fill_state(renderer):
     """A lone filler state lands on the fill colour, ramp or no ramp."""
-    overlay = np.asarray(renderer.render_eca_overlay(np.array([[2, 3]])))
+    overlay = np.asarray(renderer.render_backdrop(np.array([[2, 3]])))
     assert tuple(overlay[0, 1])[:3] == hex_to_rgb(renderer.colours.fill)
 
     tinted = MosaicRenderer(ColourScheme(eca_pixel='#1E64C8',
                                         fill_pixel='#FF0000'))
-    painted = np.asarray(tinted.render_eca_overlay(np.array([[2, 3]])))
+    painted = np.asarray(tinted.render_backdrop(np.array([[2, 3]])))
     assert tuple(painted[0, 0]) == (30, 100, 200, 255)
     assert tuple(painted[0, 1]) == (255, 0, 0, 255)
 
@@ -112,7 +112,7 @@ def test_render_eca_overlay_ramps_the_filler_levels():
     tinted = MosaicRenderer(ColourScheme(eca_pixel='#000000',
                                         fill_pixel='#FFFFFF'))
     row = np.arange(2, 8).reshape(1, 6)
-    painted = np.asarray(tinted.render_eca_overlay(row, layers=6))[0, :, 0]
+    painted = np.asarray(tinted.render_backdrop(row, layers=6))[0, :, 0]
     assert list(painted) == [0, 51, 102, 153, 204, 255]
     assert (np.diff(painted.astype(int)) > 0).all(), "the ramp must be monotone"
 
@@ -121,8 +121,8 @@ def test_render_eca_overlay_ramp_ignores_an_empty_top_layer():
     """`layers` is trusted over the mask, so a missing layer cannot shorten it."""
     tinted = MosaicRenderer(ColourScheme(eca_pixel='#000000',
                                         fill_pixel='#FFFFFF'))
-    full = np.asarray(tinted.render_eca_overlay(
+    full = np.asarray(tinted.render_backdrop(
         np.array([[3, 4, 5]]), layers=4))[0, :, 0]
-    short = np.asarray(tinted.render_eca_overlay(
+    short = np.asarray(tinted.render_backdrop(
         np.array([[3, 4]]), layers=4))[0, :, 0]
     assert list(short) == list(full[:2])

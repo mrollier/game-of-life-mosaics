@@ -83,13 +83,13 @@ class MosaicRenderer:
 
         return Image.fromarray(rgba_array, mode='RGBA')
 
-    def render_eca_overlay(self,
-                           eca_mask: np.ndarray,
+    def render_backdrop(self,
+                           backdrop: np.ndarray,
                            layers: Optional[int] = None) -> Image.Image:
         """
         Render ECA pattern as RGBA overlay.
 
-        The eca_mask should have values:
+        The backdrop should have values:
         - 0: Transparent (no overlay)
         - 1: ECA background colour
         - 2: ECA pixel colour — the main mosaic
@@ -99,7 +99,7 @@ class MosaicRenderer:
           hand-built 0-3 mask renders as it always did.
 
         Args:
-            eca_mask: Array with values 0, 1, 2, 3, ...
+            backdrop: Array with values 0, 1, 2, 3, ...
             layers: How many layers the field has, main mosaic included, so
                 the ramp spans the same range even when the last layer placed
                 nothing. None reads it back from the mask.
@@ -108,23 +108,23 @@ class MosaicRenderer:
             RGBA PIL Image with transparency
 
         Raises:
-            ValueError: If eca_mask is not 2D
+            ValueError: If backdrop is not 2D
 
         Example:
-            >>> eca_mask = np.array([[0, 1, 2], [2, 1, 0]])
-            >>> overlay = renderer.render_eca_overlay(eca_mask)
+            >>> backdrop = np.array([[0, 1, 2], [2, 1, 0]])
+            >>> overlay = renderer.render_backdrop(backdrop)
             >>> overlay.mode
             'RGBA'
         """
-        if eca_mask.ndim != 2:
+        if backdrop.ndim != 2:
             raise ValueError(
-                f"ECA mask must be 2D array, got shape {eca_mask.shape}"
+                f"ECA mask must be 2D array, got shape {backdrop.shape}"
             )
 
         # One RGBA row per layer value: 0 transparent, 1 eca_background,
         # 2 eca_pixel, 3.. the filler ramp. Any value outside the table
         # (negative, above the ramp, or not an integer) stays transparent.
-        top = int(eca_mask.max()) if layers is None else layers + 1
+        top = int(backdrop.max()) if layers is None else layers + 1
         palette = np.zeros((max(top, 2) + 1, 4), dtype=np.uint8)
         palette[1] = (*hex_to_rgb(self.colours.eca_background), 255)
         palette[2] = (*hex_to_rgb(self.colours.eca_pixel), 255)
@@ -134,8 +134,8 @@ class MosaicRenderer:
                                               self.colours.fill,
                                               fraction)), 255)
 
-        index = eca_mask.astype(np.int64)
-        known = (index == eca_mask) & (index >= 0) & (index < len(palette))
+        index = backdrop.astype(np.int64)
+        known = (index == backdrop) & (index >= 0) & (index < len(palette))
         overlay = palette[np.where(known, index, 0)]
 
         return Image.fromarray(overlay, mode='RGBA')
@@ -158,7 +158,7 @@ class MosaicRenderer:
 
         Example:
             >>> base = renderer.render_gol_mosaic(mosaic)
-            >>> overlay = renderer.render_eca_overlay(eca_mask)
+            >>> overlay = renderer.render_backdrop(backdrop)
             >>> final = renderer.composite(base, overlay)
         """
         if base.size != overlay.size:
@@ -195,31 +195,31 @@ class MosaicRenderer:
 
         return rgb_array
 
-    def render_full_mosaic(self,
-                          gol_mosaic: np.ndarray,
-                          eca_mask: np.ndarray,
+    def render(self,
+                          cells: np.ndarray,
+                          backdrop: np.ndarray,
                           layers: Optional[int] = None) -> Image.Image:
         """
         Render complete mosaic with GoL pattern and ECA overlay.
 
         Convenience method that combines render_gol_mosaic,
-        render_eca_overlay, and composite.
+        render_backdrop, and composite.
 
         Args:
-            gol_mosaic: Binary GoL pattern array
-            eca_mask: ECA overlay mask (values 0, 1, 2, ...)
+            cells: Binary GoL pattern array
+            backdrop: ECA overlay mask (values 0, 1, 2, ...)
             layers: Field layer count for the filler ramp, see
-                :meth:`render_eca_overlay`
+                :meth:`render_backdrop`
 
         Returns:
             Final composited RGBA image
 
         Example:
-            >>> img = renderer.render_full_mosaic(gol_mosaic, eca_mask)
+            >>> img = renderer.render(cells, backdrop)
             >>> img.save('final.png')
         """
-        base = self.render_gol_mosaic(gol_mosaic)
-        overlay = self.render_eca_overlay(eca_mask, layers=layers)
+        base = self.render_gol_mosaic(cells)
+        overlay = self.render_backdrop(backdrop, layers=layers)
         return self.composite(base, overlay)
 
     def __repr__(self) -> str:

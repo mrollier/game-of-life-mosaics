@@ -77,15 +77,6 @@ def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
-def load_rect(src: str, width: int, height: int, tone: str, contrast: float,
-              keep_background: bool = False):
-    """Kept for the studies' imports; see freeform.targets.load_rect_target."""
-    from gol_mosaics.freeform.targets import load_rect_target
-
-    return load_rect_target(src, width, height, tone, contrast,
-                            keep_background)
-
-
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("image", help="path to the source image (alpha-cut subject)")

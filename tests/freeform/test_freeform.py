@@ -308,9 +308,9 @@ def test_motif_stats_skips_empty_blocks():
 
 
 def test_tile_db_overlap_detects_level1_pond():
-    from gol_mosaics import PatternLibrary
+    from gol_mosaics import TileLibrary
 
-    pond = PatternLibrary.load(1).solutions[0]
+    pond = TileLibrary.load(1).tiles[0]
     pattern = np.zeros((12, 12), dtype=np.uint8)
     pattern[0:6, 0:6] = pond  # one block IS the level-1 tile
     pattern[6:8, 6:8] = 1  # one block is a 2x2 block still life (not a tile)
@@ -324,7 +324,7 @@ def test_tile_db_overlap_detects_level1_pond():
 
 
 def test_normalize_grey_stretches_subject_range():
-    from gol_mosaics.freeform.targets import normalize_grey
+    from gol_mosaics.freeform.targets import normalise_grey
 
     grey = np.full((10, 10), 255, dtype=np.uint8)
     free = np.zeros((10, 10), dtype=bool)
@@ -332,7 +332,7 @@ def test_normalize_grey_stretches_subject_range():
     # subject occupies a narrow midtone band 100..160
     grey[:, :5] = np.linspace(100, 160, 50).reshape(10, 5).astype(np.uint8)
 
-    out = normalize_grey(grey, free, p_lo=0.0, p_hi=100.0)
+    out = normalise_grey(grey, free, p_lo=0.0, p_hi=100.0)
     subject = out[free]
     assert subject.min() == 0 and subject.max() == 255  # full range used
     assert (out[~free] == 255).all()  # background stays white
@@ -342,16 +342,16 @@ def test_normalize_grey_stretches_subject_range():
 
 
 def test_normalize_grey_flat_subject_unchanged():
-    from gol_mosaics.freeform.targets import normalize_grey
+    from gol_mosaics.freeform.targets import normalise_grey
 
     grey = uniform_grey(8, 77)
     free = np.ones((8, 8), dtype=bool)
-    out = normalize_grey(grey, free)
+    out = normalise_grey(grey, free)
     assert (out == 77).all()
 
 
 def test_equalize_grey_flattens_distribution():
-    from gol_mosaics.freeform.targets import equalize_grey
+    from gol_mosaics.freeform.targets import equalise_grey
 
     rng = np.random.default_rng(0)
     grey = np.full((20, 20), 255, dtype=np.uint8)
@@ -360,7 +360,7 @@ def test_equalize_grey_flattens_distribution():
     # high-key subject: values clustered at the bright end
     grey[free] = rng.integers(200, 250, free.sum()).astype(np.uint8)
 
-    out = equalize_grey(grey, free)
+    out = equalise_grey(grey, free)
     med = np.median(out[free])
     assert 100 <= med <= 155  # roughly centred after equalization
     assert (out[~free] == 255).all()
@@ -376,12 +376,12 @@ def test_equalize_grey_flattens_distribution():
 
 
 def test_pattern_asset_round_trip(tmp_path):
-    from gol_mosaics.freeform.io import load_pattern_asset, save_pattern_asset
+    from gol_mosaics.freeform.io import load_packed, save_packed
 
     rng = np.random.default_rng(3)
     pattern = rng.integers(0, 2, (37, 53)).astype(np.uint8)
-    path = save_pattern_asset(tmp_path / "p.npz", pattern)
-    back = load_pattern_asset(path)
+    path = save_packed(tmp_path / "p.npz", pattern)
+    back = load_packed(path)
     assert back.shape == pattern.shape
     assert back.dtype == np.uint8
     assert (back == pattern).all()
@@ -399,9 +399,9 @@ def test_pattern_asset_round_trip(tmp_path):
 def test_shipped_assets_are_still_lifes(name, size):
     from gol_mosaics.life import is_still_life
 
-    from gol_mosaics.freeform.io import load_pattern_asset
+    from gol_mosaics.freeform.io import load_packed
 
-    pattern = load_pattern_asset(ASSETS / name)
+    pattern = load_packed(ASSETS / name)
     assert pattern.shape == (size, size)
     assert pattern.sum() > 0
     assert is_still_life(np.pad(pattern, 1))
@@ -413,18 +413,18 @@ def test_agar_background_on_shipped_asset_is_a_still_life():
     The synthetic fixtures in test_compose.py check the gap rule; this one
     checks it against a mask with the ragged edges a real alpha cut has.
     """
-    from gol_mosaics.compose import life_safe_pattern
+    from gol_mosaics.compose import merge_background
     from gol_mosaics.life import is_still_life
 
-    from gol_mosaics.freeform.io import load_pattern_asset
+    from gol_mosaics.freeform.io import load_packed
     from gol_mosaics.freeform.solver import verify_still_life
     from gol_mosaics.freeform.targets import grey_and_mask_from_image
 
     repo = REPO_ROOT
-    pattern = load_pattern_asset(ASSETS / "marilyn_400_pipeline.npz")
+    pattern = load_packed(ASSETS / "marilyn_400_pipeline.npz")
     _, free = grey_and_mask_from_image(repo / "input/images/marilyn.png", 400)
 
-    whole = life_safe_pattern(pattern, ~free)
+    whole = merge_background(pattern, ~free)
     assert whole.sum() > pattern.sum(), "the agar should add cells"
     assert is_still_life(np.pad(whole, 1))
     assert verify_still_life(whole) == {"bounded": True, "toroidal": True}
@@ -438,20 +438,20 @@ def test_mosaic_background_on_shipped_asset_is_a_still_life(shape):
     cell-by-cell by CP-SAT, the field behind it made of the pond tiles the
     rest of the repo enumerates. The whole canvas must remain one still life.
     """
-    from gol_mosaics.compose import life_safe_pattern, mosaic_background
+    from gol_mosaics.compose import merge_background, mosaic_background
     from gol_mosaics.life import is_still_life
 
-    from gol_mosaics.freeform.io import load_pattern_asset
+    from gol_mosaics.freeform.io import load_packed
     from gol_mosaics.freeform.solver import verify_still_life
     from gol_mosaics.freeform.targets import grey_and_mask_from_image
 
     repo = REPO_ROOT
-    pattern = load_pattern_asset(ASSETS / "marilyn_400_pipeline.npz")
+    pattern = load_packed(ASSETS / "marilyn_400_pipeline.npz")
     _, free = grey_and_mask_from_image(repo / "input/images/marilyn.png", 400)
 
-    field = mosaic_background(~free, level=3, shape=shape, seed=0)
+    field = mosaic_background(~free, level=3, layout=shape, seed=0)
     assert field.any(), "a 400-cell canvas has room for level-3 tiles"
-    whole = life_safe_pattern(pattern, ~free, field=field)
+    whole = merge_background(pattern, ~free, field=field)
     assert whole.sum() > pattern.sum(), "the mosaic should add cells"
     assert is_still_life(np.pad(whole, 1))
     assert verify_still_life(whole) == {"bounded": True, "toroidal": True}
@@ -477,7 +477,7 @@ def test_snapshots_off_by_default():
     solver = _solver()
     grey = uniform_grey(16, 128)
     free = np.ones((16, 16), dtype=bool)
-    cfg = solver.SpikeConfig(k=8, stride=8, time_limit_s=5.0, workers=1, seed=0)
+    cfg = solver.SolveConfig(k=8, stride=8, time_limit_s=5.0, workers=1, seed=0)
     result = solver.solve_image(grey, free, cfg)
     assert result.snapshots == []
     assert result.obj_history  # the cheap log is always kept
@@ -989,7 +989,7 @@ def test_apply_solver_params():
     si = _solver()
     from ortools.sat.python import cp_model
 
-    cfg = si.SpikeConfig(
+    cfg = si.SolveConfig(
         time_limit_s=12.0,
         workers=3,
         seed=7,
@@ -1021,7 +1021,7 @@ def test_snapshots_recorded_and_end_on_the_final_pattern():
     solver = _solver()
     grey = ramp_grey(24)
     free = np.ones((24, 24), dtype=bool)
-    cfg = solver.SpikeConfig(
+    cfg = solver.SolveConfig(
         k=8, stride=8, time_limit_s=10.0, workers=1, seed=0, snapshot_gap_s=0.01
     )
     result = solver.solve_image(grey, free, cfg)
@@ -1045,13 +1045,13 @@ def test_filled_background_on_the_shipped_marilyn_asset():
     """
     from PIL import Image
 
-    from gol_mosaics.freeform.io import load_pattern_asset
+    from gol_mosaics.freeform.io import load_packed
     from gol_mosaics.freeform.solver import verify_still_life
     from gol_mosaics.freeform.targets import grey_and_mask_from_image
     from gol_mosaics import filled_background, mosaic_background
 
     root = REPO_ROOT
-    pattern = load_pattern_asset(
+    pattern = load_packed(
         root / "experiments/beyond_tiles/assets/marilyn_400_pipeline.npz")
     _, free = grey_and_mask_from_image(
         Image.open(root / "input/images/marilyn.png"), size=400)

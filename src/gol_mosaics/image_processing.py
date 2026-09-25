@@ -339,7 +339,7 @@ class ImageProcessor:
         return arr
 
     @staticmethod
-    def extract_diagonal_patterns(lowres: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def split_diagonals(lowres: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
         Extract two diagonal pattern grids from rotated image.
 
@@ -356,7 +356,7 @@ class ImageProcessor:
 
         Example:
             >>> lowres = ImageProcessor.rotate_and_pixelate(img, 30)
-            >>> diag1, diag2 = ImageProcessor.extract_diagonal_patterns(lowres)
+            >>> diag1, diag2 = ImageProcessor.split_diagonals(lowres)
             >>> diag1.shape
             (16, 16)  # Approximately grid_size/2 + 1
         """
@@ -390,7 +390,7 @@ class ImageProcessor:
         return lowres_first, lowres_second
 
     @classmethod
-    def preprocess_for_mosaic(cls,
+    def preprocess_diamond(cls,
                              image_path: Union[str, Image.Image],
                              grid_size: int,
                              alpha_colour: str = 'white',
@@ -423,7 +423,7 @@ class ImageProcessor:
             - aspect_ratio: Original width/height ratio
 
         Example:
-            >>> results = ImageProcessor.preprocess_for_mosaic('portrait.png', grid_size=30)
+            >>> results = ImageProcessor.preprocess_diamond('portrait.png', grid_size=30)
             >>> lowres_first, lowres_second, mask_first, mask_second, aspect = results
             >>> print(f"Aspect ratio: {aspect:.2f}")
         """
@@ -435,17 +435,17 @@ class ImageProcessor:
         # Process greyscale image
         square_img, aspect_ratio = cls.square_image(img, return_aspect=True, fill_colour=fill_colour)
         lowres = cls.rotate_and_pixelate(square_img, grid_size, expand=True)
-        lowres_first, lowres_second = cls.extract_diagonal_patterns(lowres)
+        lowres_first, lowres_second = cls.split_diagonals(lowres)
 
         # Process alpha mask
         square_mask = cls.square_image(mask, return_aspect=False, fill_colour='white')
         lowres_mask = cls.rotate_and_pixelate(square_mask, grid_size, expand=True)
-        mask_first, mask_second = cls.extract_diagonal_patterns(lowres_mask)
+        mask_first, mask_second = cls.split_diagonals(lowres_mask)
 
         return lowres_first, lowres_second, mask_first, mask_second, aspect_ratio
 
     @classmethod
-    def preprocess_for_square_mosaic(cls,
+    def preprocess_square(cls,
                                      image_path: Union[str, Image.Image],
                                      grid_size: int,
                                      alpha_colour: str = 'white',
@@ -480,7 +480,7 @@ class ImageProcessor:
             - aspect_ratio: Original width/height ratio
 
         Example:
-            >>> lowres, mask, aspect = ImageProcessor.preprocess_for_square_mosaic(
+            >>> lowres, mask, aspect = ImageProcessor.preprocess_square(
             ...     'portrait.png', grid_size=30)
         """
         img, mask = cls.load_image(image_path, alpha_colour=alpha_colour,

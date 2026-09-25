@@ -53,7 +53,7 @@ class BenchCase:
 
 
 def parse_overrides(pairs: List[str]) -> Dict[str, object]:
-    """"key=value" CLI strings -> typed SpikeConfig overrides."""
+    """"key=value" CLI strings -> typed SolveConfig overrides."""
     out: Dict[str, object] = {}
     for pair in pairs:
         key, _, raw = pair.partition("=")
@@ -90,16 +90,16 @@ def derive_timings(
 def marilyn_inputs(size: int, tone: str = "eq"):
     """The campaign's fixed test image at a given canvas size."""
     from gol_mosaics.freeform.targets import (
-        equalize_grey,
+        equalise_grey,
         grey_and_mask_from_image,
-        normalize_grey,
+        normalise_grey,
     )
 
     grey, free = grey_and_mask_from_image(MARILYN, size)
     if tone == "norm":
-        grey = normalize_grey(grey, free)
+        grey = normalise_grey(grey, free)
     elif tone == "eq":
-        grey = equalize_grey(grey, free)
+        grey = equalise_grey(grey, free)
     return grey, free
 
 
@@ -121,13 +121,13 @@ def run_case(case: BenchCase, outdir: Path, grey=None, free=None) -> dict:
     import ortools
 
     from beyond_tiles.artifacts import save_run
-    from gol_mosaics.freeform.solver import SpikeConfig, solve_image
+    from gol_mosaics.freeform.solver import SolveConfig, solve_image
 
     if grey is None:
         grey, free = marilyn_inputs(case.size)
     kw = dict(k=8, stride=8, time_limit_s=case.budget_s, seed=case.seed)
     kw.update(case.overrides)
-    cfg = SpikeConfig(**kw)
+    cfg = SolveConfig(**kw)
     result = solve_image(grey, free, cfg)
 
     case_dir = Path(outdir) / case.name

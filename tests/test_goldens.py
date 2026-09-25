@@ -50,8 +50,8 @@ def cnf_digest(level):
 
 
 def scheme_cnf_digest(level):
-    from gol_mosaics.tile_scheme import build_scheme_cnf, pond_square_scheme
-    return build_scheme_cnf(pond_square_scheme(level)).sha256[:16]
+    from gol_mosaics.tile_scheme import build_scheme_cnf, square_scheme
+    return build_scheme_cnf(square_scheme(level)).sha256[:16]
 
 
 def nosym_cnf_digest():
@@ -90,8 +90,8 @@ NOSYM_DATABASE_3 = "de3e3835a0b970d9"
 
 
 def database_digest(layout, level):
-    from gol_mosaics import PatternLibrary
-    tiles = PatternLibrary.load(level, shape=layout).solutions
+    from gol_mosaics import TileLibrary
+    tiles = TileLibrary.load(level, layout=layout).tiles
     return sha(np.asarray(tiles, dtype=np.uint8))
 
 
@@ -154,8 +154,8 @@ MOSAICS = {
 def mosaic_digest(layout, random_tiles):
     from gol_mosaics import MosaicGenerator
     generator = MosaicGenerator(level=3, grid_size=10, eca_rule=30,
-                                random_patterns=random_tiles,
-                                tile_shape=layout)
+                                random_tiles=random_tiles,
+                                layout=layout)
     image, cells, mask = generator.generate_from_pil(
         synthetic_portrait(), remove_background=False, seed=11,
         return_arrays=True)
@@ -180,9 +180,9 @@ def render_digest():
     cells = rng.integers(0, 2, (19, 23))
     backdrop = rng.integers(0, 7, (19, 23))  # 5 and 6 sit above layers=3
     renderer = MosaicRenderer(ColourScheme(fill_pixel="#123456"))
-    return sha(np.asarray(renderer.render_full_mosaic(cells, backdrop,
+    return sha(np.asarray(renderer.render(cells, backdrop,
                                                       layers=3)),
-               np.asarray(renderer.render_full_mosaic(cells, backdrop)))
+               np.asarray(renderer.render(cells, backdrop)))
 
 
 def test_render_digest():
@@ -226,14 +226,14 @@ FREEFORM = "8c941dd73c777c94"
 
 def freeform_digest():
     pytest.importorskip("ortools")
-    from gol_mosaics.freeform.io import load_pattern_asset
+    from gol_mosaics.freeform.io import load_packed
     from gol_mosaics.freeform.lns import LnsConfig, window_devs
     from gol_mosaics.freeform.metrics import deviation_stats
     from gol_mosaics.freeform.seeds import seed_objective
     from gol_mosaics.freeform.targets import (cell_targets, grey_and_mask_from_image,
                                       window_slices, window_targets)
 
-    pattern = load_pattern_asset(
+    pattern = load_packed(
         REPO_ROOT / "experiments/beyond_tiles/assets/marilyn_400_pipeline.npz")
     grey, free = grey_and_mask_from_image(
         Image.open(REPO_ROOT / "input/images/marilyn.png"), size=400)

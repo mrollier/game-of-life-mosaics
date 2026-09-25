@@ -257,7 +257,7 @@ def load_rect_target(
         src: Image path or PIL image; an alpha channel marks the subject
         width, height: Canvas size in cells
         tone: "eq" (histogram-equalise the subject), "norm" (percentile
-            stretch) or "raw"; see `equalize_grey` and `normalize_grey`
+            stretch) or "raw"; see `equalise_grey` and `normalise_grey`
         contrast: Sigmoid contrast strength of the tile pipeline's loader
         keep_background: Skip the subject cut-out and make the whole frame
             free (paintings have no background to remove)
@@ -276,13 +276,13 @@ def load_rect_target(
     )
     free = np.asarray(mask.resize((width, height), Image.Resampling.LANCZOS)) >= 128
     if tone == "eq":
-        grey = equalize_grey(grey, free)
+        grey = equalise_grey(grey, free)
     elif tone == "norm":
-        grey = normalize_grey(grey, free)
+        grey = normalise_grey(grey, free)
     return grey, free
 
 
-def normalize_grey(
+def normalise_grey(
     grey: np.ndarray,
     free_mask: np.ndarray,
     p_lo: float = 5.0,
@@ -306,7 +306,7 @@ def normalize_grey(
     return out
 
 
-def equalize_grey(grey: np.ndarray, free_mask: np.ndarray) -> np.ndarray:
+def equalise_grey(grey: np.ndarray, free_mask: np.ndarray) -> np.ndarray:
     """Histogram-equalize grey values inside the subject mask.
 
     For high-key sources (e.g. the Marilyn photo, median grey 234) a

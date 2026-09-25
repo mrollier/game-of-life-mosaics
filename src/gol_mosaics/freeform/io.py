@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 
-def save_pattern_asset(path, pattern: np.ndarray) -> Path:
+def save_packed(path, pattern: np.ndarray) -> Path:
     """Store a binary pattern bit-packed, for versioning alongside the code."""
     pattern = np.asarray(pattern)
     np.savez_compressed(
@@ -21,8 +21,8 @@ def save_pattern_asset(path, pattern: np.ndarray) -> Path:
     return Path(path)
 
 
-def load_pattern_asset(path) -> np.ndarray:
-    """Inverse of `save_pattern_asset`: uint8 array of the original shape."""
+def load_packed(path) -> np.ndarray:
+    """Inverse of `save_packed`: uint8 array of the original shape."""
     with np.load(path) as data:
         shape = tuple(int(v) for v in data["shape"])
         n = int(np.prod(shape))

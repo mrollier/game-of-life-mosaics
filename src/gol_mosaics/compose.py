@@ -8,7 +8,7 @@ afterwards, from the stored pattern alone.
 
 The backdrop is drawn from a layer stack (0 = subject, 1 = field background,
 2 = field pixel, 3 and up for the filler levels) that
-`MosaicRenderer.render_full_mosaic` already knows how to paint. Four styles
+`MosaicRenderer.render` already knows how to paint. Four styles
 are available:
 
 - ``'none'``  transparent, so the piece can be placed on any canvas
@@ -29,7 +29,7 @@ numbered separately so the renderer can grade them by size. See
 Only ``'agar'`` and ``'mosaic'`` produce real Game of Life cells. The other
 three are paint: they never enter a Golly export, and the pattern stays
 exactly the still life that was verified. For a backdrop that is itself alive,
-use `life_safe_pattern`, whose output is a still life over the whole grid.
+use `merge_background`, whose output is a still life over the whole grid.
 
 Example:
     >>> from gol_mosaics import ColourScheme, compose
@@ -52,7 +52,7 @@ from .renderer import MosaicRenderer
 STYLES = ('none', 'flat', 'eca', 'agar', 'mosaic')
 
 #: Tile geometries accepted by :func:`mosaic_background`.
-SHAPES = ('diamond', 'square')
+LAYOUTS = ('diamond', 'square')
 
 #: Density gradients accepted by :func:`mosaic_background`.
 TONES = (None, 'linear', 'radial', 'vignette')
@@ -172,20 +172,20 @@ def agar_background(background_mask: np.ndarray,
 
 
 def density_band(level: int,
-                 shape: str = 'diamond',
+                 layout: str = 'diamond',
                  density: Tuple[float, float] = (0.0, 1.0),
                  ) -> Tuple[np.ndarray, Tuple[float, float]]:
     """
     Tile indices whose density falls inside a band, and what that band is.
 
-    `PatternLibrary.densities` is min-max normalised *per level*, so the same
+    `TileLibrary.densities` is min-max normalised *per level*, so the same
     band means a different absolute fill at level 3 than at level 5. The
     absolute range is returned alongside so that relative scale is never a
     hidden trap.
 
     Args:
         level: Tile level (diamond 1-6, square 3-5)
-        shape: Tile geometry, 'diamond' or 'square'
+        layout: Tile geometry, 'diamond' or 'square'
         density: (low, high) normalised density band, both ends inclusive
 
     Returns:
@@ -200,7 +200,7 @@ def density_band(level: int,
         >>> f"{len(indices)} tiles, absolute fill {lo:.3f}-{hi:.3f}"
         '32 tiles, absolute fill 0.137-0.184'
     """
-    from .patterns import PatternLibrary
+    from .tile_library import TileLibrary
 
     low, high = float(density[0]), float(density[1])
     if low > high:
@@ -208,30 +208,30 @@ def density_band(level: int,
             f"Density band is inverted: {low} > {high}"
         )
 
-    library = PatternLibrary.load(level, shape=shape)
+    library = TileLibrary.load(level, layout=layout)
     normalised = library.densities
     indices = np.flatnonzero((normalised >= low) & (normalised <= high))
     if indices.size == 0:
         raise ValueError(
-            f"No level-{level} {shape} tile has a normalised density in "
+            f"No level-{level} {layout} tile has a normalised density in "
             f"[{low}, {high}]; the bank spans "
             f"[{normalised.min():.3f}, {normalised.max():.3f}]"
         )
 
-    absolute = _tile_fill(level, shape)[indices]
+    absolute = _tile_fill(level, layout)[indices]
     return indices, (float(absolute.min()), float(absolute.max()))
 
 
 @lru_cache(maxsize=None)
-def _tile_fill(level: int, shape: str) -> np.ndarray:
+def _tile_fill(level: int, layout: str) -> np.ndarray:
     """Absolute density (live cells per bounding-box cell) of every tile.
 
     Summed rather than fancy-indexed: the level-6 diamond bank is 332,321
     tiles of 36x36, and a copy of a subset of it is 100s of MB.
     """
-    from .patterns import PatternLibrary
+    from .tile_library import TileLibrary
 
-    solutions = PatternLibrary.load(level, shape=shape).solutions
+    solutions = TileLibrary.load(level, layout=layout).tiles
     return solutions.sum(axis=(1, 2)) / float(solutions[0].size)
 
 
@@ -255,7 +255,7 @@ def _tone_field(tone: str, angle: float, height: int, width: int) -> np.ndarray:
 
 
 def centring_pad(level: int,
-                 shape: str = 'diamond',
+                 layout: str = 'diamond',
                  fill: Optional[object] = None,
                  height: int = 0,
                  width: int = 0) -> Tuple[int, int]:
@@ -274,7 +274,7 @@ def centring_pad(level: int,
 
     Args:
         level: Main tile level
-        shape: Only 'diamond' is supported
+        layout: Only 'diamond' is supported
         fill: The cascade, as for :func:`filled_background` (None: the main
             level alone)
         height, width: Canvas size in cells
@@ -286,13 +286,13 @@ def centring_pad(level: int,
         ValueError: For square tiles, or a canvas side that is odd (the
             mirror lines run between cells, so the centre must too)
     """
-    if shape != 'diamond':
+    if layout != 'diamond':
         raise ValueError("centred placement is worked out for diamonds only")
     if height % 2 or width % 2:
         raise ValueError(
             f"centred placement needs even canvas sides, got {height}x{width}"
         )
-    levels = [level] + list(_resolve_fill_levels(level, shape, fill) or ())
+    levels = [level] + list(_resolve_fill_levels(level, layout, fill) or ())
 
     def aligned(centre, pad):
         return all((centre + pad - (3 * lv - 0.5)) % (3 * lv) == 0
@@ -304,18 +304,18 @@ def centring_pad(level: int,
     return py, px
 
 
-def _centred(build, mask, level, shape, cascade, **kwargs):
+def _centred(build, mask, level, layout, cascade, **kwargs):
     """Run a background builder on the mask padded by centring_pad, then
     crop. The padding counts as subject, so no tile is seated in it."""
-    py, px = centring_pad(level, shape, cascade, *mask.shape)
+    py, px = centring_pad(level, layout, cascade, *mask.shape)
     padded = np.pad(mask, ((py, 0), (px, 0)))
-    field = build(padded, level=level, shape=shape, **kwargs)
+    field = build(padded, level=level, layout=layout, **kwargs)
     return np.ascontiguousarray(field[py:, px:])
 
 
 def mosaic_background(background_mask: np.ndarray,
                       level: int = 4,
-                      shape: str = 'diamond',
+                      layout: str = 'diamond',
                       density: Tuple[float, float] = (0.0, 1.0),
                       tone: Optional[str] = None,
                       tone_angle: float = 0.0,
@@ -355,7 +355,7 @@ def mosaic_background(background_mask: np.ndarray,
             which is True on the subject — pass `~free_mask`.
         level: Tile level, setting tile size (`6 * level` cells) and how
             intricate each tile can be. Diamond 1-6, square 3-5.
-        shape: Tile geometry, 'diamond' (the historical pond diamonds) or
+        layout: Tile geometry, 'diamond' (the historical pond diamonds) or
             'square' (axis-aligned pond-frame squares)
         density: (low, high) normalised density band tiles are drawn from,
             see :func:`density_band`
@@ -375,7 +375,7 @@ def mosaic_background(background_mask: np.ndarray,
         nothing.
 
     Raises:
-        ValueError: If the mask is not 2D, the shape or tone is unknown, the
+        ValueError: If the mask is not 2D, the layout or tone is unknown, the
             gap is below 2, or the density band selects no tiles
 
     Example:
@@ -385,8 +385,8 @@ def mosaic_background(background_mask: np.ndarray,
     """
     from scipy.ndimage import binary_dilation
 
-    from .patterns import PatternLibrary, nearest_density_indices
-    from .tile_scheme import assemble, diamond_scheme, pond_square_scheme
+    from .tile_library import TileLibrary, nearest_density_indices
+    from .tile_scheme import assemble, diamond_scheme, square_scheme
 
     mask = np.asarray(background_mask, dtype=bool)
     if mask.ndim != 2:
@@ -394,11 +394,11 @@ def mosaic_background(background_mask: np.ndarray,
             f"Background mask must be 2D array, got shape {mask.shape}"
         )
     if centred:
-        return _centred(mosaic_background, mask, level, shape, None,
+        return _centred(mosaic_background, mask, level, layout, None,
                         density=density, tone=tone, tone_angle=tone_angle,
                         gap=gap, seed=seed)
-    if shape not in SHAPES:
-        raise ValueError(f"Unknown shape {shape!r}, expected one of {SHAPES}")
+    if layout not in LAYOUTS:
+        raise ValueError(f"Unknown layout {layout!r}, expected one of {LAYOUTS}")
     if tone not in TONES:
         raise ValueError(f"Unknown tone {tone!r}, expected one of {TONES}")
     if gap < MIN_GAP:
@@ -407,11 +407,11 @@ def mosaic_background(background_mask: np.ndarray,
             f"subject, got {gap}"
         )
 
-    build = diamond_scheme if shape == 'diamond' else pond_square_scheme
+    build = diamond_scheme if layout == 'diamond' else square_scheme
     scheme = build(level)
-    tiles = np.asarray(PatternLibrary.load(level, shape=shape).solutions,
+    tiles = np.asarray(TileLibrary.load(level, layout=layout).tiles,
                        dtype=np.uint8)
-    indices, _ = density_band(level, shape, density)
+    indices, _ = density_band(level, layout, density)
 
     height, width = mask.shape
     n = scheme.n
@@ -476,7 +476,7 @@ def mosaic_background(background_mask: np.ndarray,
                            np.asarray(corner_j) + middle]
             low, high = float(density[0]), float(density[1])
             chosen = nearest_density_indices(
-                PatternLibrary.load(level, shape=shape).densities,
+                TileLibrary.load(level, layout=layout).densities,
                 low + wanted * (high - low), rng=rng, candidates=indices)
         index_grid[rows, cols] = chosen
 
@@ -657,7 +657,7 @@ def _subject_distance(mask: np.ndarray) -> np.ndarray:
 
 def filled_background(background_mask: np.ndarray,
                       level: int = 4,
-                      shape: str = 'diamond',
+                      layout: str = 'diamond',
                       *,
                       density: Tuple[float, float] = (0.0, 1.0),
                       tone: Optional[str] = None,
@@ -692,12 +692,12 @@ def filled_background(background_mask: np.ndarray,
             this is the opposite convention to the beyond-tiles `free_mask`,
             which is True on the subject — pass `~free_mask`.
         level: Tile level of the main mosaic, see :func:`mosaic_background`
-        shape: Tile geometry, 'diamond' or 'square'
+        layout: Tile geometry, 'diamond' or 'square'
         density: (low, high) normalised band for the main mosaic
         tone: Density gradient for the main mosaic: None, 'linear', 'radial'
             or 'vignette'
         tone_angle: Degrees for tone='linear'
-        fill: 'auto' cascades through every smaller level of the same shape
+        fill: 'auto' cascades through every smaller level of the same layout
             and then scatters; a sequence names the levels to use; `()`
             scatters only; None returns the plain mosaic
         fill_band: Scatter only within this distance of the subject, see
@@ -729,17 +729,17 @@ def filled_background(background_mask: np.ndarray,
     """
     mask = np.asarray(background_mask, dtype=bool)
     if centred:
-        return _centred(filled_background, mask, level, shape, fill,
+        return _centred(filled_background, mask, level, layout, fill,
                         density=density, tone=tone, tone_angle=tone_angle,
                         fill=fill, fill_band=fill_band, fill_fade=fill_fade,
                         gap=gap, seed=seed)
-    tiles = mosaic_background(mask, level=level, shape=shape, density=density,
+    tiles = mosaic_background(mask, level=level, layout=layout, density=density,
                               tone=tone, tone_angle=tone_angle, gap=gap,
                               seed=seed)
     if fill is None:
         return tiles
 
-    levels = _resolve_fill_levels(level, shape, fill)
+    levels = _resolve_fill_levels(level, layout, fill)
 
     field = tiles.astype(np.uint8)
     placed = tiles.astype(bool)
@@ -747,7 +747,7 @@ def filled_background(background_mask: np.ndarray,
         # Handing each pass `mask & ~placed` is the whole trick: the support
         # rule then demands the footprint plus `gap` be free of every cell
         # already down, which is exactly the clearance the argument needs.
-        layer = mosaic_background(mask & ~placed, level=small, shape=shape,
+        layer = mosaic_background(mask & ~placed, level=small, layout=layout,
                                   gap=gap,
                                   seed=None if seed is None else seed + step)
         fresh = layer.astype(bool) & ~placed
@@ -763,19 +763,19 @@ def filled_background(background_mask: np.ndarray,
     return field
 
 
-def _fill_levels(level: int, shape: str) -> Tuple[int, ...]:
-    """Every smaller level of the same shape, largest first.
+def _fill_levels(level: int, layout: str) -> Tuple[int, ...]:
+    """Every smaller level of the same layout, largest first.
 
     Square tiles are only enumerated for levels 3-5, so that cascade bottoms
     out at 18 cells and the scatter does the rest.
     """
-    if shape == 'square':
+    if layout == 'square':
         return tuple(small for small in (4, 3) if small < level)
     return tuple(range(level - 1, 0, -1))
 
 
 def _resolve_fill_levels(level: int,
-                         shape: str,
+                         layout: str,
                          fill: Optional[object]) -> Optional[Tuple[int, ...]]:
     """The cascade's levels, largest first, or None for no cascade at all.
 
@@ -787,7 +787,7 @@ def _resolve_fill_levels(level: int,
     if fill is None:
         return None
     if fill == 'auto':
-        return _fill_levels(level, shape)
+        return _fill_levels(level, layout)
     if isinstance(fill, str):
         raise ValueError(
             f"Unknown fill {fill!r}, expected 'auto', None or a sequence of "
@@ -797,7 +797,7 @@ def _resolve_fill_levels(level: int,
 
 
 def fill_layer_count(level: int,
-                     shape: str = 'diamond',
+                     layout: str = 'diamond',
                      fill: Optional[object] = 'auto') -> int:
     """How many layers :func:`filled_background` numbers, cascade included.
 
@@ -808,11 +808,11 @@ def fill_layer_count(level: int,
         >>> fill_layer_count(6, 'diamond', 'auto')
         7
     """
-    levels = _resolve_fill_levels(level, shape, fill)
+    levels = _resolve_fill_levels(level, layout, fill)
     return 1 if levels is None else len(levels) + 2
 
 
-def life_safe_pattern(pattern: np.ndarray,
+def merge_background(pattern: np.ndarray,
                       background_mask: np.ndarray,
                       pitch: Tuple[int, int] = (3, 4),
                       gap: int = 2,
@@ -846,11 +846,11 @@ def life_safe_pattern(pattern: np.ndarray,
             the border
 
     Example:
-        >>> whole = life_safe_pattern(pattern, ~free_mask)
+        >>> whole = merge_background(pattern, ~free_mask)
         >>> GollyExporter.export_to_cells(whole, 'art.cells')
 
         >>> tiles = filled_background(~free_mask, level=4)
-        >>> whole = life_safe_pattern(pattern, ~free_mask, field=tiles)
+        >>> whole = merge_background(pattern, ~free_mask, field=tiles)
     """
     pattern = np.asarray(pattern, dtype=np.uint8)
     mask = np.asarray(background_mask, dtype=bool)
@@ -904,7 +904,7 @@ def life_safe_pattern(pattern: np.ndarray,
     return pattern | field
 
 
-def compose(pattern: np.ndarray,
+def compose(cells: np.ndarray,
             background_mask: np.ndarray,
             colours: Optional[ColourScheme] = None,
             style: str = 'eca',
@@ -914,7 +914,7 @@ def compose(pattern: np.ndarray,
             pitch: Tuple[int, int] = (3, 4),
             gap: int = 2,
             level: int = 4,
-            shape: str = 'diamond',
+            layout: str = 'diamond',
             density: Tuple[float, float] = (0.0, 1.0),
             tone: Optional[str] = None,
             tone_angle: float = 0.0,
@@ -926,10 +926,10 @@ def compose(pattern: np.ndarray,
             field: Optional[np.ndarray] = None,
             scale: int = 1) -> Image.Image:
     """
-    Render a finished pattern with a colour scheme and a backdrop.
+    Render finished cells with a colour scheme and a backdrop.
 
     Args:
-        pattern: Binary array (0=background, 1=pixel)
+        cells: Binary array (0=background, 1=pixel)
         background_mask: Boolean array, True where the background is. The
             beyond-tiles pipeline carries the opposite convention in
             `free_mask` (True on the subject) — pass `~free_mask`.
@@ -944,7 +944,7 @@ def compose(pattern: np.ndarray,
         gap: Clearance for style='agar' and style='mosaic', see
             :func:`agar_background`
         level: Tile level for style='mosaic', see :func:`mosaic_background`
-        shape: Tile geometry for style='mosaic', 'diamond' or 'square'
+        layout: Tile geometry for style='mosaic', 'diamond' or 'square'
         density: Normalised tile density band for style='mosaic', see
             :func:`density_band`
         tone: Density gradient for style='mosaic': None, 'linear', 'radial'
@@ -965,33 +965,33 @@ def compose(pattern: np.ndarray,
         field: A background field made beforehand, as
             :func:`filled_background` returns it, instead of generating one
             (style='mosaic' only). Useful to render one verified field in
-            several colour schemes; `level`, `shape` and `fill` must be the
+            several colour schemes; `level`, `layout` and `fill` must be the
             ones it was made with, since they set the colour ramp.
-        scale: Integer nearest-neighbour upscale, applied last. The pattern
-            renders at one pixel per cell, which is far below print
+        scale: Integer nearest-neighbour upscale, applied last. The cells
+            render at one pixel per cell, which is far below print
             resolution, so a poster wants 3 or more.
 
     Returns:
         RGBA PIL Image, `scale` pixels per cell
 
     Raises:
-        ValueError: If the pattern is not 2D, the mask does not match it, the
+        ValueError: If the cells are not 2D, the mask does not match them, the
             style is unknown, or the scale is not a positive integer
 
     Example:
-        >>> compose(pattern, ~free_mask, ColourScheme.warhol(seed=7),
+        >>> compose(cells, ~free_mask, ColourScheme.warhol(seed=7),
         ...         style='agar', scale=3).save('art.png')
     """
-    pattern = np.asarray(pattern)
-    if pattern.ndim != 2:
+    cells = np.asarray(cells)
+    if cells.ndim != 2:
         raise ValueError(
-            f"Pattern must be 2D array, got shape {pattern.shape}"
+            f"Pattern must be 2D array, got shape {cells.shape}"
         )
 
     mask = np.asarray(background_mask, dtype=bool)
-    if mask.shape != pattern.shape:
+    if mask.shape != cells.shape:
         raise ValueError(
-            f"Mask shape {mask.shape} does not match pattern {pattern.shape}"
+            f"Mask shape {mask.shape} does not match cells {cells.shape}"
         )
 
     if style not in STYLES:
@@ -1006,11 +1006,11 @@ def compose(pattern: np.ndarray,
                               else ColourScheme.ugent())
 
     if style == 'none':
-        rgba = np.asarray(renderer.render_gol_mosaic(pattern)).copy()
+        rgba = np.asarray(renderer.render_gol_mosaic(cells)).copy()
         rgba[mask, 3] = 0
         image = Image.fromarray(rgba, mode='RGBA')
     else:
-        height, width = pattern.shape
+        height, width = cells.shape
         if style == 'flat':
             field = np.zeros((height, width), dtype=np.uint8)
         elif style == 'eca':
@@ -1034,7 +1034,7 @@ def compose(pattern: np.ndarray,
             # fill=None makes this exactly mosaic_background, so one call
             # covers both.
             field = filled_background(
-                mask, level=level, shape=shape, density=density, tone=tone,
+                mask, level=level, layout=layout, density=density, tone=tone,
                 tone_angle=tone_angle, fill=fill, fill_band=fill_band,
                 fill_fade=fill_fade, gap=gap, seed=seed, centred=centred
             )
@@ -1045,11 +1045,11 @@ def compose(pattern: np.ndarray,
         # renderer's filler ramp — no extra arithmetic needed. The layer count
         # is passed rather than read back off the field, so an empty layer
         # cannot shorten the ramp.
-        layers = (fill_layer_count(level, shape, fill)
+        layers = (fill_layer_count(level, layout, fill)
                   if style == 'mosaic' else None)
         backdrop = mask.astype(np.uint8)
-        image = renderer.render_full_mosaic(
-            pattern, backdrop * (field + backdrop), layers=layers
+        image = renderer.render(
+            cells, backdrop * (field + backdrop), layers=layers
         )
 
     if scale > 1:

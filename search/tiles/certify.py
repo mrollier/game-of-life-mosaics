@@ -41,8 +41,8 @@ RUP_CHECK_MAX_LEMMAS = 50_000
 def census_bits(level, enc):
     """Free-orbit bits of the shipped census for this level."""
     sys.path.insert(0, str(HERE.parents[1] / "src"))
-    from gol_mosaics.patterns import PatternLibrary
-    sols = PatternLibrary.load(level).solutions
+    from gol_mosaics.tile_library import TileLibrary
+    sols = TileLibrary.load(level).tiles
     return enc.domain.extract_bits(sols)
 
 

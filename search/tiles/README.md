@@ -19,7 +19,7 @@ installed (`pip install -e ".[sat]"` from the root).
 - **Level 6 is done**: all **332,321** tiles, enumerated in ~2 s on a
   10-core laptop, five-way validated, shipped with the package as
   `src/gol_mosaics/data/tiles_diamond_level_6_orbits.npy` (2.7 MB packed;
-  `PatternLibrary.load(6)` expands it transparently).
+  `TileLibrary.load(6)` expands it transparently).
 - **Level 7 is done, twice**: **108,492,376** tiles (84 free orbits, 42×42
   grids), first with `search.py run --level 7 --cube-bits 16` on a 10-core
   laptop (~2.25 h of solving), then reproduced on a 36-thread Xeon
@@ -129,7 +129,7 @@ checkpoints without re-solving.
 
 Level-7 output stays as **packed orbit bits** (11 bytes/tile; raw 42×42
 grids would be hundreds of GB). Expand in chunks with
-`gol_mosaics.tile_domain.unpack_solutions(packed[i:j], level=7)`.
+`gol_mosaics.tile_domain.build_domain(7).unpack(packed[i:j])`.
 
 ## Audit battery
 

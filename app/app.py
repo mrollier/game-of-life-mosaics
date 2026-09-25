@@ -15,7 +15,7 @@ Design notes:
   pipeline, so live tweaks (sliders etc.) never re-run the heavy removal — the
   pipeline is always called with remove_background=False.
 - The pattern libraries for the exposed levels are warmed in a background
-  thread at launch; PatternLibrary.load() caches one shared read-only instance
+  thread at launch; TileLibrary.load() caches one shared read-only instance
   per level, so requests never re-expand the packed data files. Importing the
   module does no work (the tests import it), and the interface is built on
   first use of `demo`.
@@ -36,7 +36,7 @@ import numpy as np
 from PIL import Image
 import gradio as gr
 
-from gol_mosaics import MosaicGenerator, PatternLibrary, ColourScheme
+from gol_mosaics import MosaicGenerator, TileLibrary, ColourScheme
 from gol_mosaics.eca import ECABackground
 from gol_mosaics.image_processing import ImageProcessor
 from gol_mosaics.export import GollyExporter
@@ -59,7 +59,7 @@ MAX_INPUT_DIM = 1600
 
 # Tile shapes exposed in the UI: the historical 45-degree diamond layout and
 # the axis-aligned pond-frame squares. Labels map to MosaicGenerator's
-# tile_shape argument; each shape ships a different pre-computed level range
+# layout argument; each shape ships a different pre-computed level range
 # (the square level-6 census, 19.3M tiles, is too large to ship).
 DIAMONDS = "Diamonds"
 SQUARES = "Squares"
@@ -87,16 +87,16 @@ SEED_MAX = 2**31
 # --- Start-up work --------------------------------------------------------------
 
 def warm_libraries() -> None:
-    """Load the cheap levels into PatternLibrary's cache.
+    """Load the cheap levels into TileLibrary's cache.
 
     load() keeps one shared read-only instance per (level, shape), so later
     requests skip the unpacking. Run in a thread at launch: the first request
     for a level that is not warm yet simply loads it itself.
     """
     for level in WARM_LEVELS:
-        PatternLibrary.load(level)
+        TileLibrary.load(level)
     for level in SQUARE_LEVELS:
-        PatternLibrary.load(level, shape="square")
+        TileLibrary.load(level, layout="square")
 
 # Colour scheme UI labels. UGent and monochrome are deterministic; Warhol picks
 # random pop colours every call.
@@ -231,7 +231,7 @@ def _resolve_eca_rule(eca_choice, eca_custom_rule):
     return int(eca_choice)
 
 
-def _prepare_generation(image, tile_shape, level, colours, grid_size,
+def _prepare_generation(image, layout, level, colours, grid_size,
                         eca_choice, eca_custom_rule, auto_seed, manual_colors):
     """Shared setup for the PNG and .cells paths.
 
@@ -240,9 +240,9 @@ def _prepare_generation(image, tile_shape, level, colours, grid_size,
     per-(level, shape) cache warmed at startup).
     Returns (generator, bounded_image, scheme, effective_seed).
     """
-    shape_arg = SHAPE_ARGS.get(tile_shape, "diamond")
+    shape_arg = SHAPE_ARGS.get(layout, "diamond")
     level = int(level)
-    if level not in LEVELS_BY_SHAPE.get(tile_shape, LEVELS):
+    if level not in LEVELS_BY_SHAPE.get(layout, LEVELS):
         # e.g. level 6 arriving in the same tick as a switch to Squares
         level = DEFAULT_LEVEL
     grid_size = int(grid_size)
@@ -264,12 +264,12 @@ def _prepare_generation(image, tile_shape, level, colours, grid_size,
         grid_size=grid_size,
         colours=scheme,
         eca_rule=rule,
-        tile_shape=shape_arg,
+        layout=shape_arg,
     )
     return generator, image, scheme, effective_seed
 
 
-def _generate_mosaic(image, tile_shape, level, colours, grid_size,
+def _generate_mosaic(image, layout, level, colours, grid_size,
                      empty_tiles_cutoff, alpha_cutoff, eca_choice,
                      eca_custom_rule, bg_pattern_size, auto_seed,
                      manual_colors, return_arrays=False):
@@ -281,7 +281,7 @@ def _generate_mosaic(image, tile_shape, level, colours, grid_size,
     return_arrays is True.
     """
     generator, image, scheme, effective_seed = _prepare_generation(
-        image, tile_shape, level, colours, grid_size, eca_choice,
+        image, layout, level, colours, grid_size, eca_choice,
         eca_custom_rule, auto_seed, manual_colors,
     )
     result = generator.generate_from_pil(
@@ -296,7 +296,7 @@ def _generate_mosaic(image, tile_shape, level, colours, grid_size,
     return result, scheme, image
 
 
-def render_mosaic(image, tile_shape, level, colours, grid_size,
+def render_mosaic(image, layout, level, colours, grid_size,
                   empty_tiles_cutoff, alpha_cutoff, eca_choice, eca_custom_rule,
                   bg_pattern_size, auto_seed,
                   gol_background, gol_pixel, eca_background, eca_pixel
@@ -313,13 +313,13 @@ def render_mosaic(image, tile_shape, level, colours, grid_size,
     if image is None:
         return None
 
-    return _render(image, tile_shape, level, colours, grid_size,
+    return _render(image, layout, level, colours, grid_size,
                    empty_tiles_cutoff, alpha_cutoff, eca_choice,
                    eca_custom_rule, bg_pattern_size, auto_seed,
                    gol_background, gol_pixel, eca_background, eca_pixel)[0]
 
 
-def _render(image, tile_shape, level, colours, grid_size,
+def _render(image, layout, level, colours, grid_size,
             empty_tiles_cutoff, alpha_cutoff, eca_choice, eca_custom_rule,
             bg_pattern_size, auto_seed,
             gol_background, gol_pixel, eca_background, eca_pixel):
@@ -327,7 +327,7 @@ def _render(image, tile_shape, level, colours, grid_size,
     manual_colors = (gol_background, gol_pixel, eca_background, eca_pixel)
     try:
         (mosaic, gol_mosaic, _), scheme, bounded = _generate_mosaic(
-            image, tile_shape, level, colours, grid_size,
+            image, layout, level, colours, grid_size,
             empty_tiles_cutoff, alpha_cutoff, eca_choice, eca_custom_rule,
             bg_pattern_size, auto_seed, manual_colors, return_arrays=True,
         )
@@ -357,13 +357,13 @@ def generate(*args) -> Optional[str]:
     return out_path
 
 
-def on_shape_change(tile_shape, level):
+def on_shape_change(layout, level):
     """Re-range the level dropdown when the tile shape changes.
 
     Diamonds ship levels 3-6, squares 3-5. A selected level that doesn't
     exist for the new shape falls back to the default; otherwise it is kept.
     """
-    choices = LEVELS_BY_SHAPE[tile_shape]
+    choices = LEVELS_BY_SHAPE[layout]
     level = int(level)
     return gr.update(choices=choices,
                      value=level if level in choices else DEFAULT_LEVEL)
@@ -470,7 +470,7 @@ def _binary_bbox(mosaic: np.ndarray) -> np.ndarray:
     return binary[r0:r1 + 1, c0:c1 + 1]
 
 
-def export_cells_ui(last, state, remove_bg, tile_shape, level, colours,
+def export_cells_ui(last, state, remove_bg, layout, level, colours,
                     grid_size, empty_tiles_cutoff, alpha_cutoff, eca_choice,
                     eca_custom_rule, bg_pattern_size, auto_seed,
                     gol_background, gol_pixel, eca_background, eca_pixel
@@ -487,7 +487,7 @@ def export_cells_ui(last, state, remove_bg, tile_shape, level, colours,
     if image is None:
         raise gr.Error("Upload an image first, then download its .cells file.")
 
-    settings = (tile_shape, level, colours, grid_size, empty_tiles_cutoff,
+    settings = (layout, level, colours, grid_size, empty_tiles_cutoff,
                 alpha_cutoff, eca_choice, eca_custom_rule, bg_pattern_size,
                 auto_seed, gol_background, gol_pixel, eca_background, eca_pixel)
     if last and last.get("key") == _settings_key(image, settings):
@@ -498,7 +498,7 @@ def export_cells_ui(last, state, remove_bg, tile_shape, level, colours,
         manual_colors = (gol_background, gol_pixel, eca_background, eca_pixel)
         try:
             (_, gol_mosaic, _), _, _ = _generate_mosaic(
-                image, tile_shape, level, colours, grid_size,
+                image, layout, level, colours, grid_size,
                 empty_tiles_cutoff, alpha_cutoff, eca_choice, eca_custom_rule,
                 bg_pattern_size, auto_seed, manual_colors, return_arrays=True,
             )

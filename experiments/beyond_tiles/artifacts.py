@@ -12,8 +12,8 @@ from pathlib import Path
 import numpy as np
 from matplotlib.figure import Figure
 
-from gol_mosaics.freeform.io import (load_pattern_asset, load_snapshots,  # noqa: F401
-                                     save_pattern_asset, save_snapshots)
+from gol_mosaics.freeform.io import (load_packed, load_snapshots,  # noqa: F401
+                                     save_packed, save_snapshots)
 from gol_mosaics.freeform.metrics import deviation_stats
 from gol_mosaics.freeform.targets import (box_sums, cell_targets, window_bounds,
                                          window_live_counts, window_slices,

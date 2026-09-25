@@ -5,11 +5,10 @@ This module is the rule-independent foundation of the SAT tile search
 (:mod:`gol_mosaics.sat_search`) and of the compact on-disk format for large
 tile databases: instead of full (N, n, n) grids, a level's solutions can be
 stored as one bit per *free symmetry orbit* (59 bits per level-6 tile) and
-expanded on load.
+expanded on load (:meth:`Domain.pack`, :meth:`Domain.unpack`).
 
-The pond geometry (``pond_pattern`` .. ``pond_pattern_edge``) lives here as
-plain functions of the level; :class:`gol_mosaics.patterns.PatternLibrary`
-delegates to them. Tests re-derive the shipped level 3-5 databases
+The pond geometry (``POND``, ``pond_lattice``, ``pond_frame``,
+``free_octant``) lives here as plain functions of the level. Tests re-derive the shipped level 3-5 databases
 byte-exactly from this geometry.
 
 Dead edges — the cells that must be forced dead so tiles interlock into a
@@ -19,7 +18,7 @@ global still life — were historically hard-coded per level (through level 6).
     A       = the tile's possibly-alive diamond (filled pond edge)
     B       = union of A at the 12 neighbouring-tile offsets
               ((+-n/2, +-n/2) for the interlocking grid, (0, +-n), (+-n, 0),
-              (+-n, +-n) for the same grid; the grid offset tile_pad_size
+              (+-n, +-n) for the same grid; the grid offset lattice_offset
               equals n/2 exactly)
     shared  = dilate1(A) & dilate1(B)      # cells influenced by two tiles
     dead    = free(A) & dilate1(shared)    # free cells influencing them
@@ -48,26 +47,26 @@ from scipy.ndimage import binary_dilation, binary_fill_holes
 POND_WIDTH = 6
 
 # Free-orbit counts per level, asserted in build_domain: a mismatch means the
-# geometry has diverged from patterns.py.
+# geometry has diverged.
 EXPECTED_FREE_ORBITS = {1: 1, 2: 3, 3: 10, 4: 22, 5: 38, 6: 59, 7: 84}
 
 _DILATE1 = np.ones((3, 3), dtype=bool)
 
 
-def pond_pattern() -> np.ndarray:
-    """The base 4x4 pond still life."""
-    return np.array([
-        [0, 1, 1, 0],
-        [1, 0, 0, 1],
-        [1, 0, 0, 1],
-        [0, 1, 1, 0]
-    ])
+#: The pond: the 4x4 still life every tile frame is built from.
+POND = np.array([
+    [0, 1, 1, 0],
+    [1, 0, 0, 1],
+    [1, 0, 0, 1],
+    [0, 1, 1, 0]
+])
+POND.setflags(write=False)
 
 
-def pond_pattern_multiple(level: int) -> np.ndarray:
+def pond_lattice(level: int) -> np.ndarray:
     """Stacked pond pattern with masked corners; grid size (6*level)^2."""
     width = POND_WIDTH * level
-    pp = pond_pattern()
+    pp = POND
 
     if level > 1:
         pp_multiple = np.vstack((
@@ -101,10 +100,10 @@ def pond_pattern_multiple(level: int) -> np.ndarray:
     return np.where(1 - mask, pp_multiple, 0)
 
 
-def pond_pattern_edge(level: int) -> np.ndarray:
+def pond_frame(level: int) -> np.ndarray:
     """Border ponds only (the forced-alive tile edge)."""
     width = POND_WIDTH * level
-    pp_multiple = pond_pattern_multiple(level)
+    pp_multiple = pond_lattice(level)
 
     mask_corner = np.array([
         [(i + j) < POND_WIDTH * level / 2 + 3 for j in range(width)]
@@ -116,7 +115,7 @@ def pond_pattern_edge(level: int) -> np.ndarray:
     return np.where(mask, pp_multiple, 0)
 
 
-def pond_pattern_eighth(level: int) -> np.ndarray:
+def free_octant(level: int) -> np.ndarray:
     """
     The cells of one D4 octant whose value is free (can be 0 or 1): the
     region a symmetric tile is determined by, used to illustrate the
@@ -124,7 +123,7 @@ def pond_pattern_eighth(level: int) -> np.ndarray:
     """
     width = POND_WIDTH * level
     half_width = width // 2
-    pp_edge = pond_pattern_edge(level)
+    pp_edge = pond_frame(level)
 
     # First quarter (top-right) of the edge pattern
     pp_edge_eighth = np.zeros_like(pp_edge)
@@ -143,7 +142,7 @@ def pond_pattern_eighth(level: int) -> np.ndarray:
 
 def _base_masks(level: int) -> Tuple[np.ndarray, np.ndarray]:
     """(edge_alive, outside_dead) uint8 masks, without dead edges."""
-    pp_edge = pond_pattern_edge(level)
+    pp_edge = pond_frame(level)
     edge_alive = (pp_edge > 0).astype(np.uint8)
     outside_dead = 1 - binary_fill_holes(edge_alive).astype(np.uint8)
     return edge_alive, outside_dead
@@ -160,7 +159,7 @@ def derive_dead_edges_full(level: int) -> Set[Tuple[int, int]]:
         return set()
 
     n = POND_WIDTH * level
-    half = n // 2  # == tile_pad_size: ((6-3)*(2L-1)+3)//2 == 3L
+    half = n // 2  # == TileLibrary.lattice_offset == 3L
     edge_alive, outside_dead = _base_masks(level)
     diamond = binary_fill_holes(edge_alive)
 
@@ -241,7 +240,7 @@ def symmetric_coords(i: int, j: int, n: int) -> List[Tuple[int, int]]:
     ]
 
 
-def neighbors(i: int, j: int, n: int) -> List[Tuple[int, int]]:
+def neighbours(i: int, j: int, n: int) -> List[Tuple[int, int]]:
     """The 8 Moore neighbours with % n wraparound (verbatim ILP semantics)."""
     return [
         ((i + di) % n, (j + dj) % n)
@@ -455,16 +454,3 @@ def build_domain(level: int, dead_edges=None) -> Domain:
             f"expected {expected}"
         )
     return domain
-
-
-def pack_solutions(grids: np.ndarray, level: int) -> np.ndarray:
-    """
-    Compress (m, n, n) tile grids to packed free-orbit bits:
-    (m, ceil(n_free/8)) uint8. ~162x smaller than uint8 grids at level 6.
-    """
-    return build_domain(level).pack(grids)
-
-
-def unpack_solutions(packed: np.ndarray, level: int) -> np.ndarray:
-    """Inverse of pack_solutions: packed bits -> (m, n, n) uint8 grids."""
-    return build_domain(level).unpack(packed)

@@ -1090,21 +1090,21 @@ ROUND2 = [
 def load_solve(name: str):
     """A design's solve: the local run if there is one, else the delivered
     bit-packed copy in solves/."""
-    from gol_mosaics.freeform.io import load_pattern_asset
+    from gol_mosaics.freeform.io import load_packed
 
     run = HERE / "results" / name / "pattern.npy"
     if run.exists():
         return np.load(run)
     packed = HERE / "solves" / f"{name}.npz"
     if packed.exists():
-        return load_pattern_asset(packed)
+        return load_packed(packed)
     raise SystemExit(f"no solve for {name!r}: run `flyer.py solve {name}`")
 
 
 def render(labels=None) -> None:
     from common import contact_sheet
     from gol_mosaics.freeform.solver import verify_still_life
-    from gol_mosaics import compose, filled_background, life_safe_pattern
+    from gol_mosaics import compose, filled_background, merge_background
     from gol_mosaics.export import GollyExporter
 
     scratch = HERE / "output"
@@ -1140,7 +1140,7 @@ def render(labels=None) -> None:
         image.convert("RGB").save(out / f"{label}.png")
 
         # The same field the render used, merged and checked as one still life.
-        whole = life_safe_pattern(pattern, background, field=field)
+        whole = merge_background(pattern, background, field=field)
         ver = verify_still_life(whole)
         assert ver["bounded"] and ver["toroidal"], f"{label}: {ver}"
         GollyExporter.export_to_cells(whole, str(golly / f"flyer-{label}.cells"))

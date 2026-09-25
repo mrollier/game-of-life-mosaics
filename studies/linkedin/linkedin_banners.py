@@ -43,7 +43,7 @@ import numpy as np
 from PIL import Image
 
 from common import contact_sheet
-from gol_mosaics.freeform.io import load_pattern_asset, save_pattern_asset
+from gol_mosaics.freeform.io import load_packed, save_packed
 from gol_mosaics.freeform.solver import verify_still_life
 from gol_mosaics.freeform.targets import load_rect_target
 from gol_mosaics import (ColourScheme, MosaicRenderer, compose,
@@ -72,7 +72,7 @@ BANNER_1 = [
                             tone_angle=0.0, seed=3, colours=ICE)),
     ("mosaic-l3-sparse", dict(style="mosaic", level=3, density=(0.0, 0.40),
                               seed=4, colours=SLATE)),
-    ("mosaic-l3-square", dict(style="mosaic", level=3, shape="square",
+    ("mosaic-l3-square", dict(style="mosaic", level=3, layout="square",
                               density=(0.5, 1.0), seed=5,
                               colours=ColourScheme.warhol(seed=11))),
     ("mosaic-l2-vignette", dict(style="mosaic", level=2, tone="vignette",
@@ -97,9 +97,9 @@ BANNER_2 = [
                               seed=4, colours=SLATE)),
     ("mosaic-l6-radial", dict(style="mosaic", level=6, tone="radial", seed=5,
                               colours=ColourScheme.warhol(seed=11))),
-    ("mosaic-l4-square", dict(style="mosaic", level=4, shape="square",
+    ("mosaic-l4-square", dict(style="mosaic", level=4, layout="square",
                               seed=6, colours=ColourScheme.ugent())),
-    ("mosaic-l5-square", dict(style="mosaic", level=5, shape="square",
+    ("mosaic-l5-square", dict(style="mosaic", level=5, layout="square",
                               density=(0.5, 1.0), seed=7,
                               colours=ColourScheme.inverted())),
     ("eca", dict(style="eca", rule=90, colours=ColourScheme.ugent())),
@@ -167,7 +167,7 @@ AVATAR = [
                          colours=ColourScheme.monochrome("#9C5233", "#F5EFE6"))),
     # Split complement: instead of the teal directly opposite the hair, the
     # two hues flanking it. Less obvious than teal-and-orange.
-    ("indigo-rust", dict(style="mosaic", level=3, shape="square", seed=8,
+    ("indigo-rust", dict(style="mosaic", level=3, layout="square", seed=8,
                          colours=ColourScheme(
                              gol_background="#EFEDE8", gol_pixel="#3A4661",
                              eca_background="#2F3E5C", eca_pixel="#B06A3E"))),
@@ -204,7 +204,7 @@ BACKGROUNDS = [
                             seed=12, colours=TEAL_RUST)),
     # Square lattice instead of diamond, graded so the sky packs towards the
     # top and thins as it meets the ridgeline.
-    ("teal-l5-square-ramp", dict(style="mosaic", level=5, shape="square",
+    ("teal-l5-square-ramp", dict(style="mosaic", level=5, layout="square",
                                  tone="linear", tone_angle=90.0, seed=13,
                                  colours=TEAL_RUST)),
     # No tiles at all: the tightest safe block agar, a uniform fine weave.
@@ -222,7 +222,7 @@ BACKGROUNDS = [
     ("cream-l4-radial", dict(style="mosaic", level=4, tone="radial", seed=15,
                              colours=CREAM_AUBURN)),
     # Vignette is the inverse: dense at the edges, opening out over the peak.
-    ("cream-l3-square-vignette", dict(style="mosaic", level=3, shape="square",
+    ("cream-l3-square-vignette", dict(style="mosaic", level=3, layout="square",
                                       tone="vignette", seed=16,
                                       colours=CREAM_AUBURN)),
     # Agar at double pitch — the same construction as `teal-agar`, four times
@@ -281,7 +281,7 @@ FILLED_2 = [
                 colours=TEAL_HAZE)),
     # Square tiles cascade down to level 3 only — the bank stops there — so the
     # scatter has more to do.
-    ("l5-square", dict(style="mosaic", level=5, shape="square", fill="auto",
+    ("l5-square", dict(style="mosaic", level=5, layout="square", fill="auto",
                        seed=34, colours=CREAM_HAZE)),
     # The same geometry as `l4`, with the loose still lifes pulled back to a
     # fringe. The honest comparison for whether filling the whole sky is right.
@@ -317,12 +317,12 @@ def load_solve(here: Path, solve: str, saved: set) -> np.ndarray:
     asset = here / f"assets/{solve}_800x200_pipeline.npz"
     run = here / f"results/linkedin{solve[-1]}/pattern.npy"
     if not run.exists():
-        return load_pattern_asset(asset)
+        return load_packed(asset)
 
     pattern = np.load(run)
     if solve not in saved:
         saved.add(solve)
-        save_pattern_asset(asset, pattern)
+        save_packed(asset, pattern)
     return pattern
 
 
@@ -450,7 +450,7 @@ def halo_figure(here: Path, out: Path) -> None:
         HERE / "figures/linkedin_banner_filled_l6.png")
 
 
-def box_rule_field(background, level, seed=None, shape="diamond"):
+def box_rule_field(background, level, seed=None, layout="diamond"):
     """`mosaic_background` as it stood before 2026-08-29, for the figure.
 
     The superseded rule: a site was kept only when its whole `6*level` box
@@ -459,14 +459,14 @@ def box_rule_field(background, level, seed=None, shape="diamond"):
     comparison — see REPORT.md section 8.
     """
     from gol_mosaics.compose import density_band
-    from gol_mosaics.patterns import PatternLibrary
+    from gol_mosaics.tile_library import TileLibrary
     from gol_mosaics.tile_scheme import assemble, diamond_scheme
 
     gap = 2
     scheme = diamond_scheme(level)
-    tiles = np.asarray(PatternLibrary.load(level, shape=shape).solutions,
+    tiles = np.asarray(TileLibrary.load(level, layout=layout).tiles,
                        dtype=np.uint8)
-    indices, _ = density_band(level, shape, (0.0, 1.0))
+    indices, _ = density_band(level, layout, (0.0, 1.0))
     height, width = background.shape
     n = scheme.n
     (u_i, u_j), (v_i, v_j) = scheme.u, scheme.v
@@ -526,7 +526,7 @@ def rule_figure(here: Path) -> None:
     fig, axes = plt.subplots(2, 1, figsize=(13, 4.4))
     for ax, (title, field) in zip(axes, fields):
         backdrop = background.astype(np.uint8)
-        image = MosaicRenderer(TEAL_HAZE).render_full_mosaic(
+        image = MosaicRenderer(TEAL_HAZE).render(
             pattern, backdrop * (field + backdrop))
         spread = halo(field, background)
         ax.imshow(np.asarray(to_banner(image.resize(

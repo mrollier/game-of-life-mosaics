@@ -33,7 +33,7 @@ Two instances are provided:
 * :func:`diamond_scheme` — the historical pond-diamond geometry, used as a
   validation anchor: its derived interlock cells and free-orbit counts must
   reproduce ``tile_domain`` exactly (they do; see tests/test_tile_scheme.py).
-* :func:`pond_square_scheme` — a new axis-aligned family: square tiles of
+* :func:`square_scheme` — an axis-aligned family: square tiles of
   size ``6*level`` bordered by a ring of *separated* ponds (period 6),
   placed at pitch ``6*(level-1)`` so adjacent tiles share their border pond
   band. Separation matters: a straight chain of edge-sharing ponds is not a
@@ -57,7 +57,7 @@ import numpy as np
 from scipy.ndimage import binary_dilation, binary_fill_holes
 
 from .life import is_still_life
-from .sat_search import CONWAY, Encoding, _domain_clauses, enumerate_all
+from .sat_search import CONWAY, Encoding, domain_clauses, enumerate_all
 from .tile_domain import (
     Domain,
     POND_WIDTH,
@@ -65,7 +65,7 @@ from .tile_domain import (
     canonical_order,
     d4_representatives,
     domain_from_forcings,
-    pond_pattern,
+    POND,
 )
 
 _DILATE1 = np.ones((3, 3), dtype=bool)
@@ -118,7 +118,7 @@ class TileScheme:
             assert np.array_equal(mask, mask.T), "masks must be D4-symmetric"
 
 
-def neighbor_offsets(scheme: TileScheme, reach: int = 2) -> List[Offset]:
+def neighbour_offsets(scheme: TileScheme, reach: int = 2) -> List[Offset]:
     """Lattice offsets a*u + b*v whose translated support can influence the
     home tile (bounding boxes within Chebyshev distance 1)."""
     n = scheme.n
@@ -143,7 +143,7 @@ def derive_interlock(scheme: TileScheme) -> Set[Offset]:
     returned set, so both tiles force them dead.
     """
     n = scheme.n
-    offsets = neighbor_offsets(scheme)
+    offsets = neighbour_offsets(scheme)
     pad = max(max(abs(di), abs(dj)) for di, dj in offsets) + 2
     size = n + 2 * pad
     home = np.zeros((size, size), dtype=bool)
@@ -204,7 +204,7 @@ def build_scheme_cnf(scheme: TileScheme,
     survival = tuple(sorted(survival))
     domain = build_scheme_domain(scheme, interlock=interlock)
     n = domain.n
-    clauses = _domain_clauses(domain, birth, survival)
+    clauses = domain_clauses(domain, birth, survival)
     digest = hashlib.sha256()
     digest.update(f"scheme={scheme.name};n={n};vars={len(domain.free_reps)};"
                   f"birth={birth};survival={survival};".encode())
@@ -224,35 +224,21 @@ def enumerate_scheme_tiles(scheme: TileScheme,
     (population, bytes) like :func:`gol_mosaics.sat_search.enumerate_tiles`."""
     enc = build_scheme_cnf(scheme, birth, survival, interlock=interlock)
     if enc.n_vars == 0:
-        # fully forced scheme (e.g. pond_square_scheme(2)): the frame tile
+        # fully forced scheme (e.g. square_scheme(2)): the frame tile
         return scheme.frame.astype(np.uint8)[None]
     bits = enumerate_all(enc, limit=limit)
     grids = enc.domain.expand_many(bits)
     return grids[canonical_order(grids)]
 
 
-def pack_scheme_solutions(scheme: TileScheme, grids: np.ndarray) -> np.ndarray:
-    """
-    Compress (m, n, n) tile grids of a scheme to packed free-orbit bits:
-    (m, ceil(n_free/8)) uint8 — the scheme analogue of
-    :func:`gol_mosaics.tile_domain.pack_solutions`.
-    """
-    return build_scheme_domain(scheme).pack(grids)
-
-
-def unpack_scheme_solutions(scheme: TileScheme, packed: np.ndarray) -> np.ndarray:
-    """Inverse of pack_scheme_solutions: packed bits -> (m, n, n) uint8 grids."""
-    return build_scheme_domain(scheme).unpack(packed)
-
-
 # ------------------------------------------------------------- assembly
 
 def assemble(scheme: TileScheme,
-             index_grid: np.ndarray,
-             tile_grids: np.ndarray,
+             indices: np.ndarray,
+             tiles: np.ndarray,
              pad: int = 2) -> np.ndarray:
-    """Paste tiles onto the scheme lattice: tile (a, b) of the index grid
-    goes to a*u + b*v. Works for any basis (square or diamond).
+    """Paste tiles onto the scheme lattice: tiles[indices[a, b]] goes to
+    a*u + b*v. Works for any basis (square or diamond).
 
     A negative index leaves a hole (no tile at that site) — stable because
     every subset of the frame lattice is a still life and absent tiles only
@@ -262,8 +248,8 @@ def assemble(scheme: TileScheme,
     contain forced cells, so any disagreement means the tiles are not all
     from the same scheme).
     """
-    index_grid = np.asarray(index_grid)
-    H, W = index_grid.shape
+    indices = np.asarray(indices)
+    H, W = indices.shape
     n = scheme.n
     corners = [(a * scheme.u[0] + b * scheme.v[0],
                 a * scheme.u[1] + b * scheme.v[1])
@@ -277,9 +263,9 @@ def assemble(scheme: TileScheme,
     written = np.zeros_like(G, dtype=bool)
     for (a, b), (ci, cj) in zip(
             ((a, b) for a in range(H) for b in range(W)), corners):
-        if index_grid[a, b] < 0:
+        if indices[a, b] < 0:
             continue
-        tile = np.asarray(tile_grids[index_grid[a, b]], dtype=np.uint8)
+        tile = np.asarray(tiles[indices[a, b]], dtype=np.uint8)
         i0 = ci - min_i + pad
         j0 = cj - min_j + pad
         sup = scheme.support | scheme.frame
@@ -331,7 +317,7 @@ def diamond_scheme(level: int) -> TileScheme:
                       u=(half, half), v=(half, -half))
 
 
-def pond_square_scheme(level: int) -> TileScheme:
+def square_scheme(level: int) -> TileScheme:
     """Axis-aligned square tiles bordered by a ring of separated ponds.
 
     Tile size n = 6*level with a dead outer ring; the frame is every pond
@@ -341,11 +327,11 @@ def pond_square_scheme(level: int) -> TileScheme:
     Level 2 is fully forced (a single tile); free interiors start at
     level 3.
     """
-    assert level >= 2, "pond_square_scheme needs level >= 2"
+    assert level >= 2, "square_scheme needs level >= 2"
     n = POND_WIDTH * level
     support = np.zeros((n, n), dtype=bool)
     support[1:n - 1, 1:n - 1] = True
-    pond = pond_pattern().astype(bool)
+    pond = POND.astype(bool)
     frame = np.zeros((n, n), dtype=bool)
     for a in range(level):
         for b in range(level):

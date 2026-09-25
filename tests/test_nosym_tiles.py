@@ -23,8 +23,6 @@ from gol_mosaics.nosym_tiles import (
     d4_fixed_counts,
     enumerate_nosym_tiles,
     load_nosym_tiles,
-    pack_nosym_solutions,
-    unpack_nosym_solutions,
 )
 
 # Raw censuses without the symmetry requirement, and their partition into
@@ -33,7 +31,7 @@ NOSYM_CENSUS = {1: 1, 2: 2, 3: 1061}
 NOSYM_CLASSES = {1: 1, 2: 2, 3: 181}
 NOSYM_CLASS_SIZES_L3 = {1: 7, 2: 9, 4: 71, 8: 94}
 
-# Pinned in REPRODUCE.md; guards the _domain_clauses extraction against
+# Pinned in REPRODUCE.md; guards the domain_clauses extraction against
 # perturbing the verified symmetric encoding.
 SYMMETRIC_CNF_SHA256_LEVEL_3 = (
     "d4a1e80102921a3f379619582a576421692fdefb19ee12a5b6d360499709fbde"
@@ -144,9 +142,9 @@ def test_bruteforce_cross_check(level):
 def test_pack_unpack_roundtrip():
     pytest.importorskip("pysat")
     tiles = enumerate_nosym_tiles(3)
-    packed = pack_nosym_solutions(tiles, 3)
+    packed = build_nosym_domain(3).pack(tiles)
     assert packed.shape == (NOSYM_CENSUS[3], 9)  # ceil(68 / 8) bytes
-    assert np.array_equal(unpack_nosym_solutions(packed, 3), tiles)
+    assert np.array_equal(build_nosym_domain(3).unpack(packed), tiles)
 
 
 def test_pack_rejects_foreign_grids():
@@ -154,7 +152,7 @@ def test_pack_rejects_foreign_grids():
     tiles = enumerate_nosym_tiles(3).copy()
     tiles[0, 0, 0] = 1  # flip a border cell that must be forced dead
     with pytest.raises(AssertionError):
-        pack_nosym_solutions(tiles, 3)
+        build_nosym_domain(3).pack(tiles)
 
 
 def test_shipped_data_matches_enumeration():

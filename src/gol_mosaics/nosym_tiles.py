@@ -23,7 +23,7 @@ Mechanics: `Domain` (tile_domain) is symmetry-agnostic — D4 enters the
 verified pipeline only through `build_domain`'s orbit-representative
 arrays. `build_nosym_domain` constructs an identity-orbit Domain (each
 cell its own orbit) over the same forced masks, and the shared clause
-builder `sat_search._domain_clauses` plus `enumerate_all` do the rest.
+builder `sat_search.domain_clauses` plus `enumerate_all` do the rest.
 The full orbit-closed dead-edge set (`forced_masks` default) is
 essential here: octant representatives alone would no longer propagate
 without the symmetry constraint.
@@ -43,7 +43,7 @@ from .tile_domain import (POND_WIDTH, Domain, _check_border_dead,
 from .sat_search import (
     CONWAY,
     Encoding,
-    _domain_clauses,
+    domain_clauses,
     enumerate_all,
 )
 
@@ -93,7 +93,7 @@ def build_nosym_cnf(level: int,
     birth = tuple(sorted(birth))
     survival = tuple(sorted(survival))
     domain = build_nosym_domain(level, dead_edges=dead_edges)
-    clauses = _domain_clauses(domain, birth, survival)
+    clauses = domain_clauses(domain, birth, survival)
     digest = hashlib.sha256()
     digest.update(f"nosym;level={level};n={domain.n};"
                   f"vars={len(domain.free_reps)};"
@@ -122,22 +122,6 @@ def enumerate_nosym_tiles(level: int,
     return grids[canonical_order(grids)]
 
 
-# ------------------------------------------------------------- packing
-
-def pack_nosym_solutions(grids: np.ndarray, level: int) -> np.ndarray:
-    """
-    Compress (m, n, n) grids to packed free-cell bits:
-    (m, ceil(n_free/8)) uint8. Mirrors tile_domain.pack_solutions but
-    over the identity domain (one bit per free cell, MSB-first).
-    """
-    return build_nosym_domain(level).pack(grids)
-
-
-def unpack_nosym_solutions(packed: np.ndarray, level: int) -> np.ndarray:
-    """Inverse of pack_nosym_solutions: packed bits -> (m, n, n) uint8."""
-    return build_nosym_domain(level).unpack(packed)
-
-
 def load_nosym_tiles(level: int = 3) -> np.ndarray:
     """
     Load the shipped no-symmetry census for a level (currently level 3
@@ -150,7 +134,7 @@ def load_nosym_tiles(level: int = 3) -> np.ndarray:
             f"No shipped nosym census for level {level}: {resource}")
     with resource.open("rb") as f:
         packed = np.load(f)
-    return unpack_nosym_solutions(packed, level)
+    return build_nosym_domain(level).unpack(packed)
 
 
 # ------------------------------------------------------- D4 analysis

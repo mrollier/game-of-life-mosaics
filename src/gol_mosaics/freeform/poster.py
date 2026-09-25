@@ -111,7 +111,7 @@ def solve_poster(grey: np.ndarray,
     from .lns import (LnsConfig, improve, repair_diagonal_runs, seam_occupancy,
                       window_devs)
     from .metrics import deviation_stats, max_diagonal_run
-    from .solver import SpikeConfig, verify_still_life
+    from .solver import SolveConfig, verify_still_life
     from .targets import cell_targets, window_slices, window_targets
 
     cfg = cfg or PosterConfig()
@@ -132,7 +132,7 @@ def solve_poster(grey: np.ndarray,
         f"({cfg.dither} dither)")
 
     max_diag_run = cfg.max_diag_run or None
-    scfg = SpikeConfig(k=K, stride=K, d_max=cfg.d_max, seed=cfg.seed,
+    scfg = SolveConfig(k=K, stride=K, d_max=cfg.d_max, seed=cfg.seed,
                        time_limit_s=cfg.strip_time, workers=cfg.strip_workers,
                        max_diag_run=max_diag_run, dither=cfg.dither,
                        edge_windows=cfg.edge_windows)

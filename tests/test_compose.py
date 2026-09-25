@@ -14,7 +14,7 @@ from gol_mosaics.compose import (
     density_band,
     fill_layer_count,
     filled_background,
-    life_safe_pattern,
+    merge_background,
     mosaic_background,
     scatter_background,
 )
@@ -103,14 +103,14 @@ def test_agar_union_is_a_still_life():
     """Subject plus agar background is stable over the whole grid."""
     pattern, background = _subject_scene()
     assert is_still_life(pattern), "the fixture's subject must be stable first"
-    assert is_still_life(life_safe_pattern(pattern, background))
+    assert is_still_life(merge_background(pattern, background))
 
 
 @pytest.mark.parametrize('pitch', [(3, 4), (4, 4), (5, 7)])
 def test_wider_pitches_stay_still_lifes(pitch):
     """Sparser lattices are safe too — only the density changes."""
     pattern, background = _subject_scene()
-    whole = life_safe_pattern(pattern, background, pitch=pitch)
+    whole = merge_background(pattern, background, pitch=pitch)
     assert is_still_life(whole)
     assert whole.sum() > pattern.sum()
 
@@ -132,7 +132,7 @@ def test_life_safe_pattern_rejects_stray_live_cells():
     pattern, background = _subject_scene()
     pattern[0, 0] = 1
     with pytest.raises(ValueError, match='live cells inside the background'):
-        life_safe_pattern(pattern, background)
+        merge_background(pattern, background)
 
 
 def test_scale_upscales_in_uniform_blocks():
@@ -184,7 +184,7 @@ def test_mosaic_background_matches_the_mask(shape, level):
     offset arithmetic that places `assemble`'s output.
     """
     pattern, background = _mosaic_scene()
-    field = mosaic_background(background, level=level, shape=shape, seed=0)
+    field = mosaic_background(background, level=level, layout=shape, seed=0)
     assert field.shape == background.shape
     assert field.any(), "the background is roomy enough for tiles"
     assert set(np.unique(field)) <= {0, 1}
@@ -204,7 +204,7 @@ def test_mosaic_keeps_its_distance(shape, level):
     """Every mosaic cell is `gap` cells clear of the subject and the border."""
     pattern, background = _mosaic_scene()
     gap = 2
-    field = mosaic_background(background, level=level, shape=shape, gap=gap,
+    field = mosaic_background(background, level=level, layout=shape, gap=gap,
                               seed=0)
     for i, j in zip(*np.nonzero(field)):
         window = background[i - gap:i + 1 + gap, j - gap:j + 1 + gap]
@@ -217,8 +217,8 @@ def test_mosaic_union_is_a_still_life(shape, level):
     """Subject plus tile background is stable over the whole grid."""
     pattern, background = _mosaic_scene()
     assert is_still_life(pattern), "the fixture's subject must be stable first"
-    field = mosaic_background(background, level=level, shape=shape, seed=0)
-    whole = life_safe_pattern(pattern, background, field=field)
+    field = mosaic_background(background, level=level, layout=shape, seed=0)
+    whole = merge_background(pattern, background, field=field)
     assert whole.sum() > pattern.sum(), "the mosaic should add cells"
     assert is_still_life(whole)
 
@@ -240,7 +240,7 @@ def test_mosaic_tone_grades_the_field():
     are not comparable on their own.
     """
     _, background = _mosaic_scene(size=150, radius=20)
-    kwargs = dict(level=4, shape='diamond', tone='linear', seed=3)
+    kwargs = dict(level=4, layout='diamond', tone='linear', seed=3)
     rightwards = mosaic_background(background, tone_angle=0, **kwargs)
     leftwards = mosaic_background(background, tone_angle=180, **kwargs)
     half = background.shape[1] // 2
@@ -251,7 +251,7 @@ def test_mosaic_tone_grades_the_field():
 def test_mosaic_vignette_is_denser_than_radial_at_the_edges():
     """'radial' gathers density at the centre, 'vignette' at the edges."""
     _, background = _mosaic_scene(size=150, radius=20)
-    kwargs = dict(level=4, shape='diamond', seed=3)
+    kwargs = dict(level=4, layout='diamond', seed=3)
     radial = mosaic_background(background, tone='radial', **kwargs)
     vignette = mosaic_background(background, tone='vignette', **kwargs)
     border = np.zeros(background.shape, dtype=bool)
@@ -262,21 +262,21 @@ def test_mosaic_vignette_is_denser_than_radial_at_the_edges():
 def test_mosaic_background_rejects_bad_arguments():
     """Unknown geometry, unknown tone and an unsafe gap are all refused."""
     background = np.ones((80, 80), dtype=bool)
-    with pytest.raises(ValueError, match='Unknown shape'):
-        mosaic_background(background, shape='hexagon')
+    with pytest.raises(ValueError, match='Unknown layout'):
+        mosaic_background(background, layout='hexagon')
     with pytest.raises(ValueError, match='Unknown tone'):
         mosaic_background(background, tone='swirl')
     with pytest.raises(ValueError, match='at least'):
         mosaic_background(background, gap=1)
     with pytest.raises(ValueError, match='levels 3-5'):
-        mosaic_background(background, level=2, shape='square')
+        mosaic_background(background, level=2, layout='square')
 
 
 def test_density_band_selects_the_band():
     """Only tiles inside the normalised band come back."""
     indices, _ = density_band(4, 'diamond', (0.3, 0.7))
-    from gol_mosaics.patterns import PatternLibrary
-    normalised = PatternLibrary.load(4, shape='diamond').densities
+    from gol_mosaics.tile_library import TileLibrary
+    normalised = TileLibrary.load(4, layout='diamond').densities
     assert indices.size
     assert ((normalised[indices] >= 0.3) & (normalised[indices] <= 0.7)).all()
     assert indices.size < normalised.size, "the band should exclude something"
@@ -284,9 +284,9 @@ def test_density_band_selects_the_band():
 
 def test_density_band_reports_the_absolute_range():
     """The normalised band is relative per level, so the real fill is told."""
-    from gol_mosaics.patterns import PatternLibrary
+    from gol_mosaics.tile_library import TileLibrary
     indices, (low, high) = density_band(4, 'diamond', (0.3, 0.7))
-    solutions = PatternLibrary.load(4, shape='diamond').solutions
+    solutions = TileLibrary.load(4, layout='diamond').tiles
     fill = solutions[indices].mean(axis=(1, 2))
     assert low == pytest.approx(fill.min())
     assert high == pytest.approx(fill.max())
@@ -331,7 +331,7 @@ def test_life_safe_pattern_rejects_a_crowding_field():
     i, j = np.argwhere(pattern)[0]
     field[i - 3:i - 1, j:j + 2] = 1          # a block two cells off the subject
     with pytest.raises(ValueError, match='within 2 of the subject'):
-        life_safe_pattern(pattern, background, field=field)
+        merge_background(pattern, background, field=field)
 
 
 def test_life_safe_pattern_rejects_a_field_at_the_border():
@@ -340,13 +340,13 @@ def test_life_safe_pattern_rejects_a_field_at_the_border():
     field = np.zeros(pattern.shape, dtype=np.uint8)
     field[0:2, 0:2] = 1
     with pytest.raises(ValueError, match='grid border'):
-        life_safe_pattern(pattern, background, field=field)
+        merge_background(pattern, background, field=field)
 
 
 def test_life_safe_pattern_rejects_a_mismatched_field():
     pattern, background = _mosaic_scene()
     with pytest.raises(ValueError, match='does not match'):
-        life_safe_pattern(pattern, background,
+        merge_background(pattern, background,
                           field=np.zeros((10, 10), dtype=np.uint8))
 
 
@@ -400,8 +400,8 @@ def test_filled_union_is_a_still_life(shape, level):
     keeps the neighbour counts it was verified with.
     """
     pattern, background = _mosaic_scene()
-    field = filled_background(background, level=level, shape=shape, seed=0)
-    whole = life_safe_pattern(pattern, background, field=field)
+    field = filled_background(background, level=level, layout=shape, seed=0)
+    whole = merge_background(pattern, background, field=field)
     assert is_still_life(whole)
     assert set(np.unique(whole)) <= {0, 1}, "layer numbers must not leak out"
 
@@ -416,9 +416,9 @@ def test_filled_union_is_a_still_life_at_every_band(shape, level, band):
     render and only shows up as a birth beside a tile edge.
     """
     pattern, background = _mosaic_scene(size=200, radius=30)
-    field = filled_background(background, level=level, shape=shape,
+    field = filled_background(background, level=level, layout=shape,
                               fill_band=band, seed=4)
-    assert is_still_life(life_safe_pattern(pattern, background, field=field))
+    assert is_still_life(merge_background(pattern, background, field=field))
 
 
 def test_mosaic_seats_a_tile_whose_box_corner_is_blocked():
@@ -507,7 +507,7 @@ def test_fill_layer_count_matches_the_field():
     """The renderer trusts this count, so it must not exceed the numbering."""
     _, background = _mosaic_scene()
     for shape, level in SHAPE_LEVELS:
-        field = filled_background(background, level=level, shape=shape, seed=3)
+        field = filled_background(background, level=level, layout=shape, seed=3)
         assert int(field.max()) <= fill_layer_count(level, shape)
     assert fill_layer_count(4, fill=None) == 1
     assert fill_layer_count(4, fill=()) == 2
@@ -670,7 +670,7 @@ def test_life_safe_pattern_accepts_a_layered_field():
     pattern, background = _mosaic_scene()
     field = filled_background(background, level=4, seed=0)
     assert field.max() > 2, "the fixture must exercise more than one layer"
-    whole = life_safe_pattern(pattern, background, field=field)
+    whole = merge_background(pattern, background, field=field)
     assert set(np.unique(whole)) <= {0, 1}
     assert whole.sum() == pattern.sum() + (field != 0).sum()
 
@@ -699,7 +699,7 @@ def test_centred_placement_is_diamond_only():
 
     with pytest.raises(ValueError, match="diamonds only"):
         mosaic_background(np.ones((60, 60), dtype=bool), level=3,
-                          shape='square', centred=True)
+                          layout='square', centred=True)
     with pytest.raises(ValueError, match="even canvas sides"):
         mosaic_background(np.ones((61, 60), dtype=bool), level=3,
                           centred=True)

@@ -21,7 +21,7 @@ import logging
 import numpy as np
 from scipy.ndimage import binary_fill_holes
 
-from .tile_domain import (derive_dead_edges, neighbors, pond_pattern_edge,
+from .tile_domain import (derive_dead_edges, neighbours, pond_frame,
                           symmetric_coords)
 
 logger = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ def generate_tiles(level: int, solution_limit: int = 1000) -> np.ndarray:
     gp = _gurobi()
     GRB, quicksum = gp.GRB, gp.quicksum
 
-    pp_edge = pond_pattern_edge(level)
+    pp_edge = pond_frame(level)
     n = pp_edge.shape[0]
     logger.info("Looking for pattern level %d with grid size %dx%d",
                 level, n, n)
@@ -86,7 +86,7 @@ def generate_tiles(level: int, solution_limit: int = 1000) -> np.ndarray:
     for i in range(n):
         for j in range(n):
             neighbour_sum = quicksum(alive[ii, jj]
-                                     for (ii, jj) in neighbors(i, j, n))
+                                     for (ii, jj) in neighbours(i, j, n))
 
             # Low-dead: cells with < 2 neighbours
             model.addConstr(4 * ldead[i, j] + neighbour_sum <= 6,

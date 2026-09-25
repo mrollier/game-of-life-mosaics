@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from gol_mosaics.life import is_still_life
-from gol_mosaics.patterns import PatternLibrary
+from gol_mosaics.tile_library import TileLibrary
 from gol_mosaics.tile_domain import EXPECTED_FREE_ORBITS, derive_dead_edges_full
 from gol_mosaics.tile_scheme import (
     assemble,
@@ -24,9 +24,7 @@ from gol_mosaics.tile_scheme import (
     derive_interlock,
     diamond_scheme,
     enumerate_scheme_tiles,
-    pack_scheme_solutions,
-    pond_square_scheme,
-    unpack_scheme_solutions,
+    square_scheme,
 )
 
 # Known censuses of the pond-frame square scheme (established in the
@@ -50,13 +48,13 @@ def test_diamond_scheme_reproduces_pinned_geometry(level):
 @pytest.mark.parametrize("level", [2, 3, 4, 5])
 def test_square_scheme_hypothesis_h(level):
     """(H): the frame-only mosaic of the square scheme is a still life."""
-    assert check_frame_mosaic(pond_square_scheme(level), extent=5)
+    assert check_frame_mosaic(square_scheme(level), extent=5)
 
 
 @pytest.mark.parametrize("level,expected", sorted(SQUARE_CENSUS.items()))
 def test_square_scheme_census(level, expected):
     pytest.importorskip("pysat")
-    tiles = enumerate_scheme_tiles(pond_square_scheme(level))
+    tiles = enumerate_scheme_tiles(square_scheme(level))
     assert len(tiles) == expected
 
 
@@ -68,7 +66,7 @@ def test_square_scheme_census_matches_bruteforce(level):
 
     from gol_mosaics.sat_search import rule_violations
 
-    scheme = pond_square_scheme(level)
+    scheme = square_scheme(level)
     domain = build_scheme_domain(scheme)
     k = len(domain.free_reps)
     assert k <= 15, "brute force only feasible for small levels"
@@ -81,7 +79,7 @@ def test_square_scheme_census_matches_bruteforce(level):
 @pytest.mark.parametrize("level", [3, 4, 5])
 def test_square_mosaic_is_global_still_life(level):
     pytest.importorskip("pysat")
-    scheme = pond_square_scheme(level)
+    scheme = square_scheme(level)
     tiles = enumerate_scheme_tiles(scheme)
     for seed in (0, 1, 2):
         rng = np.random.default_rng(seed)
@@ -98,7 +96,7 @@ def test_square_scheme_stability_check_has_teeth():
     isolation but some mosaic of them must destabilise."""
     pytest.importorskip("pysat")
     level = 4
-    scheme = pond_square_scheme(level)
+    scheme = square_scheme(level)
     tiles = enumerate_scheme_tiles(scheme, interlock=set(), limit=2000)
     n = scheme.n
     for tile in tiles[:20]:
@@ -139,27 +137,27 @@ def test_dead_moat_scheme_baseline():
 
 
 @pytest.mark.parametrize("level", [3, 4, 5])
-def test_pack_unpack_scheme_solutions_roundtrip(level):
+def test_scheme_domain_pack_roundtrip(level):
     """Packed free-orbit bits must reconstruct the tile set byte-identically
     (this is the storage format shipped in the package data)."""
     pytest.importorskip("pysat")
-    scheme = pond_square_scheme(level)
+    scheme = square_scheme(level)
     tiles = enumerate_scheme_tiles(scheme)
-    packed = pack_scheme_solutions(scheme, tiles)
+    packed = build_scheme_domain(scheme).pack(tiles)
     n_free = len(build_scheme_domain(scheme).free_reps)
     assert packed.shape == (len(tiles), (n_free + 7) // 8)
-    assert np.array_equal(unpack_scheme_solutions(scheme, packed), tiles)
+    assert np.array_equal(build_scheme_domain(scheme).unpack(packed), tiles)
 
 
-def test_pack_scheme_solutions_rejects_foreign_grids():
+def test_scheme_domain_pack_rejects_foreign_grids():
     """Grids that are not free-orbit assignments of the scheme (here: a
     forced frame cell flipped dead) must be rejected, not silently mangled."""
-    scheme = pond_square_scheme(3)
+    scheme = square_scheme(3)
     bad = scheme.frame.astype(np.uint8)[None].copy()
     i, j = np.argwhere(scheme.frame)[0]
     bad[0, i, j] = 0
     with pytest.raises(AssertionError):
-        pack_scheme_solutions(scheme, bad)
+        build_scheme_domain(scheme).pack(bad)
 
 
 @pytest.mark.parametrize("level", [3, 4])
@@ -169,7 +167,7 @@ def test_assemble_with_holes_is_still_life(level):
     and absent tiles only remove live cells outside the remaining tiles'
     influence, hole-punched mosaics must stay globally stable."""
     pytest.importorskip("pysat")
-    scheme = pond_square_scheme(level)
+    scheme = square_scheme(level)
     tiles = enumerate_scheme_tiles(scheme)
     rng = np.random.default_rng(0)
     for _ in range(5):
@@ -199,7 +197,7 @@ def test_diamond_assemble_with_holes_is_still_life(level):
     hole-punched diamond field back a free-form still life.
     """
     scheme = diamond_scheme(level)
-    tiles = np.asarray(PatternLibrary.load(level, shape="diamond").solutions,
+    tiles = np.asarray(TileLibrary.load(level, layout="diamond").tiles,
                        dtype=np.uint8)
     assert not tiles[:, ~(scheme.support | scheme.frame)].any(), (
         "library tiles must live inside the scheme's support"
@@ -215,7 +213,7 @@ def test_diamond_assemble_with_holes_is_still_life(level):
 
 def test_assemble_rejects_inconsistent_overlap():
     """Tiles disagreeing on shared (forced) cells must be rejected."""
-    scheme = pond_square_scheme(3)
+    scheme = square_scheme(3)
     good = scheme.frame.astype(np.uint8)
     bad = good.copy()
     # flip one frame cell: overlapping placements now disagree there

@@ -19,7 +19,7 @@ def build_random_mosaic(level: int, grid: int, seed: int) -> np.ndarray:
     """Assemble a mosaic from random greyscale input at the given level."""
     rng = np.random.default_rng(seed)
     generator = MosaicGenerator(level=level, grid_size=grid)
-    # Shapes as produced by preprocess_for_mosaic for a grid of `grid` tiles.
+    # Shapes as produced by preprocess_diamond for a grid of `grid` tiles.
     lowres_first = rng.integers(0, 256, (grid // 2 + 1, grid // 2)).astype(float)
     lowres_second = rng.integers(0, 256, (grid // 2, grid // 2 + 1)).astype(float)
     return generator._build_mosaic(lowres_first, lowres_second,
@@ -43,7 +43,7 @@ def test_stability_check_has_teeth():
     isolation, yet some must break an assembled mosaic — proving both that
     the dead edges are necessary and that this test can detect interaction."""
     pytest.importorskip("pysat")
-    from gol_mosaics import PatternLibrary
+    from gol_mosaics import TileLibrary
     from gol_mosaics.sat_search import enumerate_tiles
 
     level = 4
@@ -63,10 +63,9 @@ def test_stability_check_has_teeth():
     # violator breaks an assembled mosaic, even repeated uniformly and even
     # in contact with only the bare pond frame (verified exhaustively for
     # all 267 violators — see paper/ars/revision_data/evidence_core.json).
-    library = PatternLibrary(level=level)
-    library._solutions = violators
+    library = TileLibrary.from_tiles(violators, level)
     generator = MosaicGenerator(level=level, grid_size=10)
-    generator._pattern_library = library
+    generator._library = library
 
     rng = np.random.default_rng(0)
     broke_a_mosaic = False

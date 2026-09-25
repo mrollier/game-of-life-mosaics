@@ -26,10 +26,10 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
-from .solver import SpikeConfig, build_model, solve
+from .solver import SolveConfig, build_model, solve
 
 
-def _check_cfg(cfg: SpikeConfig) -> SpikeConfig:
+def _check_cfg(cfg: SolveConfig) -> SolveConfig:
     """Strip solving supports exactly the geometry its proofs assume.
 
     - force_dead only: the dead separator is implemented through the free
@@ -75,7 +75,7 @@ def _solve_strip_task(payload: dict):
     from .solver import solve as sv
     from .targets import cell_targets
 
-    cfg: SpikeConfig = payload["cfg"]
+    cfg: SolveConfig = payload["cfg"]
     cell_t = cell_targets(payload["grey"], cfg.d_max)
     bundle = bm(
         cell_t,
@@ -155,7 +155,7 @@ def _run_isolated(payloads: List[dict], labels: List[str], n_procs: int,
 def solve_strips(
     grey: np.ndarray,
     free_mask: np.ndarray,
-    cfg: SpikeConfig,
+    cfg: SolveConfig,
     plan: Optional[StripPlan] = None,
     n_procs: int = 4,
     isolate: bool = False,
@@ -213,7 +213,7 @@ def solve_strips(
 def lower_bound_strips(
     grey: np.ndarray,
     free_mask: np.ndarray,
-    cfg: SpikeConfig,
+    cfg: SolveConfig,
     plan: Optional[StripPlan] = None,
     n_procs: int = 4,
 ) -> dict:
@@ -287,7 +287,7 @@ def plan_blocks(
 def solve_blocks(
     grey: np.ndarray,
     free_mask: np.ndarray,
-    cfg: SpikeConfig,
+    cfg: SolveConfig,
     plan: BlockPlan,
     n_procs: int = 4,
     checkpoint_dir=None,

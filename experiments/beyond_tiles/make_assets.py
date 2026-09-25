@@ -24,7 +24,7 @@ import numpy as np
 from beyond_tiles.artifacts import (
     ASSETS,
     load_snapshots,
-    save_pattern_asset,
+    save_packed,
     save_snapshots,
 )
 from beyond_tiles.animate import select_frames
@@ -58,7 +58,7 @@ def main() -> None:
             raise SystemExit(f"missing run: {src} (re-run the e2 experiment first)")
 
         pattern = np.load(src / "pattern.npy")
-        out = save_pattern_asset(ASSETS / f"marilyn_{size}_{tag}.npz", pattern)
+        out = save_packed(ASSETS / f"marilyn_{size}_{tag}.npz", pattern)
 
         _gzip_copy(src / "convergence.csv", ASSETS / f"convergence_{size}.csv.gz")
 
@@ -102,7 +102,7 @@ def main() -> None:
             print(f"skipping pipeline assets for {size}²: no {src}")
             continue
         pattern = np.load(src / "pattern.npy")
-        out = save_pattern_asset(
+        out = save_packed(
             ASSETS / f"marilyn_{size}_pipeline.npz", pattern
         )
         report = json.loads((src / "strips.json").read_text())

@@ -254,7 +254,7 @@ def test_preprocess_for_square_mosaic_landscape():
     """A single axis-aligned grid sized straight from the aspect ratio:
     grid_size columns, grid_size/aspect rows — no rotation, no padding."""
     img = Image.new('L', (200, 100), 128)  # 2:1 landscape
-    lowres, mask, aspect = ImageProcessor.preprocess_for_square_mosaic(
+    lowres, mask, aspect = ImageProcessor.preprocess_square(
         img, grid_size=30, remove_background=False)
     assert aspect == 2.0
     assert lowres.shape == (15, 30)
@@ -268,7 +268,7 @@ def test_preprocess_for_square_mosaic_portrait_and_odd_grid():
     """Portrait images grow rows beyond grid_size; odd grid sizes are fine
     (only the diamond layout needs an even tile count)."""
     img = Image.new('L', (100, 200), 128)  # 1:2 portrait
-    lowres, mask, aspect = ImageProcessor.preprocess_for_square_mosaic(
+    lowres, mask, aspect = ImageProcessor.preprocess_square(
         img, grid_size=31, remove_background=False)
     assert aspect == 0.5
     assert lowres.shape == (62, 31)
@@ -280,7 +280,7 @@ def test_preprocess_for_square_mosaic_greyscale_gradient():
     left darker than right (contrast disabled for exactness)."""
     ramp = np.tile(np.linspace(0, 255, 120, dtype=np.uint8), (120, 1))
     img = Image.fromarray(ramp, mode='L')
-    lowres, _, _ = ImageProcessor.preprocess_for_square_mosaic(
+    lowres, _, _ = ImageProcessor.preprocess_square(
         img, grid_size=12, remove_background=False, contrast=0)
     assert lowres.shape == (12, 12)
     assert lowres[:, 0].mean() < 40

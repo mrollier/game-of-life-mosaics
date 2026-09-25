@@ -48,7 +48,7 @@ class LnsConfig:
     n_procs: int = 4  # the M4 has 4 performance cores
     seed: int = 0
     slack: int = 0
-    max_diag_run: Optional[int] = 5  # match SpikeConfig, or repairs re-draw lines
+    max_diag_run: Optional[int] = 5  # match SolveConfig, or repairs re-draw lines
     # Seam sub-targets. A window total is blind to how its cells are spread,
     # so the dead separator lines of a strip or block decomposition stay
     # half-empty once their windows are satisfied: the Lam Gods separators

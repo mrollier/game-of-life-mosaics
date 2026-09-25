@@ -1,111 +1,120 @@
-"""Tests for PatternLibrary class."""
+"""Tests for TileLibrary class."""
 
 import pytest
 import numpy as np
 from scipy.ndimage import binary_fill_holes
-from gol_mosaics.patterns import PatternLibrary
+from gol_mosaics.tile_library import TileLibrary
 
 
-def test_pattern_library_load():
+def test_tile_library_load():
     """Test loading pre-computed patterns."""
     for level in [3, 4, 5]:
-        library = PatternLibrary.load(level=level)
+        library = TileLibrary.load(level=level)
         assert library.level == level
-        assert library.solutions is not None
-        assert library.solutions.ndim == 3
-        assert len(library.solutions) > 0
+        assert library.tiles is not None
+        assert library.tiles.ndim == 3
+        assert len(library.tiles) > 0
 
 
-def test_pattern_library_invalid_level():
+def test_tile_library_invalid_level():
     """Test error for invalid level."""
     with pytest.raises(ValueError):
-        PatternLibrary.load(level=0)  # Below supported range
+        TileLibrary.load(level=0)  # Below supported range
 
     with pytest.raises(ValueError):
-        PatternLibrary.load(level=7)  # Not pre-computed
+        TileLibrary.load(level=7)  # Not pre-computed
 
 
-def test_pattern_library_construction_allows_generation_levels():
-    """Constructing beyond level 5 is allowed (generate() supports level 6);
-    only loading is restricted to the pre-computed range."""
-    assert PatternLibrary(level=6).level == 6
+def test_library_construction_allows_any_level():
+    """Any level can be wrapped with from_tiles (e.g. a level-7 SAT
+    enumeration); only load() is restricted to the shipped levels."""
+    assert TileLibrary(level=6).level == 6
+    tiles = np.zeros((2, 42, 42), dtype=np.uint8)
+    assert TileLibrary.from_tiles(tiles, 7).tiles.shape == (2, 42, 42)
     with pytest.raises(ValueError):
-        PatternLibrary(level=0)
+        TileLibrary(level=0)
 
 
-def test_pattern_library_load_is_cached():
+def test_tile_library_load_is_cached():
     """load() returns one shared, read-only instance per level."""
-    assert PatternLibrary.load(3) is PatternLibrary.load(3)
-    assert PatternLibrary.load(3) is not PatternLibrary.load(4)
+    assert TileLibrary.load(3) is TileLibrary.load(3)
+    assert TileLibrary.load(3) is not TileLibrary.load(4)
 
 
 def test_tile_geometry_properties():
-    """tile_shape matches the edge pattern; tile_pad_size matches the
+    """tile_size matches the pond frame; lattice_offset matches the
     interlock formula previously inlined in the mosaic builder."""
+    from gol_mosaics.tile_domain import POND_WIDTH, pond_frame
+
     for level in [2, 3, 4, 5]:
-        library = PatternLibrary(level=level)
-        assert library.tile_shape == library.pond_pattern_edge().shape
-        pond_width = library.pond_width
-        expected = ((pond_width - 3) * (2 * level - 1) + 1 + 2) // 2
-        assert library.tile_pad_size == expected
+        library = TileLibrary(level=level)
+        assert library.tile_size == pond_frame(level).shape
+        expected = ((POND_WIDTH - 3) * (2 * level - 1) + 1 + 2) // 2
+        assert library.lattice_offset == expected
+        assert np.array_equal(library.pond, pond_frame(level) > 0)
 
 
-def test_pond_pattern():
-    """Test basic pond pattern generation."""
-    pattern = PatternLibrary.pond_pattern()
-    assert pattern.shape == (4, 4)
-    assert np.all(np.isin(pattern, [0, 1]))
+def test_pond():
+    """The pond is a read-only 4x4 still life."""
+    from gol_mosaics.life import is_still_life
+    from gol_mosaics.tile_domain import POND
+
+    assert POND.shape == (4, 4)
+    assert np.all(np.isin(POND, [0, 1]))
+    assert is_still_life(np.pad(POND, 1))
+    with pytest.raises(ValueError):
+        POND[0, 0] = 1
 
 
 def test_pattern_densities():
     """Test density calculation."""
-    library = PatternLibrary.load(level=3)
+    library = TileLibrary.load(level=3)
     densities = library.densities
-    assert densities.shape[0] == library.solutions.shape[0]
+    assert densities.shape[0] == library.tiles.shape[0]
     assert np.all(densities >= 0) and np.all(densities <= 1)
     # Should be normalised
     assert np.isclose(densities.min(), 0.0)
     assert np.isclose(densities.max(), 1.0)
 
 
-def test_get_pattern_for_value():
+def test_tile_for_value():
     """Test pattern retrieval for single value."""
-    library = PatternLibrary.load(level=3)
-    pattern = library.get_pattern_for_value(0.5, random=False)
+    library = TileLibrary.load(level=3)
+    pattern = library.tile_for_value(0.5, random=False)
     assert pattern.ndim == 2
     assert np.all(np.isin(pattern, [0, 1]))
 
 
-def test_get_patterns_for_values():
+def test_tiles_for_values():
     """Test pattern mapping for array of values."""
-    library = PatternLibrary.load(level=3)
+    library = TileLibrary.load(level=3)
     values = np.array([[0.2, 0.5], [0.7, 0.9]])
-    patterns = library.get_patterns_for_values(values, random=False, invert=True)
+    patterns = library.tiles_for_values(values, random=False, invert=True)
     assert patterns.shape[:2] == values.shape
     assert np.all(np.isin(patterns, [0, 1]))
 
 
-def test_get_patterns_invalid_values():
+def test_tiles_for_values_invalid_values():
     """Test error for out-of-range values."""
-    library = PatternLibrary.load(level=3)
+    library = TileLibrary.load(level=3)
     with pytest.raises(ValueError):
-        library.get_pattern_for_value(1.5)  # > 1.0
+        library.tile_for_value(1.5)  # > 1.0
     with pytest.raises(ValueError):
-        library.get_pattern_for_value(-0.1)  # < 0.0
+        library.tile_for_value(-0.1)  # < 0.0
 
 
 def test_batch_values_match_single_value_mapping():
     """With the identity cutoff (1.0), the batch mapper is elementwise
     equivalent to the single-value mapper (pins the vectorized refactor)."""
-    library = PatternLibrary.load(level=3)
+    library = TileLibrary.load(level=3)
     values = np.array([[0.0, 0.2, 0.35], [0.5, 0.75, 1.0]])
 
     for invert in (True, False):
-        batch = library.get_patterns_for_values(
+        batch = library.tiles_for_values(
             values, random=False, invert=invert, empty_tiles_cutoff=1.0)
-        flat = batch.reshape(-1, *library.solutions.shape[1:])
+        flat = batch.reshape(-1, *library.tiles.shape[1:])
         for idx, val in enumerate(values.ravel()):
-            single = library.get_pattern_for_value(
+            single = library.tile_for_value(
                 val, random=False, invert=invert)
             assert np.array_equal(flat[idx], single)
 
@@ -113,36 +122,36 @@ def test_batch_values_match_single_value_mapping():
 def test_empty_tiles_cutoff_boundary_is_exclusive():
     """A value strictly above the cutoff becomes an empty tile; a value AT the
     cutoff still maps to a pattern (pins '>' rather than '>=')."""
-    library = PatternLibrary.load(level=3)
+    library = TileLibrary.load(level=3)
     cutoff = 0.65
 
-    above = library.get_patterns_for_values(
+    above = library.tiles_for_values(
         np.array([cutoff + 1e-6]), random=False, empty_tiles_cutoff=cutoff)
     assert not above.any()
 
     # At the cutoff the value is rescaled to 1.0, i.e. the sparsest pattern
     # under inversion -- which is a real still life, not an empty tile.
-    at = library.get_patterns_for_values(
+    at = library.tiles_for_values(
         np.array([cutoff]), random=False, invert=True,
         empty_tiles_cutoff=cutoff)
-    expected = library.get_pattern_for_value(1.0, random=False, invert=True)
+    expected = library.tile_for_value(1.0, random=False, invert=True)
     assert np.array_equal(at[0], expected)
     assert at.any()
 
 
-def test_get_patterns_for_values_validates_array_range():
+def test_tiles_for_values_validates_array_range():
     """Out-of-range values anywhere in the array raise ValueError."""
-    library = PatternLibrary.load(level=3)
+    library = TileLibrary.load(level=3)
     with pytest.raises(ValueError):
-        library.get_patterns_for_values(np.array([0.5, 1.5]), random=False)
+        library.tiles_for_values(np.array([0.5, 1.5]), random=False)
     with pytest.raises(ValueError):
-        library.get_patterns_for_values(np.array([-0.1, 0.5]), random=False)
+        library.tiles_for_values(np.array([-0.1, 0.5]), random=False)
 
 
 def test_random_tie_break_picks_only_nearest_patterns():
     """When several patterns share the nearest density, random selection stays
     within that tie set and (given enough draws) uses more than one member."""
-    library = PatternLibrary.load(level=3)
+    library = TileLibrary.load(level=3)
     densities = library.densities
 
     # Pick a density that occurs more than once (level 3 has duplicates).
@@ -158,24 +167,24 @@ def test_random_tie_break_picks_only_nearest_patterns():
     np.random.seed(0)
     seen = set()
     for _ in range(30):
-        pattern = library.get_pattern_for_value(value, random=True,
+        pattern = library.tile_for_value(value, random=True,
                                                 invert=True)
         matches = [i for i in tie_set
-                   if np.array_equal(pattern, library.solutions[i])]
+                   if np.array_equal(pattern, library.tiles[i])]
         assert matches, "random pick fell outside the nearest-density tie set"
         seen.update(matches)
     assert len(seen) > 1, "30 draws never varied within the tie set"
 
 
-def test_get_patterns_for_mask_exact_tiles():
+def test_tiles_for_mask_exact_tiles():
     """Mask values >= alpha_cutoff yield empty tiles; values below yield the
     hole-filled densest pattern (pins '>=' and the exact filled tile)."""
-    library = PatternLibrary.load(level=3)
+    library = TileLibrary.load(level=3)
     mask = np.array([[0.0, 0.5], [0.49999, 1.0]])
 
-    tiles = library.get_patterns_for_mask(mask, alpha_cutoff=0.5)
+    tiles = library.tiles_for_mask(mask, alpha_cutoff=0.5)
 
-    filled = binary_fill_holes(library.solutions[-1]).astype(int)
+    filled = binary_fill_holes(library.tiles[-1]).astype(int)
     flat = tiles.reshape(-1, *filled.shape)
     assert np.array_equal(flat[0], filled)   # 0.0 < 0.5 -> opaque tile
     assert not flat[1].any()                 # 0.5 >= 0.5 -> empty (pins >=)
@@ -183,29 +192,30 @@ def test_get_patterns_for_mask_exact_tiles():
     assert not flat[3].any()
 
 
-def test_get_patterns_for_mask_validates_array_range():
+def test_tiles_for_mask_validates_array_range():
     """Out-of-range mask values raise ValueError."""
-    library = PatternLibrary.load(level=3)
+    library = TileLibrary.load(level=3)
     with pytest.raises(ValueError):
-        library.get_patterns_for_mask(np.array([0.5, 1.5]))
+        library.tiles_for_mask(np.array([0.5, 1.5]))
     with pytest.raises(ValueError):
-        library.get_patterns_for_mask(np.array([-0.1]))
+        library.tiles_for_mask(np.array([-0.1]))
 
 
-def test_pond_pattern_multiple():
-    """Test pond pattern multiple generation."""
-    library = PatternLibrary(level=4)
-    pattern = library.pond_pattern_multiple()
-    assert pattern.ndim == 2
+def test_pond_lattice():
+    from gol_mosaics.tile_domain import pond_lattice
+
+    pattern = pond_lattice(4)
+    assert pattern.shape == (24, 24)
     assert np.all(np.isin(pattern, [0, 1]))
 
 
-def test_pond_pattern_edge():
-    """Test pond pattern edge generation."""
-    library = PatternLibrary(level=4)
-    pattern = library.pond_pattern_edge()
-    assert pattern.ndim == 2
-    assert np.all(np.isin(pattern, [0, 1]))
+def test_pond_frame():
+    from gol_mosaics.tile_domain import pond_frame, pond_lattice
+
+    frame = pond_frame(4)
+    assert frame.shape == (24, 24)
+    assert np.all(np.isin(frame, [0, 1]))
+    assert np.all(frame <= pond_lattice(4))  # the frame is part of the lattice
 
 
 # --- Dead-edge derivation, level-6 data, packed format --------------------
@@ -234,25 +244,27 @@ def test_derived_dead_edges_match_historical_lists():
 
 
 def test_dead_edges_empty_for_level_1():
-    assert PatternLibrary._get_dead_edges(1) == []
+    from gol_mosaics.tile_domain import derive_dead_edges
+
+    assert derive_dead_edges(1) == []
 
 
 def test_load_level_6():
     """Level 6 loads from the packed orbit-bit file and expands correctly."""
-    library = PatternLibrary.load(level=6)
-    assert library.solutions.shape == (332321, 36, 36)
-    assert library.solutions.dtype == np.uint8
+    library = TileLibrary.load(level=6)
+    assert library.tiles.shape == (332321, 36, 36)
+    assert library.tiles.dtype == np.uint8
     assert 0.0 <= library.densities.min() <= library.densities.max() <= 1.0
 
 
 def test_packed_roundtrip():
-    """pack_solutions/unpack_solutions are inverse on shipped data."""
-    from gol_mosaics.tile_domain import pack_solutions, unpack_solutions
+    """Domain.pack/unpack are inverse on shipped data."""
+    from gol_mosaics.tile_domain import build_domain
 
     for level in (3, 4):
-        reference = PatternLibrary.load(level).solutions
-        packed = pack_solutions(reference, level)
-        assert np.array_equal(unpack_solutions(packed, level),
+        reference = TileLibrary.load(level).tiles
+        packed = build_domain(level).pack(reference)
+        assert np.array_equal(build_domain(level).unpack(packed),
                               reference.astype(np.uint8))
 
 
@@ -264,82 +276,82 @@ SQUARE_COUNTS = {3: 3, 4: 65, 5: 10398}
 def test_load_square_levels():
     """Square libraries load from the packed data files with the known
     censuses and expose their scheme."""
-    from gol_mosaics.tile_scheme import pond_square_scheme
+    from gol_mosaics.tile_scheme import square_scheme
 
     for level, count in SQUARE_COUNTS.items():
-        library = PatternLibrary.load(level=level, shape="square")
-        assert library.shape == "square"
+        library = TileLibrary.load(level=level, layout="square")
+        assert library.layout == "square"
         assert library.level == level
         n = 6 * level
-        assert library.solutions.shape == (count, n, n)
-        assert library.solutions.dtype == np.uint8
+        assert library.tiles.shape == (count, n, n)
+        assert library.tiles.dtype == np.uint8
         assert 0.0 <= library.densities.min() <= library.densities.max() <= 1.0
-        assert library.scheme.name == pond_square_scheme(level).name
+        assert library.scheme.name == square_scheme(level).name
 
 
 def test_load_square_invalid_levels_and_shapes():
     """Squares ship for levels 3-5 only; unknown shapes are rejected."""
     for level in (1, 2, 6):
         with pytest.raises(ValueError):
-            PatternLibrary.load(level=level, shape="square")
+            TileLibrary.load(level=level, layout="square")
     with pytest.raises(ValueError):
-        PatternLibrary.load(level=4, shape="hexagon")
+        TileLibrary.load(level=4, layout="hexagon")
 
 
 def test_square_and_diamond_libraries_cached_separately():
-    assert (PatternLibrary.load(4, shape="square")
-            is PatternLibrary.load(4, shape="square"))
-    assert (PatternLibrary.load(4, shape="square")
-            is not PatternLibrary.load(4))
+    assert (TileLibrary.load(4, layout="square")
+            is TileLibrary.load(4, layout="square"))
+    assert (TileLibrary.load(4, layout="square")
+            is not TileLibrary.load(4))
     # default shape is the historical diamond
-    assert PatternLibrary.load(4) is PatternLibrary.load(4, shape="diamond")
+    assert TileLibrary.load(4) is TileLibrary.load(4, layout="diamond")
 
 
-def test_square_library_rejects_diamond_geometry_helpers():
-    """The diamond lattice arithmetic is meaningless for squares and must
-    fail loudly rather than produce a wrong mosaic."""
-    library = PatternLibrary.load(level=4, shape="square")
+def test_square_library_rejects_diamond_lattice_arithmetic():
+    """The diamond grid offset is meaningless for squares and must fail
+    loudly rather than produce a wrong mosaic; the pond frame and scheme
+    come from the square scheme instead."""
+    from gol_mosaics.tile_scheme import square_scheme
+
+    library = TileLibrary.load(level=4, layout="square")
     with pytest.raises(ValueError):
-        library.tile_pad_size
-    with pytest.raises(ValueError):
-        library.pond_pattern_edge()
-    with pytest.raises(ValueError):
-        library.pond_pattern_multiple()
+        library.lattice_offset
+    assert np.array_equal(library.pond, square_scheme(4).frame)
 
 
-def test_square_tile_shape_from_scheme():
-    """tile_shape stays meaningful for squares (the n x n bounding box)."""
-    assert PatternLibrary.load(4, shape="square").tile_shape == (24, 24)
+def test_square_tile_size_from_scheme():
+    """tile_size is the n x n bounding box for squares too."""
+    assert TileLibrary.load(4, layout="square").tile_size == (24, 24)
 
 
 def test_square_solutions_match_fresh_enumeration():
     """The shipped packed files must equal a fresh SAT enumeration."""
     pytest.importorskip("pysat")
     from gol_mosaics.tile_scheme import (enumerate_scheme_tiles,
-                                         pond_square_scheme)
+                                         square_scheme)
 
     for level in (3, 4):
-        shipped = PatternLibrary.load(level, shape="square").solutions
-        fresh = enumerate_scheme_tiles(pond_square_scheme(level))
+        shipped = TileLibrary.load(level, layout="square").tiles
+        fresh = enumerate_scheme_tiles(square_scheme(level))
         assert np.array_equal(shipped, fresh)
 
 
-def test_get_indices_for_values_agrees_with_patterns():
-    """The index mapper is the selection half of get_patterns_for_values:
-    solutions[idx] (with -1 meaning empty) must reproduce the tile grids."""
+def test_indices_for_values_agrees_with_tiles_for_values():
+    """The index mapper is the selection half of tiles_for_values:
+    tiles[idx] (with -1 meaning empty) must reproduce the tile grids."""
     for shape, level in (("diamond", 3), ("square", 4)):
-        library = PatternLibrary.load(level, shape=shape)
+        library = TileLibrary.load(level, layout=shape)
         values = np.array([[0.0, 0.3, 0.6], [0.7, 0.9, 1.0]])
-        idx = library.get_indices_for_values(
+        idx = library.indices_for_values(
             values, random=False, empty_tiles_cutoff=0.65)
         assert idx.shape == values.shape
         assert idx.dtype.kind == "i"
         assert (idx[values > 0.65] == -1).all()
         assert (idx[values <= 0.65] >= 0).all()
-        patterns = library.get_patterns_for_values(
+        patterns = library.tiles_for_values(
             values, random=False, empty_tiles_cutoff=0.65)
         expected = np.where((idx >= 0)[..., None, None],
-                            library.solutions[np.clip(idx, 0, None)], 0)
+                            library.tiles[np.clip(idx, 0, None)], 0)
         assert np.array_equal(patterns, expected)
 
 
@@ -359,7 +371,7 @@ def test_small_levels_by_exhaustive_expansion():
     for level, expected in ((1, 1), (2, 2), (3, 7)):
         tiles = bruteforce_tiles(level)  # already canonically sorted
         assert len(tiles) == expected
-        reference = PatternLibrary.load(level).solutions.astype(np.uint8)
+        reference = TileLibrary.load(level).tiles.astype(np.uint8)
         assert np.array_equal(tiles, canonical(reference))
 
 
@@ -367,7 +379,7 @@ def test_nearest_density_indices_matches_dense_argmin():
     """The deterministic path equals argmin over the full difference matrix,
     including exact ties between two density values (0.5 between 0.25 and
     0.75 here), where the lowest index across both groups wins."""
-    from gol_mosaics.patterns import nearest_density_indices
+    from gol_mosaics.tile_library import nearest_density_indices
 
     rng = np.random.default_rng(0)
     densities = rng.choice([0.0, 0.25, 0.75, 1.0], size=200)
@@ -378,7 +390,7 @@ def test_nearest_density_indices_matches_dense_argmin():
 
 
 def test_nearest_density_indices_random_stays_in_nearest_group():
-    from gol_mosaics.patterns import nearest_density_indices
+    from gol_mosaics.tile_library import nearest_density_indices
 
     rng = np.random.default_rng(1)
     densities = rng.choice(np.linspace(0, 1, 9), size=300)
@@ -399,12 +411,12 @@ def test_level_6_selection_does_not_allocate_a_dense_matrix():
     difference matrix alone was 115 GB. The search allocates O(tiles)."""
     import tracemalloc
 
-    library = PatternLibrary.load(level=6)
+    library = TileLibrary.load(level=6)
     library.densities  # computed and cached outside the measurement
     values = np.random.default_rng(2).random((120, 120))
     tracemalloc.start()
     try:
-        indices = library.get_indices_for_values(values)
+        indices = library.indices_for_values(values)
         _, peak = tracemalloc.get_traced_memory()
     finally:
         tracemalloc.stop()
@@ -419,8 +431,8 @@ def test_package_import_does_not_touch_gurobi():
 
     code = ("import sys; sys.modules['gurobipy'] = None; "
             "import gol_mosaics, gol_mosaics.legacy_ilp; "
-            "from gol_mosaics.patterns import PatternLibrary; "
-            "PatternLibrary.load(3); print('ok')")
+            "from gol_mosaics.tile_library import TileLibrary; "
+            "TileLibrary.load(3); print('ok')")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True,
                          text=True, check=True)
     assert out.stdout.strip() == "ok"

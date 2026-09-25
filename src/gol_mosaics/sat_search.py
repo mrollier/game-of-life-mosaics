@@ -37,7 +37,7 @@ from typing import Iterable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
-from .tile_domain import Domain, build_domain, canonical_order, neighbors
+from .tile_domain import Domain, build_domain, canonical_order, neighbours
 
 # A position's value is either a constant bool (forced orbit) or a DIMACS
 # literal (positive int for the orbit variable).
@@ -81,7 +81,7 @@ def _simplify(raw: Iterable[Lit]) -> Optional[Clause]:
     return tuple(sorted(lits, key=lambda l: (abs(l), l)))
 
 
-def _domain_clauses(domain,
+def domain_clauses(domain,
                     birth: Tuple[int, ...],
                     survival: Tuple[int, ...]) -> List[Clause]:
     """
@@ -111,7 +111,7 @@ def _domain_clauses(domain,
     for i in range(n):
         for j in range(n):
             centre = lit(i, j)
-            nbrs = [lit(ii, jj) for (ii, jj) in neighbors(i, j, n)]
+            nbrs = [lit(ii, jj) for (ii, jj) in neighbours(i, j, n)]
 
             # Forbid "centre in given state with exactly c live neighbours"
             # for every forbidden count c: one clause per c-subset of the 8
@@ -146,7 +146,7 @@ def build_cnf(level: int,
     survival = tuple(sorted(survival))
     domain = build_domain(level, dead_edges=dead_edges)
     n = domain.n
-    clauses = _domain_clauses(domain, birth, survival)
+    clauses = domain_clauses(domain, birth, survival)
     digest = hashlib.sha256()
     digest.update(f"level={level};n={n};vars={len(domain.free_reps)};"
                   f"birth={birth};survival={survival};".encode())
@@ -210,7 +210,7 @@ def enumerate_tiles(level: int,
 
 # ---------------------------------------------------------------- bruteforce
 
-def rule_violations(grids: np.ndarray,
+def rule_violations(tiles: np.ndarray,
                     birth: Sequence[int] = CONWAY[0],
                     survival: Sequence[int] = CONWAY[1]) -> np.ndarray:
     """
@@ -218,7 +218,7 @@ def rule_violations(grids: np.ndarray,
     neighbourhoods (the ILP's semantics). Returns a (m,) bool array,
     True where the grid VIOLATES the rule.
     """
-    g = grids.astype(np.uint8)
+    g = tiles.astype(np.uint8)
     counts = np.zeros(g.shape, dtype=np.uint8)  # max 8 fits in uint8
     for di in (-1, 0, 1):
         for dj in (-1, 0, 1):

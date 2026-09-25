@@ -25,7 +25,7 @@ except ImportError as exc:  # pragma: no cover - depends on the environment
 from .targets import Window, cell_targets, window_slices, window_targets
 
 
-def _max_rss_mb() -> float:
+def max_rss_mb() -> float:
     """Peak resident set size in MB; 0.0 where `resource` is unavailable (Windows)."""
     try:
         import resource
@@ -83,7 +83,7 @@ def forbid_diagonal_runs(model, literal_at, shape, max_run: int) -> int:
 
 
 @dataclass
-class SpikeConfig:
+class SolveConfig:
     k: int = 8
     stride: int = 4
     d_max: float = 0.45
@@ -112,7 +112,7 @@ Snapshot = Tuple[float, int, np.ndarray]
 
 
 @dataclass
-class SpikeResult:
+class SolveResult:
     pattern: np.ndarray  # (H, W) uint8, interior only
     status: str
     objective: int
@@ -120,7 +120,7 @@ class SpikeResult:
     wall_time_s: float
     obj_history: List[Tuple[float, int]]
     max_rss_mb: float
-    config: SpikeConfig
+    config: SolveConfig
     snapshots: List[Snapshot] = field(default_factory=list)
     build_time_s: float = 0.0
     # Window geometry and integer targets of the solved model, so downstream
@@ -183,7 +183,7 @@ class _ObjectiveLogger(cp_model.CpSolverSolutionCallback):
 def build_model(
     cell_t: np.ndarray,
     free_mask: np.ndarray,
-    cfg: SpikeConfig,
+    cfg: SolveConfig,
     relax_top: bool = False,
     relax_bottom: bool = False,
 ) -> ModelBundle:
@@ -289,7 +289,7 @@ def build_model(
     )
 
 
-def _apply_solver_params(solver: cp_model.CpSolver, cfg: SpikeConfig) -> None:
+def _apply_solver_params(solver: cp_model.CpSolver, cfg: SolveConfig) -> None:
     p = solver.parameters
     p.max_time_in_seconds = cfg.time_limit_s
     p.num_workers = cfg.workers
@@ -308,10 +308,10 @@ def _apply_solver_params(solver: cp_model.CpSolver, cfg: SpikeConfig) -> None:
 
 def solve(
     bundle: ModelBundle,
-    cfg: SpikeConfig,
+    cfg: SolveConfig,
     hint: Optional[np.ndarray] = None,
     allow_unknown: bool = False,
-) -> SpikeResult:
+) -> SolveResult:
     h, w = bundle.shape
     if hint is not None:
         for i in range(h):
@@ -346,14 +346,14 @@ def solve(
         # extreme time limit. Callers that just need the proven bound
         # (e.g. the strip relaxation) can opt in to an empty pattern.
         assert allow_unknown, solver.StatusName(status)
-        return SpikeResult(
+        return SolveResult(
             pattern=np.zeros((h, w), dtype=np.uint8),
             status=solver.StatusName(status),
             objective=int(sum(int(t) for t in bundle.targets)),
             best_bound=int(solver.BestObjectiveBound()),
             wall_time_s=wall,
             obj_history=logger.history,
-            max_rss_mb=_max_rss_mb(),
+            max_rss_mb=max_rss_mb(),
             config=cfg,
             build_time_s=bundle.build_time_s,
             windows=bundle.windows,
@@ -369,14 +369,14 @@ def solve(
         snapshots.append(
             (solver.WallTime(), int(solver.ObjectiveValue()), pattern.copy())
         )
-    return SpikeResult(
+    return SolveResult(
         pattern=pattern,
         status=solver.StatusName(status),
         objective=int(solver.ObjectiveValue()),
         best_bound=int(solver.BestObjectiveBound()),
         wall_time_s=wall,
         obj_history=logger.history,
-        max_rss_mb=_max_rss_mb(),
+        max_rss_mb=max_rss_mb(),
         config=cfg,
         snapshots=snapshots,
         build_time_s=bundle.build_time_s,
@@ -388,9 +388,9 @@ def solve(
 def solve_image(
     grey: np.ndarray,
     free_mask: np.ndarray,
-    cfg: SpikeConfig,
+    cfg: SolveConfig,
     hint: Optional[np.ndarray] = None,
-) -> SpikeResult:
+) -> SolveResult:
     """Greyscale (uint8) + mask -> solved still-life pattern."""
     cell_t = cell_targets(grey, cfg.d_max)
     if cfg.mask_mode == "none":

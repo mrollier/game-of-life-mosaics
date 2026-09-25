@@ -15,9 +15,9 @@ from tests.conftest import REPO_ROOT
 EXPORTS = {
     "MosaicGenerator", "ColourScheme", "GollyExporter", "ImageProcessor",
     "ECABackground", "MosaicRenderer", "compose", "agar_background",
-    "density_band", "life_safe_pattern", "mosaic_background",
+    "density_band", "merge_background", "mosaic_background",
     "filled_background", "fill_layer_count", "scatter_background",
-    "PatternLibrary",
+    "TileLibrary",
 }
 
 # 2.x identifiers that must not appear anywhere in code any more.
@@ -28,6 +28,30 @@ BANNED = [
     r"\balpha_color\b",
     r"\bfill_color\b",
     r"\b_hex_to_rgb\b",
+    r"\bPatternLibrary\b",
+    r"\bgol_mosaics\.patterns\b",
+    r"\bget_patterns?_for_\w+",
+    r"\bget_indices_for_values\b",
+    r"\.solutions\b",
+    r"\btile_pad_size\b",
+    r"\btile_shape\b",
+    r"\brandom_patterns\b",
+    r"\bpattern_library\b",
+    r"\beca_generator\b",
+    r"\bextract_diagonal_patterns\b",
+    r"\bpreprocess_for_(square_)?mosaic\b",
+    r"\blife_safe_pattern\b",
+    r"\brender_full_mosaic\b",
+    r"\brender_eca_overlay\b",
+    r"\bpond_pattern\w*",
+    r"\bneighbors\b",
+    r"\bneighbor_offsets\b",
+    r"\bpond_square_scheme\b",
+    r"\b(un)?pack_(scheme_|nosym_)?solutions\b",
+    r"\b_domain_clauses\b",
+    r"\bSpike(Config|Result)\b",
+    r"\b(save|load)_pattern_asset\b",
+    r"\b(normalize|equalize)_grey\b",
 ]
 
 SEARCHED = ["src/**/*.py", "tests/**/*.py", "app/*.py", "experiments/**/*.py",
