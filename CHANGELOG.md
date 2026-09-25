@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.0.0 (2026-09)
+## 3.0.0 (2026-09-25)
 
 A reorganisation for newcomers, a clean API, and the free-form solver in the
 package. 3.0 renames the public API without compatibility aliases; the full
@@ -60,6 +60,9 @@ package. 3.0 renames the public API without compatibility aliases; the full
   through one atomic helper that retries while another process holds the
   file.
 - `requires-python` claimed 3.8 support that the code did not have.
+- The `[sat]` extra could not be installed: python-sat only publishes
+  pre-releases (`1.9.devN`), which pip ignores for `>=1.8`; the specifier is
+  now `>=1.8.dev0`.
 
 ### Faster
 
