@@ -8,20 +8,22 @@ occupancy of every seam relative to its surroundings (1.0 = invisible), the
 mean occupancy profile across all seams aligned on the separator, and the
 plain window objective / MAD, which the seam pass is not allowed to spend.
 
-    python experiments/beyond_tiles/lam_gods_seams.py
+    python studies/lam_gods/lam_gods_seams.py
 
-Reads `results/lam_gods/pattern_v1_before_seams.npy` and `pattern.npy`,
-writes `figures/lam_gods_seams.png` (profile, crops) and prints the table.
+Reads v1 and v2 from the committed bit-packed assets (a local
+`results/pattern_v1_before_seams.npy` / `results/pattern.npy` from a fresh
+poster.py run take precedence), writes `figures/lam_gods_seams.png`
+(profile, crops) and `output/seam_study.json`, and prints the table.
 """
 
 import json
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
-for p in (REPO / "src", REPO / "experiments"):
-    if str(p) not in sys.path:
-        sys.path.insert(0, str(p))
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parents[1]
+if str(REPO / "src") not in sys.path:
+    sys.path.insert(0, str(REPO / "src"))
 
 import numpy as np
 from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -29,12 +31,13 @@ from matplotlib.figure import Figure
 
 from gol_mosaics.freeform.lns import LnsConfig, seam_occupancy, window_devs
 from gol_mosaics.freeform.metrics import deviation_stats, max_diagonal_run
-from beyond_tiles.poster import load_rect
+from gol_mosaics.freeform.io import load_pattern_asset
 from gol_mosaics.freeform.solver import verify_still_life
-from gol_mosaics.freeform.targets import cell_targets, window_slices, window_targets
+from gol_mosaics.freeform.targets import (cell_targets, load_rect_target,
+                                          window_slices, window_targets)
 
-HERE = Path(__file__).resolve().parent
-RES = HERE / "results/lam_gods"
+RES = HERE / "results"
+ASSETS = HERE / "assets"
 W, H, BLOCK_ROWS, BLOCK_COLS, GAP = 2480, 1656, 64, 416, 2
 SEAM_ROWS = tuple(r - GAP for r in range(BLOCK_ROWS, H, BLOCK_ROWS))
 SEAM_COLS = tuple(c - GAP for c in range(BLOCK_COLS, W, BLOCK_COLS))
@@ -52,10 +55,16 @@ def crop(pattern, r0, c0, h=96, w=160, scale=3):
     return np.kron(1 - tile, np.ones((scale, scale), dtype=np.uint8)) * 255
 
 
+def load(run: str, asset: str) -> np.ndarray:
+    """A local run if present, else the committed bit-packed asset."""
+    path = RES / run
+    return np.load(path) if path.exists() else load_pattern_asset(ASSETS / asset)
+
+
 def main() -> None:
-    v1 = np.load(RES / "pattern_v1_before_seams.npy")
-    v2 = np.load(RES / "pattern.npy")
-    grey, free = load_rect(str(REPO / "input/images/lam-gods-classic.png"), W, H,
+    v1 = load("pattern_v1_before_seams.npy", "lam_gods_2480x1656_v1_before_seams.npz")
+    v2 = load("pattern.npy", "lam_gods_2480x1656_pipeline.npz")
+    grey, free = load_rect_target(str(REPO / "input/images/lam-gods-classic.png"), W, H,
                            "eq", 5.0, keep_background=True)
     cell_t = cell_targets(grey, 0.40)
     windows = window_slices(cell_t.shape, k=8, stride=8)
@@ -78,7 +87,8 @@ def main() -> None:
             seam_cols_worst=min(occ["cols"].values()),
             rows=occ["rows"], cols=occ["cols"],
         )
-    (RES / "seam_study.json").write_text(json.dumps(table, indent=2))
+    (HERE / "output").mkdir(exist_ok=True)
+    (HERE / "output" / "seam_study.json").write_text(json.dumps(table, indent=2))
     for name, t in table.items():
         print(f"{name}: objective {t['objective']:,}, seam objective "
               f"{t['seam_objective']:,}, MAD {t['mad']:.4f}, Pearson "

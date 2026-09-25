@@ -686,7 +686,7 @@ deficit-only, in selection and acceptance. `poster.py --seam-rounds`
 plan.
 
 Three seam rounds at 28 procs, 15 min cap each, on the v1 pattern
-(`lam_gods_seams.py` for the study):
+(`studies/lam_gods/lam_gods_seams.py` for the study):
 
 | | v1 (before) | v2 (seam rounds) |
 |---|---|---|
@@ -703,20 +703,20 @@ cells with window deviation) and came back to 471 as the later rounds
 found the arrangements that satisfy both. Net cost of a seamless pattern:
 two cells of deviation in 64k windows, and 41 minutes on top of 2 h 50.
 
-![seam study](figures/lam_gods_seams.png)
+![seam study](../../studies/lam_gods/figures/lam_gods_seams.png)
 
 *Mean occupancy across all seams aligned on the separator (grey), v1
 dashed and v2 solid, and the same dense crops before (above) and after.
 The 50 % trough is gone; what remains is the ±0.03 ripple the profile has
 everywhere.*
 
-`assets/lam_gods_2480x1656_pipeline.npz` holds v2 (369 kB packed),
-`assets/lam_gods_2480x1656_v1_before_seams.npz` the v1 it is compared
+`studies/lam_gods/assets/lam_gods_2480x1656_pipeline.npz` holds v2 (369 kB packed),
+`studies/lam_gods/assets/lam_gods_2480x1656_v1_before_seams.npz` the v1 it is compared
 against; the run is `poster.py ... --keep-background --dither fs
 --strip-rows 64 --block-cols 416 --strip-procs 14 --polish-procs 28
 --seam-rounds 3`.
 
-![Lam Gods 2480×1656](figures/lam_gods_2480x1656_pipeline.png)
+![Lam Gods 2480×1656](../../studies/lam_gods/figures/lam_gods_2480x1656_pipeline.png)
 
 *The Lam Gods still life (v2) at a pixel per cell (black = live).*
 
