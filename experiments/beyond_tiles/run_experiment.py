@@ -478,10 +478,9 @@ def cmd_e10(args) -> None:
 def cmd_lns(args) -> None:
     """Polish a saved run with rectangular LNS; writes RUN_DIR/lns/."""
     import dataclasses
-    import resource
 
     from beyond_tiles import lns as lns_mod
-    from beyond_tiles.still_image import SpikeConfig, SpikeResult
+    from beyond_tiles.still_image import SpikeConfig, SpikeResult, _max_rss_mb
     from beyond_tiles.targets import cell_targets, window_slices, window_targets
 
     run_dir = Path(args.run_dir)
@@ -532,7 +531,7 @@ def cmd_lns(args) -> None:
         best_bound=saved.get("best_bound", 0),
         wall_time_s=res.obj_history[-1][0],
         obj_history=res.obj_history,
-        max_rss_mb=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2**20,
+        max_rss_mb=_max_rss_mb(),
         config=cfg,
         windows=kept,
         targets=targets,
