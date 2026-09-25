@@ -125,12 +125,12 @@ def _warhol_for_seed(seed: int) -> ColorScheme:
     """A Warhol palette that stays fixed for a given seed.
 
     ColorScheme.warhol() draws from its own RNG (independent of numpy's global
-    seed), so live tweaking would otherwise reshuffle the colours on every
-    change. Caching by the effective seed keeps the palette stable while the
-    user adjusts other settings, and a new seed (the "New variation" button)
-    yields fresh colours. Bounded by lru_cache so it can't grow without limit.
+    seed), so it is seeded explicitly: the palette is then a function of the
+    effective seed, stable while the user adjusts other settings and across
+    restarts, and a new seed (the "New variation" button) yields fresh
+    colours. The cache only saves the redraw.
     """
-    return ColorScheme.warhol()
+    return ColorScheme.warhol(seed=seed)
 
 
 def _scheme_for(label: str, seed: int, manual_colors=None) -> ColorScheme:

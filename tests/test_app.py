@@ -263,3 +263,13 @@ def test_prepare_generation_grid_parity_per_shape():
                                       "random", 110, 0, _MANUAL)
     assert gen.tile_shape == "diamond"
     assert gen.grid_size == 26
+
+
+def test_warhol_palette_is_a_function_of_the_seed():
+    """Not just cached: the same seed gives the same palette after the cache
+    is cleared (a Space restart), and seeds differ."""
+    app._warhol_for_seed.cache_clear()
+    first = app._warhol_for_seed(3)
+    app._warhol_for_seed.cache_clear()
+    assert app._warhol_for_seed(3) == first
+    assert {app._warhol_for_seed(seed) for seed in range(6)} != {first}
