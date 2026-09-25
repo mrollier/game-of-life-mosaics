@@ -10,8 +10,8 @@ Subcommands:
 
 Typical session:
   python search.py validate
-  python search.py run --level 6            # -> solutions_pattern_level_6.npy
-  python search.py run --level 7            # -> solutions_pattern_level_7_orbits.npy
+  python search.py run --level 6            # -> tiles_diamond_level_6.npy
+  python search.py run --level 7            # -> tiles_diamond_level_7_orbits.npy
 
 Levels >= 7 default to --packed output: the artifact holds one bit per free
 symmetry orbit per tile (level 7: 11 bytes/tile instead of a 42x42 grid),
@@ -218,7 +218,7 @@ def cmd_merge(args) -> int:
             tuple(packed[:, c] for c in reversed(range(ncols))) + (alive_counts,)
         )
         packed = packed[order]
-        out = Path(args.output or f"solutions_pattern_level_{level}_orbits.npy")
+        out = Path(args.output or f"tiles_diamond_level_{level}_orbits.npy")
         with open(out, "wb") as f:
             np.save(f, packed)
         n_free = enc.n_vars
@@ -239,7 +239,7 @@ def cmd_merge(args) -> int:
     grids = grids[order]
     t_sort = time.time() - t_sort
     t_write = time.time()
-    out = Path(args.output or f"solutions_pattern_level_{level}.npy")
+    out = Path(args.output or f"tiles_diamond_level_{level}.npy")
     with open(out, "wb") as f:
         np.save(f, grids)
     t_write = time.time() - t_write
@@ -306,19 +306,20 @@ def cmd_validate(args) -> int:
     return 1
 
 
-def _reference_path(level: int) -> Path:
-    """Local reference/ copy if present, else the package's shipped data
-    (byte-identical; the pipeline runs from a repo checkout anyway)."""
-    local = HERE / "reference" / f"solutions_pattern_level_{level}.npy"
+def _reference_grids(level: int) -> np.ndarray:
+    """The level's reference census as full grids: a local
+    reference/tiles_diamond_level_L.npy copy if present, else the package's
+    shipped database."""
+    local = HERE / "reference" / f"tiles_diamond_level_{level}.npy"
     if local.exists():
-        return local
-    return (HERE.parents[1] / "src" / "gol_mosaics" / "data"
-            / f"solutions_pattern_level_{level}.npy")
+        return np.load(local)
+    from gol_mosaics.patterns import PatternLibrary
+    return PatternLibrary.load(level).solutions
 
 
 def _check_against_reference(grids, level, elapsed, suffix="") -> bool:
     n_bad = int((~check_batch(grids, level)).sum())
-    ref = np.load(_reference_path(level))
+    ref = _reference_grids(level)
     ok, msg = compare_sets(grids, ref)
     status = "PASS" if ok and not n_bad else "FAIL"
     print(f"level {level}{suffix}: {status} — {msg}, "

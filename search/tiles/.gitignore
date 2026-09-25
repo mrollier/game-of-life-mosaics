@@ -1,4 +1,5 @@
 # Checkpoints and the ~430 MB result file — too large for git
 work/
-solutions_pattern_level_6.npy
+tiles_diamond_level_*.npy
+solutions_pattern_level_*.npy
 venv/

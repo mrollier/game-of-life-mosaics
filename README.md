@@ -466,13 +466,9 @@ game-of-life-mosaics/
 │       ├── compose.py         # Post-hoc backgrounds and recolouring
 │       └── export.py          # GollyExporter (format export)
 ├── data/                      # Pre-computed pattern solutions
-|   ├── solutions_pattern_level_1.npy
-|   ├── solutions_pattern_level_2.npy
-│   ├── solutions_pattern_level_3.npy
-│   ├── solutions_pattern_level_4.npy
-│   ├── solutions_pattern_level_5.npy
-│   ├── solutions_pattern_level_6_orbits.npy  # 332,321 tiles as packed orbit bits
-│   └── solutions_square_level_{3,4,5}_orbits.npy  # square tiles as packed orbit bits
+│   ├── tiles_diamond_level_{1..6}_orbits.npy  # diamond tiles as packed orbit bits
+│   ├── tiles_diamond_nosym_level_3_cells.npy  # the census without symmetry
+│   └── tiles_square_level_{3,4,5}_orbits.npy  # square tiles as packed orbit bits
 ├── tests/                     # Unit and integration tests
 ├── notebooks/                 # Example Jupyter notebooks
 ├── input/                     # Example input images

@@ -1,7 +1,6 @@
 """Fidelity and texture metrics for spike results. Pure numpy."""
 
 from collections import Counter
-from pathlib import Path
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -46,13 +45,9 @@ def tile_db_overlap(pattern: np.ndarray, level: int = 1) -> float:
     Quantifies the "beyond tiles" claim: a tile mosaic scores near 1,
     a free-form solve should score near 0.
     """
-    import gol_mosaics
+    from gol_mosaics import PatternLibrary
 
-    tiles = np.load(
-        Path(gol_mosaics.__file__).parent
-        / "data"
-        / f"solutions_pattern_level_{level}.npy"
-    ).astype(np.uint8)
+    tiles = PatternLibrary.load(level).solutions
     images = set()
     for t in tiles:
         for g in (t, np.rot90(t), np.rot90(t, 2), np.rot90(t, 3)):

@@ -30,7 +30,10 @@ DATA = HERE.parents[1] / "src" / "gol_mosaics" / "data"
 
 # Ground truth: shipped censuses (levels 1-6) and the local level-7 artifact.
 KNOWN = {1: 1, 2: 2, 3: 7, 4: 85, 5: 2632, 6: 332321}
-LEVEL7_ARTIFACT = HERE / "solutions_pattern_level_7_orbits.npy"
+# search.py / search_adaptive.py write this name; runs before the 3.0
+# rename wrote solutions_pattern_level_7_orbits.npy, which is read as well.
+LEVEL7_ARTIFACTS = (HERE / "tiles_diamond_level_7_orbits.npy",
+                    HERE / "solutions_pattern_level_7_orbits.npy")
 
 COUNT_PATTERNS = [
     re.compile(r"^c?\s*s\s+(?:exact|approx)?\s*(?:arb|log10)?\s*(?:int)?\s+(\d+)\s*$"),
@@ -42,9 +45,10 @@ COUNT_PATTERNS = [
 def known_count(level: int):
     if level in KNOWN:
         return KNOWN[level]
-    if level == 7 and LEVEL7_ARTIFACT.exists():
-        packed = np.load(LEVEL7_ARTIFACT, mmap_mode="r")
-        return len(packed)
+    if level == 7:
+        for artifact in LEVEL7_ARTIFACTS:
+            if artifact.exists():
+                return len(np.load(artifact, mmap_mode="r"))
     return None
 
 

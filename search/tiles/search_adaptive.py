@@ -362,7 +362,7 @@ def cmd_merge(args) -> int:
     order = np.lexsort(tuple(packed[:, c] for c in reversed(range(ncols))) + (alive,))
     packed = packed[order]
     t_sort = time.time() - t
-    out = Path(args.output or f"solutions_pattern_level_{level}_orbits.npy")
+    out = Path(args.output or f"tiles_diamond_level_{level}_orbits.npy")
     atomic_save(out, packed)
     sha = hashlib.sha256(out.read_bytes()).hexdigest()
     print(f"merge phases: load {t_load:.1f}s, uniqueness {t_dedup:.1f}s, "
@@ -380,6 +380,7 @@ def cmd_self_test(args) -> int:
     against the shipped *packed* file, which also checks the ordering)."""
     import shutil
     import tempfile
+    from gol_mosaics.patterns import PatternLibrary
     from gol_mosaics.tile_domain import unpack_solutions
 
     data = HERE.parents[1] / "src" / "gol_mosaics" / "data"
@@ -401,13 +402,14 @@ def cmd_self_test(args) -> int:
                 continue
             mine = np.load(out)
             if level == 6:
-                ref = np.load(data / "solutions_pattern_level_6_orbits.npy")
+                ref = np.load(data / "tiles_diamond_level_6_orbits.npy")
                 same = mine.shape == ref.shape and mine.tobytes() == ref.tobytes()
                 what = "packed file byte-identical"
             else:
-                # the level <= 5 files are grid-ordered, so compare as sets
-                # (as search.py validate does)
-                ref = np.load(data / f"solutions_pattern_level_{level}.npy")
+                # the level <= 5 databases keep the order the original ILP
+                # found them in, so compare as sets (as search.py validate
+                # does)
+                ref = PatternLibrary.load(level).solutions
                 same, what = compare_sets(unpack_solutions(mine, level=level), ref)
             print(f"level {level} (adaptive, cap {cap}): "
                   f"{'PASS' if same else 'FAIL'} — {len(mine)} tiles, {what}: "

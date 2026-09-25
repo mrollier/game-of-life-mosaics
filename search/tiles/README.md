@@ -18,7 +18,7 @@ installed (`pip install -e ".[sat]"` from the root).
 
 - **Level 6 is done**: all **332,321** tiles, enumerated in ~2 s on a
   10-core laptop, five-way validated, shipped with the package as
-  `src/gol_mosaics/data/solutions_pattern_level_6_orbits.npy` (2.7 MB packed;
+  `src/gol_mosaics/data/tiles_diamond_level_6_orbits.npy` (2.7 MB packed;
   `PatternLibrary.load(6)` expands it transparently).
 - **Level 7 is done, twice**: **108,492,376** tiles (84 free orbits, 42×42
   grids), first with `search.py run --level 7 --cube-bits 16` on a 10-core
@@ -26,7 +26,7 @@ installed (`pip install -e ".[sat]"` from the root).
   workstation with the adaptive runner below in **36 min** of solving plus
   90 s of merging (75,000 CPU-s; 34,966 leaves, deepest at 44 fixed
   variables). The 1.19 GB packed artifact
-  (`solutions_pattern_level_7_orbits.npy`, sha256
+  (`tiles_diamond_level_7_orbits.npy`, sha256
   `d39bbd0aa05be20ea7689f7f4a5e69e6c4da4a9cfb281d96d9cef671ea885b80`) is
   gitignored; `count.py` reads it as ground truth when present.
 - **The counts are confirmed by #SAT model counting**: sharpSAT-td on the
@@ -54,7 +54,7 @@ python search.py run --level 7 --cube-bits 16
 # 2c. Level 7 with adaptive cubes (~40 min on 36 threads; same output)
 python search_adaptive.py self-test         # levels 5-6 through the adaptive path
 python search_adaptive.py run --level 7 --nice 10 --expect 108492376 \
-    --work-dir work/adaptive --output solutions_pattern_level_7_orbits.npy
+    --work-dir work/adaptive --output tiles_diamond_level_7_orbits.npy
 ```
 
 ### Why the adaptive runner
@@ -125,7 +125,7 @@ checkpoints without re-solving.
 | `--work-dir DIR` | `work` | checkpoint location (`work/level_L/cubes/*.npy`) |
 | `--solver NAME` | `cadical195` | any pysat solver name; `glucose42` as fallback |
 | `--packed` | auto (level ≥ 7) | save packed orbit bits instead of full grids |
-| `--output PATH` | `solutions_pattern_level_{L}[_orbits].npy` | final artifact |
+| `--output PATH` | `tiles_diamond_level_{L}[_orbits].npy` | final artifact (before 3.0: `solutions_pattern_level_...`) |
 
 Level-7 output stays as **packed orbit bits** (11 bytes/tile; raw 42×42
 grids would be hundreds of GB). Expand in chunks with
@@ -196,6 +196,6 @@ git show 7139228:workstation/level6_search/certificates/level_6.drat > level_6.d
 | `rup_check.py` | self-contained forward RUP/DRAT proof checker (no shared code; for small proofs — use drat-trim at level-6 scale) |
 | `requirements-lock.txt` | exact package versions used for the paper's measurements |
 | `geometry.py`, `encoding.py` | thin shims re-exporting `gol_mosaics.tile_domain` / `.sat_search` |
-| `pack_level6.py` | one-off: grids → packed orbit bits for the package data dir |
+| `../../tools/pack_tiles.py` | grids → packed orbit bits for the package data dir, and `check` for the shipped files |
 | `certificates/` | output of `certify.py` (not versioned; hashes above) |
-| `reference/` | optional local copy of the level 3–5 databases; when absent, `validate` reads the byte-identical files shipped in `src/gol_mosaics/data/` |
+| `reference/` | optional local copy of the level 3–5 databases as full grids (`tiles_diamond_level_L.npy`); when absent, `validate` uses the databases shipped in the package |

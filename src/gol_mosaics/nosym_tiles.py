@@ -144,7 +144,7 @@ def load_nosym_tiles(level: int = 3) -> np.ndarray:
     only; larger levels are local-only artifacts, see REPRODUCE.md).
     """
     resource = files(__package__).joinpath(
-        f"data/solutions_pattern_nosym_level_{level}_cells.npy")
+        f"data/tiles_diamond_nosym_level_{level}_cells.npy")
     if not resource.is_file():
         raise FileNotFoundError(
             f"No shipped nosym census for level {level}: {resource}")

@@ -361,12 +361,9 @@ def test_motif_stats_skips_empty_blocks():
 
 
 def test_tile_db_overlap_detects_level1_pond():
-    import gol_mosaics
-    from pathlib import Path
+    from gol_mosaics import PatternLibrary
 
-    pond = np.load(
-        Path(gol_mosaics.__file__).parent / "data" / "solutions_pattern_level_1.npy"
-    )[0].astype(np.uint8)
+    pond = PatternLibrary.load(1).solutions[0]
     pattern = np.zeros((12, 12), dtype=np.uint8)
     pattern[0:6, 0:6] = pond  # one block IS the level-1 tile
     pattern[6:8, 6:8] = 1  # one block is a 2x2 block still life (not a tile)

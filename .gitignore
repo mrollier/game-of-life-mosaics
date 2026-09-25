@@ -106,9 +106,10 @@ output/golly/flyer-antipodes-*.cells
 # archived outside git; see search/tiles/README.md for their hashes.
 search/tiles/work/
 search/tiles/reference/
+search/tiles/tiles_diamond_level_*.npy
 search/tiles/solutions_pattern_level_*.npy
 search/tiles/tools/
 search/tiles/counts/
 search/tiles/certificates/
 search/nosym/work_nosym/
-search/nosym/solutions_pattern_nosym_level_*.npy
+search/nosym/tiles_diamond_nosym_level_*.npy

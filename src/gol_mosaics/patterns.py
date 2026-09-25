@@ -15,8 +15,8 @@ from typing import Optional
 from scipy.ndimage import binary_fill_holes
 
 from . import tile_domain
-from .tile_domain import derive_dead_edges, unpack_solutions
-from .tile_scheme import pond_square_scheme, unpack_scheme_solutions
+from .tile_domain import build_domain, derive_dead_edges
+from .tile_scheme import build_scheme_domain, pond_square_scheme
 
 logger = logging.getLogger(__name__)
 
@@ -211,12 +211,10 @@ class PatternLibrary:
         """
         Load pre-computed patterns from disk.
 
-        Diamond patterns are available for levels 1-6. Levels 1-5 are
-        stored as full grids; level 6 (332,321 patterns) ships as packed
-        symmetry-orbit bits and is expanded on load (~0.5 s, ~450 MB).
-        Square patterns (axis-aligned pond-frame squares) are available for
-        levels 3-5, all shipped as packed orbit bits. For other diamond
-        levels, use PatternLibrary.generate() instead.
+        Diamond patterns are available for levels 1-6 and square patterns
+        (axis-aligned pond-frame squares) for levels 3-5. All ship as
+        packed symmetry-orbit bits and are expanded to uint8 grids on load;
+        level 6 (332,321 patterns) takes about 0.5 s and 430 MB.
 
         Args:
             level: Pattern complexity level (diamond: 1-6, square: 3-5)
@@ -544,41 +542,20 @@ def _load_pattern_library(level: int, shape: str = "diamond") -> PatternLibrary:
     """
     library = PatternLibrary(level=level, shape=shape)
 
-    # Load solutions bundled inside the package (gol_mosaics/data/), located
-    # via importlib.resources so it works regardless of install location.
-    # Large levels ship as packed free-orbit bits (one bit per free symmetry
-    # orbit per pattern) and are expanded to full grids here.
-    data = files(__package__).joinpath("data")
-
-    if shape == "square":
-        packed_resource = data.joinpath(
-            f"solutions_square_level_{level}_orbits.npy")
-        if not packed_resource.is_file():
-            raise FileNotFoundError(
-                f"Pattern data file not found: {packed_resource}\n"
-                f"Expected packaged resource: "
-                f"gol_mosaics/data/solutions_square_level_{level}_orbits.npy"
-            )
-        with packed_resource.open("rb") as f:
-            packed = np.load(f)
-        library._solutions = unpack_scheme_solutions(library.scheme, packed)
-        return library
-
-    resource = data.joinpath(f"solutions_pattern_level_{level}.npy")
-    packed_resource = data.joinpath(f"solutions_pattern_level_{level}_orbits.npy")
-
-    if resource.is_file():
-        with resource.open("rb") as f:
-            library._solutions = np.load(f)
-    elif packed_resource.is_file():
-        with packed_resource.open("rb") as f:
-            packed = np.load(f)
-        library._solutions = unpack_solutions(packed, level)
-    else:
+    # Every database ships inside the package (gol_mosaics/data/) as packed
+    # free-orbit bits, one bit per free symmetry orbit per tile, and is
+    # expanded to full uint8 grids here. importlib.resources finds the file
+    # wherever the package is installed.
+    name = f"tiles_{shape}_level_{level}_orbits.npy"
+    resource = files(__package__).joinpath("data", name)
+    if not resource.is_file():
         raise FileNotFoundError(
-            f"Pattern data file not found: {resource}\n"
-            f"Expected packaged resource: "
-            f"gol_mosaics/data/solutions_pattern_level_{level}.npy "
-            f"(or its packed _orbits variant)"
+            f"Tile data file not found: {resource}\n"
+            f"Expected packaged resource: gol_mosaics/data/{name}"
         )
+    with resource.open("rb") as f:
+        packed = np.load(f)
+    domain = (build_scheme_domain(library.scheme) if shape == "square"
+              else build_domain(level))
+    library._solutions = domain.unpack(packed)
     return library

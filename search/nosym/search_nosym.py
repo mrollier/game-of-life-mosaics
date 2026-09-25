@@ -12,7 +12,7 @@ Usage:
 
 Output: work_nosym/level_{L}/cubes/cube_*.npy checkpoints (resumable —
 existing cube files are skipped), merged into
-solutions_pattern_nosym_level_{L}_cells.npy next to this script:
+tiles_diamond_nosym_level_{L}_cells.npy next to this script:
 packed free-cell bits, canonical (popcount, grid bytes) row order.
 Local-only artifact — too big for git; census count and sha256 are
 recorded in REPRODUCE.md.
@@ -168,7 +168,7 @@ def cmd_merge(level: int) -> int:
     packed = packed[order]
     print(f"sorted in {time.time() - t0:.0f}s")
 
-    dst = HERE / f"solutions_pattern_nosym_level_{level}_cells.npy"
+    dst = HERE / f"tiles_diamond_nosym_level_{level}_cells.npy"
     with open(dst, "wb") as f:
         np.save(f, packed)
     sha = hashlib.sha256(dst.read_bytes()).hexdigest()
