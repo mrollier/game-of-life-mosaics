@@ -54,9 +54,9 @@ Thumbs.db
 # Project specific
 # Keep curated examples in input/images/, output/images/ and output/golly/.
 # Ignore personal/presentation artifacts and locally generated exports.
-notebooks/*.pdf
-notebooks/*_thesis.*
-notebooks/images_thesis.ipynb
+notebooks/**/*.pdf
+notebooks/**/*_thesis.*
+notebooks/**/images_thesis.ipynb
 input/images/jan.png
 output/golly/jan.cells
 

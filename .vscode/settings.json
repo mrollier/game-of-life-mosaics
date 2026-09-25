@@ -1,12 +1,14 @@
 {
-  // The package is not pip-installed in the conda env; src/ and experiments/
-  // are put on sys.path at runtime (notebooks) or via pytest's `pythonpath`.
-  // Pylance cannot see that, so tell it where the packages live.
-  "python.analysis.extraPaths": ["src", "experiments"],
+  // gol_mosaics is installed in editable mode (pip install -e ".[dev]"), so
+  // Pylance finds it; the experiment harness in experiments/ is not a package
+  // and is put on sys.path by the scripts and pytest's `pythonpath`.
+  "python.analysis.extraPaths": ["experiments"],
   // No interpreter path: it is machine-specific (conda on a Mac, anaconda on
   // a Windows laptop), and VS Code remembers the interpreter picked for this
   // workspace on its own.
   "python.testing.pytestEnabled": true,
   "python.testing.pytestArgs": ["tests"],
-  "jupyter.notebookFileRoot": "${workspaceFolder}"
+  // Notebooks run from their own folder, as in Jupyter; each one finds the
+  // repository root itself, so paths work from anywhere.
+  "jupyter.notebookFileRoot": "${fileDirname}"
 }
