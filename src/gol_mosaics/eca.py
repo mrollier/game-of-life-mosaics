@@ -6,7 +6,6 @@ Elementary Cellular Automaton patterns to use as mosaic backgrounds.
 """
 
 import numpy as np
-import cellpylib as cpl
 
 
 class ECABackground:
@@ -102,16 +101,7 @@ class ECABackground:
         eca_width = -(-width // supersample)   # ceil division
         eca_height = -(-height // supersample)
 
-        # Initialise with random state
-        eca = cpl.init_random(eca_width)
-
-        # Evolve the cellular automaton
-        eca = cpl.evolve(
-            eca,
-            timesteps=eca_height,
-            memoize=True,
-            apply_rule=lambda n, c, t: cpl.nks_rule(n, self.rule)
-        )
+        eca = self._evolve(eca_width, eca_height)
 
         # Upsample by repeating pixels, then crop to the exact target size
         eca_upsized = np.repeat(eca, supersample, axis=0)
@@ -119,6 +109,24 @@ class ECABackground:
         eca_upsized = eca_upsized[:height, :width]
 
         return eca_upsized.astype(np.uint8)
+
+    def _evolve(self, width: int, steps: int) -> np.ndarray:
+        """
+        Run the automaton from a random row: (steps, width) uint8, the first
+        row being the initial state, with periodic boundaries.
+
+        Each step looks up bit 4*left + 2*centre + right of the rule number
+        (Wolfram's numbering) for every cell at once. The initial row is
+        drawn exactly as cellpylib's init_random drew it, so seeded
+        backgrounds are unchanged from when this used cellpylib.
+        """
+        lut = ((self.rule >> np.arange(8)) & 1).astype(np.uint8)
+        history = np.empty((steps, width), dtype=np.uint8)
+        row = np.random.randint(2, size=width, dtype=np.int32).astype(np.uint8)
+        for t in range(steps):
+            history[t] = row
+            row = lut[4 * np.roll(row, 1) + 2 * row + np.roll(row, -1)]
+        return history
 
     def get_rule_category(self) -> str:
         """

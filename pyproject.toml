@@ -29,9 +29,7 @@ classifiers = [
 dependencies = [
     "numpy>=1.20.0",
     "scipy>=1.7.0",
-    "cellpylib>=2.0.0",
     "Pillow>=9.1.0",
-    "matplotlib>=3.5.0",
 ]
 
 [project.optional-dependencies]

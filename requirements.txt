@@ -13,7 +13,6 @@
 
 numpy>=1.20.0
 scipy>=1.7.0
-cellpylib>=2.0.0        # pulls in matplotlib transitively
-Pillow>=9.0.0
+Pillow>=9.1.0
 gradio>=6.0,<7.0
 rembg[cpu]>=2.0.0       # background removal; pulls in onnxruntime (CPU)
