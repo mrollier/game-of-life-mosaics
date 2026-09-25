@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gol-mosaics"
-version = "2.3.0"
+dynamic = ["version"]
 description = "Create artistic mosaics from images using Conway's Game of Life still-life patterns"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "Michiel Rollier", email = "michiel.rollier@ugent.be"}
@@ -21,17 +21,16 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Life",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
     "numpy>=1.20.0",
     "scipy>=1.7.0",
     "cellpylib>=2.0.0",
-    "Pillow>=9.0.0",
+    "Pillow>=9.1.0",
     "matplotlib>=3.5.0",
 ]
 
@@ -39,7 +38,10 @@ dependencies = [
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=3.0.0",
+    "python-sat>=1.8",
+    "matplotlib>=3.5.0",
     "jupyter>=1.0.0",
+    "nbstripout>=0.7",
 ]
 gurobi = [
     "gurobipy>=11.0.0",
@@ -53,6 +55,10 @@ bg-removal = [
 beyond = [
     "ortools>=9.12",
 ]
+app = [
+    "gradio>=6.0,<7.0",
+    "rembg[cpu]>=2.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/mrollier/game-of-life-mosaics"
@@ -62,6 +68,9 @@ Documentation = "https://github.com/mrollier/game-of-life-mosaics#readme"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+
+[tool.setuptools.dynamic]
+version = {attr = "gol_mosaics.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]

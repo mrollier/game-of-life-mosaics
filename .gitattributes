@@ -1,2 +1,15 @@
-# Auto detect text files and perform LF normalization
+# Auto detect text files and perform LF normalisation
 * text=auto
+
+# Byte-exact files. Golly patterns and SAT certificates are hashed and
+# diffed as published; a CRLF checkout on Windows would change both.
+*.cells -text
+*.rle -text
+*.cnf -text
+*.drat -text
+
+# Binary data
+*.npy binary
+*.npz binary
+*.png binary
+*.gif binary
