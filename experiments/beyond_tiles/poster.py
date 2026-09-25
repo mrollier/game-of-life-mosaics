@@ -1,5 +1,8 @@
 """Poster pipeline: any image, any rectangular size, strips + LNS rounds.
 
+The pipeline itself is gol_mosaics.freeform.poster.solve_poster; this script
+is its command line, plus the render and the Golly export.
+
 The `e9` subcommand is wired to the square Marilyn demo; this script is the
 general form, distilled from the John Conway 1416x2000 run (2026-08-20,
 REPORT.md section 5, C8):
@@ -57,7 +60,6 @@ life, frietjes 2026-09-15), all switches below:
 """
 
 import argparse
-import dataclasses
 import json
 import sys
 import time
@@ -68,7 +70,6 @@ for p in (REPO / "src", REPO / "experiments"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-import numpy as np
 from PIL import Image
 
 
@@ -78,29 +79,11 @@ def log(msg: str) -> None:
 
 def load_rect(src: str, width: int, height: int, tone: str, contrast: float,
               keep_background: bool = False):
-    """Image -> (grey, free_mask) at (height, width), no square padding.
+    """Kept for the studies' imports; see freeform.targets.load_rect_target."""
+    from gol_mosaics.freeform.targets import load_rect_target
 
-    `keep_background` skips the subject cut-out: the whole frame is free.
-    """
-    from PIL import Image
-
-    from gol_mosaics.freeform.targets import equalize_grey, normalize_grey
-    from gol_mosaics.image_processing import ImageProcessor
-
-    img, mask = ImageProcessor.load_image(
-        src, return_alpha=True,
-        remove_background=False if keep_background else "auto",
-        contrast=contrast,
-    )
-    grey = np.asarray(
-        img.resize((width, height), Image.Resampling.LANCZOS), dtype=np.uint8
-    )
-    free = np.asarray(mask.resize((width, height), Image.Resampling.LANCZOS)) >= 128
-    if tone == "eq":
-        grey = equalize_grey(grey, free)
-    elif tone == "norm":
-        grey = normalize_grey(grey, free)
-    return grey, free
+    return load_rect_target(src, width, height, tone, contrast,
+                            keep_background)
 
 
 def main() -> None:
@@ -154,169 +137,32 @@ def main() -> None:
     if args.block_cols % 8:
         ap.error("--block-cols must be a multiple of 8")
 
-    from gol_mosaics.freeform.decompose import (plan_blocks, plan_strips, solve_blocks,
-                                        solve_strips)
-    from gol_mosaics.freeform.lns import (LnsConfig, improve, repair_diagonal_runs,
-                                  seam_occupancy, window_devs)
-    from gol_mosaics.freeform.metrics import deviation_stats, max_diagonal_run
-    from gol_mosaics.freeform.solver import SpikeConfig, verify_still_life
-    from gol_mosaics.freeform.targets import cell_targets, window_slices, window_targets
+    from gol_mosaics.freeform.poster import PosterConfig, solve_poster
+    from gol_mosaics.freeform.targets import load_rect_target
 
     out = Path(args.out)
     if not out.is_absolute():
         out = Path(__file__).resolve().parent / out
     out.mkdir(parents=True, exist_ok=True)
 
-    grey, free = load_rect(args.image, args.width, args.height,
-                           args.tone, args.contrast, args.keep_background)
+    grey, free = load_rect_target(args.image, args.width, args.height,
+                                  args.tone, args.contrast, args.keep_background)
     log(f"loaded: {grey.shape} grid, {int(free.sum()):,} free cells")
     Image.fromarray(grey).save(out / "target_grey.png")
 
-    cell_t = cell_targets(grey, args.dmax)
-    windows = window_slices(cell_t.shape, k=8, stride=8)
-    targets, kept = window_targets(cell_t, free, windows, dither=args.dither)
-    log(f"{len(kept):,} windows, total live-cell target {int(targets.sum()):,} "
-        f"({args.dither} dither)")
-
-    max_diag_run = args.max_diag_run or None
-    cfg = SpikeConfig(k=8, stride=8, d_max=args.dmax, seed=args.seed,
-                      time_limit_s=args.strip_time, workers=args.strip_workers,
-                      max_diag_run=max_diag_run, dither=args.dither)
-    if args.block_cols:
-        plan = plan_blocks(args.height, args.width, 8, block_rows=args.strip_rows,
-                           block_cols=args.block_cols, gap=2)
-        n_pieces = len(plan.row_spans) * len(plan.col_spans)
-        plan_json = {"row_spans": [list(s) for s in plan.row_spans],
-                     "col_spans": [list(s) for s in plan.col_spans],
-                     "gap": plan.gap}
-    else:
-        plan = plan_strips(args.height, 8, strip_rows=args.strip_rows, gap=2)
-        n_pieces = len(plan.spans)
-        plan_json = {"spans": [list(s) for s in plan.spans], "gap": plan.gap}
-
-    rounds = []
-    resumed_pattern = None
-    if args.resume:
-        if (out / "pattern.npy").exists():  # mid-polish
-            resumed_pattern = np.load(out / "pattern.npy")
-            if (out / "polish_rounds.json").exists():
-                rounds = json.loads((out / "polish_rounds.json").read_text())
-            log(f"resumed from pattern.npy after {len(rounds)} polish round(s)")
-        elif (out / "strips_pattern.npy").exists():  # stitched, unpolished
-            resumed_pattern = np.load(out / "strips_pattern.npy")
-            log("resumed from strips_pattern.npy")
-        # otherwise solve_blocks restores whatever block checkpoints exist
-
-    if resumed_pattern is not None:
-        pattern = resumed_pattern
-        strips = dict(statuses=["resumed"] * n_pieces, total_cpu_s=0.0)
-        strips_wall, n_opt = 0.0, 0
-    else:
-        log(f"solving {n_pieces} {'blocks' if args.block_cols else 'strips'} "
-            f"({args.strip_procs} procs x {args.strip_workers} workers)...")
-        t0 = time.perf_counter()
-        if args.block_cols:
-            strips = solve_blocks(grey, free, cfg, plan, n_procs=args.strip_procs,
-                                  checkpoint_dir=out / "blocks", log=log)
-        else:
-            strips = solve_strips(grey, free, cfg, plan, n_procs=args.strip_procs)
-        strips_wall = time.perf_counter() - t0
-        n_opt = sum(s == "OPTIMAL" for s in strips["statuses"])
-        np.save(out / "strips_pattern.npy", strips["pattern"])
-        pattern = strips["pattern"]
-    obj = int(window_devs(pattern, free, kept, targets).sum())
-    log(f"{'BLOCKS' if args.block_cols else 'STRIPS'} DONE in {strips_wall:.0f}s: "
-        f"{n_opt}/{n_pieces} OPTIMAL, full-mask objective {obj:,}")
-
-    for rnd in range(len(rounds) + 1, args.polish_rounds + 1):
-        lcfg = LnsConfig(patch_windows=args.patch_windows,
-                         patch_time_s=args.patch_time,
-                         budget_s=args.polish_budget,
-                         n_procs=args.polish_procs, seed=args.seed + rnd,
-                         max_diag_run=max_diag_run)
-        t0 = time.perf_counter()
-        res = improve(pattern, free, kept, targets, lcfg,
-                      log=lambda *a, **k: None)
-        wall = time.perf_counter() - t0
-        log(f"POLISH {rnd} DONE in {wall:.0f}s: objective {obj:,} -> "
-            f"{res.objective:,} ({res.patches_improved}/{res.patches_solved} "
-            f"patches improved)")
-        pattern, prev, obj = res.pattern, obj, int(res.objective)
-        rounds.append({
-            "objective": obj, "rounds": res.rounds, "wall_time_s": wall,
-            "patches_improved": res.patches_improved,
-            "patches_solved": res.patches_solved,
-        })
-        np.save(out / "pattern.npy", pattern)
-        (out / "polish_rounds.json").write_text(json.dumps(rounds, indent=2))
-        if obj == 0 or obj > 0.98 * prev:
-            log("converged (or stalled) - stopping polish early")
-            break
-
-    seams = {}
-    if args.seam_rounds and n_pieces > 1:
-        row_spans = plan.row_spans if args.block_cols else plan.spans
-        scfg = LnsConfig(patch_windows=args.patch_windows,
-                         patch_time_s=args.patch_time, budget_s=args.seam_budget,
-                         n_procs=args.polish_procs, seed=args.seed + 50,
-                         max_diag_run=max_diag_run,
-                         seam_rows=tuple(r1 - plan.gap for _, r1 in row_spans[:-1]),
-                         seam_cols=tuple(c1 - plan.gap for _, c1 in plan.col_spans[:-1])
-                         if args.block_cols else ())
-        seams["before"] = seam_occupancy(pattern, scfg, free)
-        seam_obj = int(window_devs(pattern, free, kept, targets, 0, scfg).sum())
-        log(f"seams before: worst separator at {seams['before']['worst']:.2f} of "
-            f"its neighbours, seam objective {seam_obj:,}")
-        for rnd in range(1, args.seam_rounds + 1):
-            if seam_obj == 0:
-                break
-            t0 = time.perf_counter()
-            res = improve(pattern, free, kept, targets,
-                          dataclasses.replace(scfg, seed=scfg.seed + rnd),
-                          log=lambda *a, **k: None)
-            wall = time.perf_counter() - t0
-            pattern, prev, seam_obj = res.pattern, seam_obj, int(res.objective)
-            obj = int(window_devs(pattern, free, kept, targets).sum())
-            log(f"SEAMS {rnd} DONE in {wall:.0f}s: seam objective {prev:,} -> "
-                f"{seam_obj:,}, plain objective {obj:,} "
-                f"({res.patches_improved}/{res.patches_solved} patches improved)")
-            seams.setdefault("rounds", []).append(dict(
-                seam_objective=seam_obj, objective=obj, wall_time_s=wall,
-                patches_improved=res.patches_improved,
-                patches_solved=res.patches_solved))
-            np.save(out / "pattern.npy", pattern)
-            if seam_obj > 0.98 * prev:
-                break
-        seams["after"] = seam_occupancy(pattern, scfg, free)
-        log(f"seams after: worst separator at {seams['after']['worst']:.2f}")
-
-    if max_diag_run:
-        rcfg = LnsConfig(patch_windows=3, patch_time_s=30.0, n_procs=args.polish_procs,
-                         seed=args.seed + 99, max_diag_run=max_diag_run)
-        res = repair_diagonal_runs(pattern, free, kept, targets, rcfg, log=log)
-        pattern, obj = res.pattern, res.objective
-        np.save(out / "pattern.npy", pattern)
-
-    ver = verify_still_life(pattern)
-    assert ver["bounded"] and ver["toroidal"], f"verification failed: {ver}"
-    stats = deviation_stats(pattern, cell_t, free, kept)
-    longest_diag = max_diagonal_run(pattern)
-    report = {
-        "image": args.image,
-        "grid": [args.height, args.width],
-        "config": vars(args),
-        "plan": plan_json,
-        "solve": {"n_optimal": n_opt, "wall_time_s": strips_wall,
-                  "total_cpu_s": strips["total_cpu_s"],
-                  "statuses": strips["statuses"]},
-        "polish_rounds": rounds,
-        "seams": seams,
-        "objective": obj,
-        "deviation": stats,
-        "verify": ver,
-        "max_diagonal_run": longest_diag,
-        "live_cells": int(pattern.sum()),
-    }
+    cfg = PosterConfig(
+        d_max=args.dmax, seed=args.seed, dither=args.dither,
+        max_diag_run=args.max_diag_run or None,
+        strip_rows=args.strip_rows, block_cols=args.block_cols,
+        strip_time=args.strip_time, strip_procs=args.strip_procs,
+        strip_workers=args.strip_workers,
+        polish_rounds=args.polish_rounds, polish_budget=args.polish_budget,
+        patch_time=args.patch_time, patch_windows=args.patch_windows,
+        polish_procs=args.polish_procs,
+        seam_rounds=args.seam_rounds, seam_budget=args.seam_budget)
+    result = solve_poster(grey, free, cfg, out=out, resume=args.resume, log=log)
+    pattern, stats = result.pattern, result.report["deviation"]
+    report = {"image": args.image, "config": vars(args), **result.report}
     (out / "report.json").write_text(json.dumps(report, indent=2))
 
     from gol_mosaics import ColorScheme, MosaicRenderer
@@ -329,11 +175,11 @@ def main() -> None:
         render.resize(big, Image.Resampling.NEAREST).save(
             out / f"render_x{args.render_scale}.png")
     GollyExporter.export_to_cells(pattern, str(out / "pattern.cells"))
-    log(f"ALL DONE: verify {ver}, {int(pattern.sum()):,} live cells, "
-        f"longest diagonal chain {longest_diag}, "
-        f"MAD {stats['mad']:.4f} (darkest quartile "
-        f"{stats['mad_darkest_quartile']:.4f}, Pearson {stats['pearson']:.4f}); "
-        f"saved to {out}")
+    log(f"ALL DONE: verify {result.report['verify']}, "
+        f"{int(pattern.sum()):,} live cells, longest diagonal chain "
+        f"{result.report['max_diagonal_run']}, MAD {stats['mad']:.4f} "
+        f"(darkest quartile {stats['mad_darkest_quartile']:.4f}, Pearson "
+        f"{stats['pearson']:.4f}); saved to {out}")
 
 
 if __name__ == "__main__":

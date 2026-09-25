@@ -184,6 +184,49 @@ def grey_and_mask_from_image(
     return grey, free
 
 
+def load_rect_target(
+    src,
+    width: int,
+    height: int,
+    tone: str = "eq",
+    contrast: float = 5.0,
+    keep_background: bool = False,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Image (path or PIL) -> (grey, free_mask) at (height, width).
+
+    The rectangular sibling of `grey_and_mask_from_image`: the image is
+    resized straight to the canvas instead of padded square first, so an
+    A-format poster stays A-format.
+
+    Args:
+        src: Image path or PIL image; an alpha channel marks the subject
+        width, height: Canvas size in cells
+        tone: "eq" (histogram-equalise the subject), "norm" (percentile
+            stretch) or "raw"; see `equalize_grey` and `normalize_grey`
+        contrast: Sigmoid contrast strength of the tile pipeline's loader
+        keep_background: Skip the subject cut-out and make the whole frame
+            free (paintings have no background to remove)
+    """
+    from PIL import Image
+
+    from ..image_processing import ImageProcessor
+
+    img, mask = ImageProcessor.load_image(
+        src, return_alpha=True,
+        remove_background=False if keep_background else "auto",
+        contrast=contrast,
+    )
+    grey = np.asarray(
+        img.resize((width, height), Image.Resampling.LANCZOS), dtype=np.uint8
+    )
+    free = np.asarray(mask.resize((width, height), Image.Resampling.LANCZOS)) >= 128
+    if tone == "eq":
+        grey = equalize_grey(grey, free)
+    elif tone == "norm":
+        grey = normalize_grey(grey, free)
+    return grey, free
+
+
 def normalize_grey(
     grey: np.ndarray,
     free_mask: np.ndarray,

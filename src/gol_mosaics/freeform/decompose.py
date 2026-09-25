@@ -101,12 +101,66 @@ def _run_strips(payloads: List[dict], n_procs: int) -> List[dict]:
     return [_solve_strip_task(p) for p in payloads]
 
 
+def _run_isolated(payloads: List[dict], labels: List[str], n_procs: int,
+                  retries: int = 2, log=None, paths=None) -> List[dict]:
+    """Solve each payload in a process pool of its own, `n_procs` at a time.
+
+    One shared pool loses every task when a single CP-SAT worker aborts (a
+    C-runtime fail-fast took the first flyer solve down this way, and on
+    Windows a commit-charge shortage does it to several at once). Here an
+    abort costs one retry of that task with another seed. With `paths`,
+    every result is saved as it lands and an existing file is restored
+    instead of solved, so a killed run resumes where it stopped.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures.process import BrokenProcessPool
+
+    say = log or (lambda msg: None)
+    done = [0]
+
+    def run(idx):
+        path = paths[idx] if paths else None
+        if path is not None and path.exists():
+            with np.load(path) as z:
+                out = {k: (z[k].item() if z[k].ndim == 0 else z[k]) for k in z.files}
+            done[0] += 1
+            say(f"{labels[idx]} restored [{done[0]}/{len(payloads)}]")
+            return idx, out
+        payload = payloads[idx]
+        cfg = payload["cfg"]
+        for attempt in range(retries + 1):
+            try:
+                with ProcessPoolExecutor(max_workers=1) as pool:
+                    out = pool.submit(_solve_strip_task, payload).result()
+                break
+            except BrokenProcessPool:
+                say(f"{labels[idx]} aborted on attempt {attempt + 1}; "
+                    f"retrying with another seed")
+                payload = dict(payload, cfg=dataclasses.replace(
+                    cfg, seed=cfg.seed + 100 * (attempt + 1)))
+        else:
+            raise RuntimeError(f"{labels[idx]} aborted {retries + 1} times")
+        if path is not None:
+            np.savez_compressed(path, **out)
+        done[0] += 1
+        say(f"{labels[idx]} {out['status']} obj {out['objective']} "
+            f"in {out['wall_time_s']:.0f}s [{done[0]}/{len(payloads)}]")
+        return idx, out
+
+    with ThreadPoolExecutor(max_workers=max(1, n_procs)) as tp:
+        return [out for _, out in sorted(tp.map(run, range(len(payloads))),
+                                         key=lambda t: t[0])]
+
+
 def solve_strips(
     grey: np.ndarray,
     free_mask: np.ndarray,
     cfg: SpikeConfig,
     plan: Optional[StripPlan] = None,
     n_procs: int = 4,
+    isolate: bool = False,
+    retries: int = 2,
+    log=None,
 ) -> dict:
     """Restriction form: independent strips separated by dead gap rows.
 
@@ -114,6 +168,11 @@ def solve_strips(
     pattern is a valid still life by construction (each strip is one,
     embedded in a dead plane, and gaps keep them out of reach of each
     other); callers should still run verify_still_life on it.
+
+    With `isolate`, every strip runs in a process of its own and a strip
+    whose CP-SAT worker aborts is retried with another seed (up to
+    `retries` times) instead of taking the whole batch down; see
+    `_run_isolated`. Large or memory-tight solves want this.
     """
     cfg = _check_cfg(cfg)
     h, w = grey.shape
@@ -131,7 +190,12 @@ def solve_strips(
             free[-plan.gap :] = False  # the dead separator, inside this strip
         payloads.append(dict(grey=grey[r0:r1], free=free, cfg=cfg))
 
-    outs = _run_strips(payloads, n_procs)
+    if isolate:
+        labels = [f"strip {i} (rows {r0}-{r1})"
+                  for i, (r0, r1) in enumerate(plan.spans)]
+        outs = _run_isolated(payloads, labels, n_procs, retries, log)
+    else:
+        outs = _run_strips(payloads, n_procs)
     pattern = np.vstack([o["pattern"] for o in outs]).astype(np.uint8)
     return {
         "pattern": pattern,
@@ -239,8 +303,6 @@ def solve_blocks(
     The stitched pattern is a still life by construction; callers should
     still run verify_still_life on it.
     """
-    from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-    from concurrent.futures.process import BrokenProcessPool
     from pathlib import Path
 
     cfg = _check_cfg(cfg)
@@ -251,7 +313,6 @@ def solve_blocks(
     ckpt = Path(checkpoint_dir) if checkpoint_dir else None
     if ckpt:
         ckpt.mkdir(parents=True, exist_ok=True)
-    say = log or (lambda msg: None)
 
     def payload_for(ri, ci):
         r0, r1 = plan.row_spans[ri]
@@ -263,40 +324,12 @@ def solve_blocks(
             free[:, -plan.gap :] = False
         return dict(grey=grey[r0:r1, c0:c1], free=free, cfg=cfg)
 
-    done = [0]
-
-    def run(task):
-        ri, ci = task
-        path = ckpt / f"block_{ri:02d}_{ci:02d}.npz" if ckpt else None
-        if path and path.exists():
-            with np.load(path) as z:
-                out = {k: (z[k].item() if z[k].ndim == 0 else z[k]) for k in z.files}
-            done[0] += 1
-            say(f"block ({ri},{ci}) restored [{done[0]}/{len(tasks)}]")
-            return task, out
-        payload = payload_for(ri, ci)
-        for attempt in range(retries + 1):
-            try:
-                with ProcessPoolExecutor(max_workers=1) as pool:
-                    out = pool.submit(_solve_strip_task, payload).result()
-                break
-            except BrokenProcessPool:
-                say(f"block ({ri},{ci}) aborted on attempt {attempt + 1}; "
-                    f"retrying with another seed")
-                payload = dict(
-                    payload, cfg=dataclasses.replace(cfg, seed=cfg.seed + 100 * (attempt + 1))
-                )
-        else:
-            raise RuntimeError(f"block ({ri},{ci}) aborted {retries + 1} times")
-        if path:
-            np.savez_compressed(path, **out)
-        done[0] += 1
-        say(f"block ({ri},{ci}) {out['status']} obj {out['objective']} "
-            f"in {out['wall_time_s']:.0f}s [{done[0]}/{len(tasks)}]")
-        return task, out
-
-    with ThreadPoolExecutor(max_workers=n_procs) as tp:
-        outs = dict(tp.map(run, tasks))
+    results = _run_isolated(
+        [payload_for(ri, ci) for ri, ci in tasks],
+        [f"block ({ri},{ci})" for ri, ci in tasks], n_procs, retries, log,
+        paths=[ckpt / f"block_{ri:02d}_{ci:02d}.npz" for ri, ci in tasks]
+        if ckpt else None)
+    outs = dict(zip(tasks, results))
 
     pattern = np.block(
         [[outs[(ri, ci)]["pattern"] for ci in range(n_cols)] for ri in range(n_rows)]
