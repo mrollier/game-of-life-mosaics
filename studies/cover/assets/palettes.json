@@ -1,0 +1,228 @@
+{
+ "fields": {
+  "apricot": {
+   "label": "Apricot",
+   "hex": "#FFD9A8",
+   "screen": "#FFD9A8"
+  },
+  "peach": {
+   "label": "Peach",
+   "hex": "#FFCBA4",
+   "screen": "#FFCBA4"
+  },
+  "cream": {
+   "label": "Cream",
+   "hex": "#FFF0D6",
+   "screen": "#FFF0D6"
+  },
+  "sky": {
+   "label": "Sky",
+   "hex": "#CFE3EF",
+   "screen": "#CFE3EF"
+  },
+  "ice": {
+   "label": "Ice",
+   "hex": "#E4EFF5",
+   "screen": "#E4EFF5"
+  },
+  "butter": {
+   "label": "Butter",
+   "hex": "#FFD166",
+   "screen": "#FFD166"
+  }
+ },
+ "ramps": {
+  "denim": {
+   "label": "Denim",
+   "grounds": [
+    "#E3F1FB",
+    "#CFE3F2",
+    "#B6D2EA",
+    "#88AFD5",
+    "#608DBE",
+    "#3E679E",
+    "#274475"
+   ],
+   "dark": "#0C2448",
+   "light": "#FBF8F1",
+   "tone_subtle": [
+    "#C5D4DE",
+    "#B1C6D5",
+    "#99B5CE",
+    "#6B93BA",
+    "#4372A4",
+    "#224D85",
+    "#142C5C"
+   ],
+   "tone_strong": [
+    "#AFBDC7",
+    "#9CB0BF",
+    "#839FB7",
+    "#577EA4",
+    "#2F5E8E",
+    "#0E396F",
+    "#5072A9"
+   ]
+  },
+  "ember": {
+   "label": "Ember",
+   "grounds": [
+    "#FAE5C3",
+    "#FBCA93",
+    "#FCA864",
+    "#EE7D55",
+    "#D55759",
+    "#AB3A5D",
+    "#752A59"
+   ],
+   "dark": "#441434",
+   "light": "#FBF8F1",
+   "tone_subtle": [
+    "#DDC7A4",
+    "#DFAD73",
+    "#E08A40",
+    "#D25E33",
+    "#B9363D",
+    "#8F1544",
+    "#5C1444"
+   ],
+   "tone_strong": [
+    "#C6B18F",
+    "#C8975E",
+    "#C87527",
+    "#BA481A",
+    "#A11B2A",
+    "#780C38",
+    "#481438"
+   ]
+  },
+  "indigo": {
+   "label": "Indigo",
+   "grounds": [
+    "#E4F0FF",
+    "#CFDFF9",
+    "#B8C8F0",
+    "#95A5DE",
+    "#7880C4",
+    "#5C57A4",
+    "#433578"
+   ],
+   "dark": "#241840",
+   "light": "#FBF8F1",
+   "tone_subtle": [
+    "#C6D2E2",
+    "#B2C2DC",
+    "#9BABD4",
+    "#7989C3",
+    "#5E65AA",
+    "#443C8A",
+    "#382468"
+   ],
+   "tone_strong": [
+    "#B0BCCB",
+    "#9CACC6",
+    "#8696BD",
+    "#6574AC",
+    "#4B5094",
+    "#382C78",
+    "#6E62AD"
+   ]
+  },
+  "terracotta": {
+   "label": "Terracotta",
+   "grounds": [
+    "#F3E6D2",
+    "#EDD2B5",
+    "#E8B58D",
+    "#D48F68",
+    "#BA6B4F",
+    "#974E41",
+    "#6C3531"
+   ],
+   "dark": "#3D1613",
+   "light": "#FBF8F1",
+   "tone_subtle": [
+    "#D6C9B4",
+    "#D0B597",
+    "#CC986F",
+    "#B8724A",
+    "#9F4F32",
+    "#7C3326",
+    "#531C19"
+   ],
+   "tone_strong": [
+    "#BFB29E",
+    "#BA9F82",
+    "#B5835A",
+    "#A25E35",
+    "#883A1D",
+    "#682018",
+    "#9F615B"
+   ]
+  },
+  "tide": {
+   "label": "Tide",
+   "grounds": [
+    "#D8F4E0",
+    "#B8E8D8",
+    "#84D0BC",
+    "#57BDC0",
+    "#3296B4",
+    "#346D9F",
+    "#374378"
+   ],
+   "dark": "#18244C",
+   "light": "#FBF8F1",
+   "tone_subtle": [
+    "#BAD7C2",
+    "#99CBBB",
+    "#64B4A0",
+    "#2DA1A5",
+    "#007B98",
+    "#115386",
+    "#212A5F"
+   ],
+   "tone_strong": [
+    "#A4C0AC",
+    "#84B5A5",
+    "#4D9E8A",
+    "#008C8F",
+    "#00657D",
+    "#003F6C",
+    "#6170AC"
+   ]
+  },
+  "orchid": {
+   "label": "Orchid",
+   "grounds": [
+    "#FEE5DC",
+    "#FFCDC3",
+    "#F7B4AD",
+    "#E08AA5",
+    "#B5689D",
+    "#824D92",
+    "#4C3B77"
+   ],
+   "dark": "#281C44",
+   "light": "#FBF8F1",
+   "tone_subtle": [
+    "#E1C7BE",
+    "#E2AFA5",
+    "#DB9790",
+    "#C46D89",
+    "#9A4C83",
+    "#683279",
+    "#382460"
+   ],
+   "tone_strong": [
+    "#CAB1A8",
+    "#CB9A90",
+    "#C3817B",
+    "#AD5875",
+    "#84376E",
+    "#542064",
+    "#382058"
+   ]
+  }
+ }
+}

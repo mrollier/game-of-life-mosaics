@@ -101,3 +101,6 @@ search/nosym/tiles_diamond_nosym_level_*.npy
 
 # What the tutorials export for you to open in Golly
 output/golly/my_*.cells
+
+# Level-7 tile database, kept at the root temporarily (1.2 GB)
+solutions_pattern_level_7_orbits.npy

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `studies/cover/`: the PhD-thesis cover. Gapless mosaics of tiles of
+  levels 1-7 on the pond lattice, packed biggest first and coloured by
+  level. The front is traced from satellite silhouettes of Paraty Mirim.
+  The back lifts the flyer's skyline over a tile band. Print-ready PNG and
+  SVG files are included, each one verified as a still life.
+
 ## 3.0.0 (2026-09-25)
 
 A reorganisation for newcomers, a clean API, and the free-form solver in the
