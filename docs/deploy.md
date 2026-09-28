@@ -49,8 +49,9 @@ app/deploy.sh "Describe the change"
 4. uploads the folder with `hf upload`; `.npy` files go up through Git LFS
    automatically.
 
-The Space rebuilds on every upload. Files deleted locally are not deleted on
-the Space; remove them in the Space's file browser if needed.
+The upload mirrors the staged folder: any file on the Space that is not in it
+(a renamed module, an old data file) is deleted in the same commit. The Space
+rebuilds on every upload.
 
 ## Keeping the Space in step
 

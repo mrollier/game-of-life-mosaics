@@ -82,8 +82,11 @@ fi
 echo "==> Confirming HF login"
 hf auth whoami
 
+# --delete '*' makes the Space mirror the staged folder: files the package no
+# longer has (renamed modules, old data files) are removed in the same commit.
 echo "==> Uploading to https://huggingface.co/spaces/$SPACE_ID"
-hf upload "$SPACE_ID" "$STAGING" . --repo-type space --commit-message "$COMMIT_MSG"
+hf upload "$SPACE_ID" "$STAGING" . --repo-type space --delete '*' \
+    --commit-message "$COMMIT_MSG"
 
 echo "==> Done. The Space will rebuild automatically:"
 echo "    https://huggingface.co/spaces/$SPACE_ID"
