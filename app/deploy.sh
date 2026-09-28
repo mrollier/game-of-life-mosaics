@@ -82,10 +82,13 @@ fi
 echo "==> Confirming HF login"
 hf auth whoami
 
-# --delete '*' makes the Space mirror the staged folder: files the package no
+# --delete makes the Space mirror the staged folder: files the package no
 # longer has (renamed modules, old data files) are removed in the same commit.
+# It is written as one word because on Windows `hf` (a Click program) globs
+# its own arguments, and a separate '*' would expand to the files in this
+# folder; '--delete=*' matches no file, so it passes through unchanged.
 echo "==> Uploading to https://huggingface.co/spaces/$SPACE_ID"
-hf upload "$SPACE_ID" "$STAGING" . --repo-type space --delete '*' \
+hf upload "$SPACE_ID" "$STAGING" . --repo-type space --delete='*' \
     --commit-message "$COMMIT_MSG"
 
 echo "==> Done. The Space will rebuild automatically:"
