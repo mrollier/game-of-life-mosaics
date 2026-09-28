@@ -17,4 +17,7 @@
 # Research notebooks are versioned without outputs; `nbstripout --install
 # --attributes .gitattributes` (see CONTRIBUTING.md) makes git strip them
 # on commit. Tutorials keep their outputs so they render on GitHub.
+# The diff line hides outputs from `git diff`, and its presence also stops
+# that install command from appending catch-all `*.ipynb` rules here.
 notebooks/research/**/*.ipynb filter=nbstripout
+notebooks/research/**/*.ipynb diff=ipynb

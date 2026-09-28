@@ -32,8 +32,6 @@ gives the artefact the off-site copy it still lacks.
   on the packed bits: densities from `bits @ orbit_sizes + forced_alive_count`
   (`Domain.orbit_sizes`, `Domain.forced_alive_count` exist), then expand only
   the chosen tiles. The same change makes level 6 cheap (see *Performance*).
-- Publish the DRAT completeness certificates (161 MB) with it, or on Zenodo,
-  and fill in the DOI placeholder in `search/tiles/README.md`.
 
 ### 3. Other Life-like rules, end to end (M)
 

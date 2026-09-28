@@ -148,9 +148,9 @@ python -m pytest tests/test_tiling.py tests/test_patterns.py  # from the repo ro
 `certificates/level_L.drat` (about 100 s for level 6) and checks the proof.
 The files are regenerated rather than versioned: together they are 161 MB,
 and `level_6.drat` alone came within 2 MB of GitHub's 100 MB file limit.
-The published set is archived on Zenodo (DOI: *to be added*); these are its
-SHA-256 digests and sizes, which a fresh `certify.py` run reproduces with
-the pinned solver versions in `requirements-lock.txt`:
+These are the SHA-256 digests and sizes of the published set, which a fresh
+`certify.py` run reproduces with the pinned solver versions in
+`requirements-lock.txt`:
 
 | File | Bytes | SHA-256 |
 |---|---:|---|
