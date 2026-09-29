@@ -548,7 +548,10 @@ def improve(
 
     # Patch geometry is fixed for the whole call: compute each box's member
     # windows and cell bounding box once, not every round.
+    # The grid holds only windows with free cells, so on a canvas with
+    # large fixed regions some boxes hold none: drop them.
     members = {box: _members(index, box) for box in boxes}
+    boxes = [box for box in boxes if len(members[box])]
     cell_boxes = {box: _cell_box(box, windows, index) for box in boxes}
 
     # Boxes that failed to improve go stale and are skipped until an

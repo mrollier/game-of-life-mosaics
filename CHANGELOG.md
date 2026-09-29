@@ -10,6 +10,12 @@
   The back lifts the flyer's skyline over a tile band. Print-ready PNG and
   SVG files are included, each one verified as a still life.
 
+### Fixed
+
+- `freeform.lns.improve` no longer fails on canvases where some patch boxes
+  hold no free cells (large fixed regions, such as a tiled sea around a
+  free-form land).
+
 ## 3.0.0 (2026-09-25)
 
 A reorganisation for newcomers, a clean API, and the free-form solver in the
