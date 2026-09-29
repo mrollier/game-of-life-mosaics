@@ -10,6 +10,13 @@
   The back lifts the flyer's skyline over a tile band. Print-ready PNG and
   SVG files are included, each one verified as a still life.
 
+- `studies/postcards/`: the PhD-defence handouts. Five A6 postcards
+  (Conway, the Belfry dragon, Paraty Mirim and two stained-glass designs
+  coloured from liquid-light dye fields) with backs in three languages, and
+  an A3 jury print of Paraty Mirim whose land and sea are packed with tiles
+  by altitude (from open elevation tiles) and distance from the shore. All
+  files are vector PDFs checked cell by cell.
+
 ### Fixed
 
 - `freeform.lns.improve` no longer fails on canvases where some patch boxes
