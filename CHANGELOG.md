@@ -17,6 +17,14 @@
   by altitude (from open elevation tiles) and distance from the shore. All
   files are vector PDFs checked cell by cell.
 
+- `studies/sacred/`: five A2 posters after photographs of sacred geometry
+  (three mandala thangkas, a Persian star dome and a tile panel). Each
+  source is traced into its own inks, made exactly symmetric and packed
+  with gapless tiles of levels 1-7, a whole symmetric orbit at a time,
+  inside a lead frame, so every sheet is one finite still life. The
+  script also recolours the sheets in the postcards' liquid-light dyes.
+  The source photos stay out of git.
+
 ### Fixed
 
 - `freeform.lns.improve` no longer fails on canvases where some patch boxes
